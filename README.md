@@ -155,6 +155,7 @@ docker compose exec app php artisan queue:work redis --once
 - Laravel: `http://localhost:8080`
 - MinIO API: `http://localhost:9000`
 - MinIO Console: `http://localhost:9001`
+- Horizon: `http://localhost:8080/horizon`
 
 ## Production Notes
 
