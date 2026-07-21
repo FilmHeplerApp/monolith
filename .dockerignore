@@ -1,0 +1,9 @@
+.git
+.idea
+.env
+vendor
+node_modules
+storage/logs
+storage/framework/cache/data
+public/build
+.DS_Store
