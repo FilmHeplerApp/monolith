@@ -10,7 +10,7 @@ The local Docker stack contains:
 - `nginx` - HTTP entrypoint on `http://localhost:8080`.
 - `postgres` - PostgreSQL with `pgvector`.
 - `redis` - cache, sessions, queues, locks, and rate limiting.
-- `queue` - Laravel queue worker.
+- `horizon` - Laravel Horizon worker and queue dashboard.
 - `scheduler` - Laravel scheduler worker.
 - `minio` - local S3-compatible storage.
 
@@ -117,13 +117,6 @@ View health-check status:
 
 ```bash
 docker compose ps
-docker inspect --format='{{json .State.Health}}' filmhelper-app
-docker inspect --format='{{json .State.Health}}' filmhelper-nginx
-docker inspect --format='{{json .State.Health}}' filmhelper-postgres
-docker inspect --format='{{json .State.Health}}' filmhelper-redis
-docker inspect --format='{{json .State.Health}}' filmhelper-minio
-docker inspect --format='{{json .State.Health}}' filmhelper-queue
-docker inspect --format='{{json .State.Health}}' filmhelper-scheduler
 ```
 
 Open a shell in the Laravel container:
@@ -144,10 +137,10 @@ Clear Laravel caches:
 docker compose exec app php artisan optimize:clear
 ```
 
-Run one queue job cycle:
+Check Horizon status:
 
 ```bash
-docker compose exec app php artisan queue:work redis --once
+docker compose exec horizon php artisan horizon:status
 ```
 
 ## Local URLs
