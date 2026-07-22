@@ -2,6 +2,56 @@
 
 Backend monolith for FilmHelperApp built with Laravel, PostgreSQL, Redis, and S3-compatible object storage.
 
+## Architecture
+
+The application is organized as a modular monolith with DDD-light boundaries:
+
+- `app/Domain` - business rules and domain concepts.
+- `app/Application` - use cases, DTO и Horizon jobs.
+- `app/Infrastructure` - Eloquent, PostgreSQL, Redis, MinIO/S3, provider clients and other adapters.
+- `app/Interfaces` - HTTP controllers, admin entrypoints and console commands.
+
+The main modules are reflected in advance by the directories inside the layers:
+
+```text
+app/
+├─ Domain/
+│  ├─ Users/
+│  ├─ Catalog/
+│  ├─ Library/
+│  ├─ Import/
+│  ├─ Recommendations/
+│  ├─ Billing/
+│  ├─ Restrictions/
+│  └─ Notifications/
+├─ Application/
+│  ├─ Users/
+│  ├─ Catalog/
+│  ├─ Library/
+│  ├─ Import/
+│  ├─ Recommendations/
+│  ├─ Billing/
+│  ├─ Restrictions/
+│  └─ Notifications/
+├─ Infrastructure/
+│  ├─ Persistence/
+│  │  └─ Eloquent/
+│  │     └─ Models/
+│  ├─ Providers/
+│  ├─ Storage/
+│  ├─ Queue/
+│  ├─ Search/
+│  ├─ Payments/
+│  └─ Notifications/
+└─ Interfaces/
+   ├─ Http/
+   ├─ Console/
+   │  └─ Commands/
+   └─ Admin/
+```
+
+Dependency Rule: `Interfaces -> Application -> Domain`, and the technical implementations are in `Infrastructure`.
+
 ## Local Infrastructure
 
 The local Docker stack contains:
