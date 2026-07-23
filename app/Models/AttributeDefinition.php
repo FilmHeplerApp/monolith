@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\Title\AttributeType;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
@@ -26,8 +27,12 @@ use Illuminate\Support\Carbon;
  */
 class AttributeDefinition extends Model
 {
+    use HasFactory;
+
+
+    public const string TABLE_NAME = 'attribute_definitions';
     public const string FIELD_ID = 'id';
-    public const string FIELD_CONTENT_TYPE_ID = 'content_type_id';
+    public const string FIELD_CONTENT_TYPE_CODE = 'content_type_code';
     public const string FIELD_CODE = 'code';
     public const string FIELD_NAME_RU = 'name_ru';
     public const string FIELD_NAME_EN = 'name_en';
@@ -40,7 +45,7 @@ class AttributeDefinition extends Model
 
     protected $fillable = [
         self::FIELD_ID,
-        self::FIELD_CONTENT_TYPE_ID,
+        self::FIELD_CONTENT_TYPE_CODE,
         self::FIELD_CODE,
         self::FIELD_NAME_RU,
         self::FIELD_NAME_EN,
@@ -55,7 +60,7 @@ class AttributeDefinition extends Model
     protected function casts(): array
     {
         return [
-            self::FIELD_CONTENT_TYPE_ID => 'integer',
+            self::FIELD_CONTENT_TYPE_CODE => 'string',
             self::FIELD_TYPE => AttributeType::class,
             self::FIELD_IS_FILTERABLE => 'boolean',
             self::FIELD_IS_REQUIRED => 'boolean',

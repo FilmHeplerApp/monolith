@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\Title\ContentType;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -9,7 +10,7 @@ return new class extends Migration {
     {
         Schema::create('attribute_definitions', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('content_type_id')->nullable()->constrained()->nullOnDelete();
+            $table->enum('content_type_code', ContentType::cases());
             $table->string('code')->unique();
             $table->string('name_ru');
             $table->string('name_en');
@@ -19,7 +20,7 @@ return new class extends Migration {
             $table->unsignedInteger('order')->default(0);
             $table->timestamps();
 
-            $table->index('content_type_id');
+            $table->index('content_type_code');
             $table->index('type');
             $table->index('order');
         });

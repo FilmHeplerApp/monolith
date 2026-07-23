@@ -6,6 +6,7 @@ use App\Enums\Title\TitleStatus;
 use App\Enums\Title\TitleType;
 use App\Enums\Title\TitleUpdatedBy;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -37,6 +38,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class Title extends Model
 {
+    use HasFactory;
+
+
+    public const string TABLE_NAME = 'titles';
     public const string FIELD_ID = 'id';
     public const string FIELD_EXTERNAL_ID = 'external_id';
     public const string FIELD_TITLE_RU = 'title_ru';

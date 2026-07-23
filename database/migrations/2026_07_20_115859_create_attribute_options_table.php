@@ -13,6 +13,8 @@ return new class extends Migration {
             $table->string('value_ru');
             $table->string('value_en')->nullable();
             $table->timestamps();
+
+            $table->unique(['attribute_id', 'value_ru']);
         });
     }
 

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 
@@ -15,6 +16,10 @@ use Illuminate\Support\Carbon;
  */
 class AttributeOption extends Model
 {
+    use HasFactory;
+
+
+    public const string TABLE_NAME = 'attribute_options';
     public const string FIELD_ID = 'id';
     public const string FIELD_ATTRIBUTE_ID = 'attribute_id';
     public const string FIELD_VALUE_RU = 'value_ru';

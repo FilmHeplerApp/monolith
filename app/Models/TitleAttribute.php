@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -22,6 +23,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class TitleAttribute extends Model
 {
+    use HasFactory;
+
+
+    public const string TABLE_NAME = 'title_attributes';
     public const string FIELD_ID = 'id';
     public const string FIELD_TITLE_ID = 'title_id';
     public const string FIELD_ATTRIBUTE_ID = 'attribute_id';
@@ -31,6 +36,7 @@ class TitleAttribute extends Model
     public const string FIELD_VALUE_BOOLEAN = 'value_boolean';
     public const string FIELD_SEARCHABLE_TEXT = 'searchable_text';
     public const string FIELD_CREATED_AT = 'created_at';
+    public const string FIELD_UPDATED_AT = 'updated_at';
     public const string FIELD_DELETED_AT = 'deleted_at';
 
     protected $fillable = [
@@ -43,6 +49,7 @@ class TitleAttribute extends Model
         self::FIELD_VALUE_BOOLEAN,
         self::FIELD_SEARCHABLE_TEXT,
         self::FIELD_CREATED_AT,
+        self::FIELD_UPDATED_AT,
         self::FIELD_DELETED_AT,
     ];
 
@@ -65,5 +72,19 @@ class TitleAttribute extends Model
     public function attribute(): BelongsTo
     {
         return $this->belongsTo(AttributeDefinition::class, self::FIELD_ATTRIBUTE_ID);
+    }
+
+
+    protected static function booted(): void
+    {
+        static::saving(function (TitleAttribute $attribute): void {
+            $attribute->searchable_text = match (true) {
+                $attribute->value_text !== null => $attribute->value_text,
+                $attribute->value_array !== null => implode(' ', $attribute->value_array),
+                $attribute->value_number !== null => (string) $attribute->value_number,
+                $attribute->value_boolean !== null => $attribute->value_boolean ? 'true' : 'false',
+                default => null,
+            };
+        });
     }
 }
