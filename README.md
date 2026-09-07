@@ -2,6 +2,56 @@
 
 Backend monolith for FilmHelperApp built with Laravel, PostgreSQL, Redis, and S3-compatible object storage.
 
+## Architecture
+
+The application is organized as a modular monolith with DDD-light boundaries:
+
+- `app/Domain` - business rules and domain concepts.
+- `app/Application` - use cases, DTO и Horizon jobs.
+- `app/Infrastructure` - Eloquent, PostgreSQL, Redis, MinIO/S3, provider clients and other adapters.
+- `app/Interfaces` - HTTP controllers, admin entrypoints and console commands.
+
+The main modules are reflected in advance by the directories inside the layers:
+
+```text
+app/
+├─ Domain/
+│  ├─ Users/
+│  ├─ Catalog/
+│  ├─ Library/
+│  ├─ Import/
+│  ├─ Recommendations/
+│  ├─ Billing/
+│  ├─ Restrictions/
+│  └─ Notifications/
+├─ Application/
+│  ├─ Users/
+│  ├─ Catalog/
+│  ├─ Library/
+│  ├─ Import/
+│  ├─ Recommendations/
+│  ├─ Billing/
+│  ├─ Restrictions/
+│  └─ Notifications/
+├─ Infrastructure/
+│  ├─ Persistence/
+│  │  └─ Eloquent/
+│  │     └─ Models/
+│  ├─ Providers/
+│  ├─ Storage/
+│  ├─ Queue/
+│  ├─ Search/
+│  ├─ Payments/
+│  └─ Notifications/
+└─ Interfaces/
+   ├─ Http/
+   ├─ Console/
+   │  └─ Commands/
+   └─ Admin/
+```
+
+Dependency Rule: `Interfaces -> Application -> Domain`, and the technical implementations are in `Infrastructure`.
+
 ## Local Infrastructure
 
 The local Docker stack contains:
@@ -10,7 +60,7 @@ The local Docker stack contains:
 - `nginx` - HTTP entrypoint on `http://localhost:8080`.
 - `postgres` - PostgreSQL with `pgvector`.
 - `redis` - cache, sessions, queues, locks, and rate limiting.
-- `queue` - Laravel queue worker.
+- `horizon` - Laravel Horizon worker and queue dashboard.
 - `scheduler` - Laravel scheduler worker.
 - `minio` - local S3-compatible storage.
 
@@ -117,13 +167,6 @@ View health-check status:
 
 ```bash
 docker compose ps
-docker inspect --format='{{json .State.Health}}' filmhelper-app
-docker inspect --format='{{json .State.Health}}' filmhelper-nginx
-docker inspect --format='{{json .State.Health}}' filmhelper-postgres
-docker inspect --format='{{json .State.Health}}' filmhelper-redis
-docker inspect --format='{{json .State.Health}}' filmhelper-minio
-docker inspect --format='{{json .State.Health}}' filmhelper-queue
-docker inspect --format='{{json .State.Health}}' filmhelper-scheduler
 ```
 
 Open a shell in the Laravel container:
@@ -144,10 +187,10 @@ Clear Laravel caches:
 docker compose exec app php artisan optimize:clear
 ```
 
-Run one queue job cycle:
+Check Horizon status:
 
 ```bash
-docker compose exec app php artisan queue:work redis --once
+docker compose exec horizon php artisan horizon:status
 ```
 
 ## Local URLs
