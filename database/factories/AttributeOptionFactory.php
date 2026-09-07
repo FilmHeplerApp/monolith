@@ -2,8 +2,8 @@
 
 namespace Database\Factories;
 
-use App\Models\AttributeDefinition;
-use App\Models\AttributeOption;
+use App\Infrastructure\Persistence\Eloquent\Models\AttributeDefinition;
+use App\Infrastructure\Persistence\Eloquent\Models\AttributeOption;
 use Illuminate\Database\Eloquent\Factories\Attributes\UseModel;
 use Illuminate\Database\Eloquent\Factories\Factory;
 

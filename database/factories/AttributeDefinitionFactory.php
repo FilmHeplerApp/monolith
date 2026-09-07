@@ -3,7 +3,7 @@
 namespace Database\Factories;
 
 use App\Enums\Title\ContentType;
-use App\Models\AttributeDefinition;
+use App\Infrastructure\Persistence\Eloquent\Models\AttributeDefinition;
 use Illuminate\Database\Eloquent\Factories\Attributes\UseModel;
 use Illuminate\Database\Eloquent\Factories\Factory;
 

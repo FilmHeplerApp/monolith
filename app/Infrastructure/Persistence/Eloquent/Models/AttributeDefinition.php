@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Models;
+namespace App\Infrastructure\Persistence\Eloquent\Models;
 
 use App\Enums\Title\AttributeType;
 use Illuminate\Database\Eloquent\Collection;

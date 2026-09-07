@@ -2,7 +2,7 @@
 
 namespace Database\Seeders;
 
-use App\Models\Title;
+use App\Infrastructure\Persistence\Eloquent\Models\Title;
 use Illuminate\Database\Seeder;
 
 class TitleSeeder extends Seeder

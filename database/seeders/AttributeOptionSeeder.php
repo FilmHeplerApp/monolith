@@ -2,8 +2,8 @@
 
 namespace Database\Seeders;
 
-use App\Models\AttributeDefinition;
-use App\Models\AttributeOption;
+use App\Infrastructure\Persistence\Eloquent\Models\AttributeDefinition;
+use App\Infrastructure\Persistence\Eloquent\Models\AttributeOption;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 

@@ -3,7 +3,7 @@
 namespace Database\Seeders;
 
 use App\Enums\Title\AttributeType;
-use App\Models\AttributeDefinition;
+use App\Infrastructure\Persistence\Eloquent\Models\AttributeDefinition;
 use Illuminate\Database\Eloquent\Factories\Sequence;
 use Illuminate\Database\Seeder;
 

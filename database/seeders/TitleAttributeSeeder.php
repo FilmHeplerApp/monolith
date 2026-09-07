@@ -3,9 +3,9 @@
 namespace Database\Seeders;
 
 use App\Enums\Title\AttributeType;
-use App\Models\AttributeDefinition;
-use App\Models\Title;
-use App\Models\TitleAttribute;
+use App\Infrastructure\Persistence\Eloquent\Models\AttributeDefinition;
+use App\Infrastructure\Persistence\Eloquent\Models\Title;
+use App\Infrastructure\Persistence\Eloquent\Models\TitleAttribute;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Collection;
 use Random\RandomException;
