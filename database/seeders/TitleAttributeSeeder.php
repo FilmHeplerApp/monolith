@@ -2,7 +2,7 @@
 
 namespace Database\Seeders;
 
-use App\Enums\Title\AttributeType;
+use App\Domain\Catalog\Enums\AttributeDefinition\AttributeType;
 use App\Infrastructure\Persistence\Eloquent\Models\AttributeDefinition;
 use App\Infrastructure\Persistence\Eloquent\Models\Title;
 use App\Infrastructure\Persistence\Eloquent\Models\TitleAttribute;
@@ -18,7 +18,7 @@ class TitleAttributeSeeder extends Seeder
     public function run(): void
     {
         $titles = $this->getTittles();
-        $definitions = $this->getDefinitionsWithTittles();
+        $definitions = $this->getDefinitionsWithOptions();
         $dataToSave = $this->assembleTitleAttributeData($titles, $definitions);
         $this->save($dataToSave);
     }
@@ -29,7 +29,7 @@ class TitleAttributeSeeder extends Seeder
         return Title::query()->get([Title::FIELD_ID]);
     }
 
-    private function getDefinitionsWithTittles(): Collection
+    private function getDefinitionsWithOptions(): Collection
     {
         return AttributeDefinition::query()
             ->with([

@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Enums\Title;
+namespace App\Domain\Catalog\Enums\Title;
 
-enum ContentType: string
+enum TitleContentType: string
 {
     case ANIME = 'anime';
     case MOVIE = 'movie';

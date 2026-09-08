@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Enums\Title;
+namespace App\Domain\Catalog\Enums\Title;
 
 enum TitleUpdatedBy: string
 {

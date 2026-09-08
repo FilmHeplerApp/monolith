@@ -2,7 +2,7 @@
 
 namespace App\Infrastructure\Persistence\Eloquent\Models;
 
-use App\Enums\Title\AttributeType;
+use App\Domain\Catalog\Enums\AttributeDefinition\AttributeType;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -42,6 +42,7 @@ class AttributeDefinition extends Model
     public const string FIELD_ORDER = 'order';
     public const string FIELD_CREATED_AT = 'created_at';
     public const string FIELD_DELETED_AT = 'deleted_at';
+
 
     protected $fillable = [
         self::FIELD_ID,

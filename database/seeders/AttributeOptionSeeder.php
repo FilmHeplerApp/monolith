@@ -93,7 +93,7 @@ class AttributeOptionSeeder extends Seeder
     {
         $attribute = AttributeDefinition::query()
             ->where(AttributeDefinition::FIELD_CODE, self::GENRES)
-            ->firstOrFail();
+            ->firstOrFail('id');
 
         $dataToSave = $this->combineData($attribute->id, self::GENRES_ARRAY);
         if (empty($dataToSave)) {
@@ -107,7 +107,7 @@ class AttributeOptionSeeder extends Seeder
     {
         $attribute = AttributeDefinition::query()
             ->where(AttributeDefinition::FIELD_CODE, self::TARGET_AUDIENCE)
-            ->firstOrFail();
+            ->firstOrFail('id');
 
         $dataToSave = $this->combineData($attribute->id, self::TARGET_AUDIENCE_ARRAY);
         if (empty($dataToSave)) {
@@ -121,7 +121,7 @@ class AttributeOptionSeeder extends Seeder
     {
         $attribute = AttributeDefinition::query()
             ->where(AttributeDefinition::FIELD_CODE, self::TAGS)
-            ->firstOrFail();
+            ->firstOrFail('id');
 
         $dataToSave = $this->combineData($attribute->id, self::TAGS_ARRAY);
         if (empty($dataToSave)) {

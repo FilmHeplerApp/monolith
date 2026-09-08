@@ -2,9 +2,9 @@
 
 namespace Database\Factories;
 
-use App\Enums\Title\TitleStatus;
-use App\Enums\Title\TitleType;
-use App\Enums\Title\TitleUpdatedBy;
+use App\Domain\Catalog\Enums\Title\TitleStatus;
+use App\Domain\Catalog\Enums\Title\TitleType;
+use App\Domain\Catalog\Enums\Title\TitleUpdatedBy;
 use App\Infrastructure\Persistence\Eloquent\Models\Title;
 use Illuminate\Database\Eloquent\Factories\Attributes\UseModel;
 use Illuminate\Database\Eloquent\Factories\Factory;

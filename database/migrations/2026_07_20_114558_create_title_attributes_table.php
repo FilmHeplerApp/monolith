@@ -5,6 +5,10 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration {
+    private const int TOTAL_DIGITS_NUMBER = 15;
+    private const int DIGITS_AFTER_COMMA = 4;
+
+
     public function up(): void
     {
         Schema::create('title_attributes', function (Blueprint $table) {
@@ -13,7 +17,7 @@ return new class extends Migration {
             $table->foreignId('attribute_id')->constrained('attribute_definitions')->cascadeOnDelete();
             $table->string('value_text')->nullable();
             $table->json('value_array')->nullable();
-            $table->decimal('value_number', 15, 4)->nullable();
+            $table->decimal('value_number', self::TOTAL_DIGITS_NUMBER, self::DIGITS_AFTER_COMMA)->nullable();
             $table->boolean('value_boolean')->nullable();
             $table->text('searchable_text')->nullable();
             $table->timestamps();
