@@ -2,8 +2,8 @@
 
 namespace App\Infrastructure\Persistence\Eloquent\Models;
 
+use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\Enums\Title\TitleStatus;
-use App\Domain\Catalog\Enums\Title\TitleType;
 use App\Domain\Catalog\Enums\Title\TitleUpdatedBy;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -85,7 +85,7 @@ class Title extends Model
     protected function casts(): array
     {
         return [
-            self::FIELD_TYPE => TitleType::class,
+            self::FIELD_TYPE => TitleContentType::class,
             self::FIELD_STATUS => TitleStatus::class,
             self::FIELD_EMBEDDING => 'array',
             self::FIELD_RATING_AVG => 'float',

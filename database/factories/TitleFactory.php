@@ -2,8 +2,8 @@
 
 namespace Database\Factories;
 
+use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\Enums\Title\TitleStatus;
-use App\Domain\Catalog\Enums\Title\TitleType;
 use App\Domain\Catalog\Enums\Title\TitleUpdatedBy;
 use App\Infrastructure\Persistence\Eloquent\Models\Title;
 use Database\Factories\Fixtures\TitleFixture;
@@ -28,7 +28,7 @@ class TitleFactory extends Factory
             Title::FIELD_DESCRIPTION_EN => fake(self::EN_LOCALE)->paragraphs(3, true),
             Title::FIELD_SHORT_PLOT_RU => fake()->randomElement(TitleFixture::RU_SHORT_PLOTS),
             Title::FIELD_DURATION => fake()->numberBetween(20, 180),
-            Title::FIELD_TYPE => fake()->randomElement(TitleType::cases()),
+            Title::FIELD_TYPE => fake()->randomElement(TitleContentType::cases()),
             Title::FIELD_STATUS => fake()->randomElement(TitleStatus::cases()),
             Title::FIELD_POSTER_URL => fake()->imageUrl(),
             Title::FIELD_BANNER_URL => fake()->imageUrl(1920, 1080),

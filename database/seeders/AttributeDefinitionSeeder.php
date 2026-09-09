@@ -2,7 +2,7 @@
 
 namespace Database\Seeders;
 
-use App\Domain\Catalog\Enums\AttributeDefinition\AttributeType;
+use App\Domain\Catalog\Enums\AttributeDefinition\AttributeValueType;
 use App\Infrastructure\Persistence\Eloquent\Models\AttributeDefinition;
 use Illuminate\Database\Eloquent\Factories\Sequence;
 use Illuminate\Database\Seeder;
@@ -17,13 +17,13 @@ class AttributeDefinitionSeeder extends Seeder
         'studios',
         'pace',
     ];
-    private const array TYPE_BY_CODE = [
-        'genres' => AttributeType::ARRAY,
-        'moods' => AttributeType::ARRAY,
-        'tags' => AttributeType::ARRAY,
-        'target_audience' => AttributeType::STRING,
-        'studios' => AttributeType::STRING,
-        'pace' => AttributeType::STRING,
+    private const array VALUE_TYPE_BY_CODE = [
+        'genres' => AttributeValueType::ARRAY,
+        'moods' => AttributeValueType::ARRAY,
+        'tags' => AttributeValueType::ARRAY,
+        'target_audience' => AttributeValueType::STRING,
+        'studios' => AttributeValueType::STRING,
+        'pace' => AttributeValueType::STRING,
     ];
 
 
@@ -36,7 +36,7 @@ class AttributeDefinitionSeeder extends Seeder
                     AttributeDefinition::FIELD_CODE => self::ATTRIBUTE_DEFINITION_CODES[$sequence->index],
                     AttributeDefinition::FIELD_NAME_RU => __('titles.' . self::ATTRIBUTE_DEFINITION_CODES[$sequence->index]),
                     AttributeDefinition::FIELD_NAME_EN => self::ATTRIBUTE_DEFINITION_CODES[$sequence->index],
-                    AttributeDefinition::FIELD_TYPE => self::TYPE_BY_CODE[self::ATTRIBUTE_DEFINITION_CODES[$sequence->index]],
+                    AttributeDefinition::FIELD_VALUE_TYPE => self::VALUE_TYPE_BY_CODE[self::ATTRIBUTE_DEFINITION_CODES[$sequence->index]],
                 ]
             ))
             ->create();

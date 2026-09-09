@@ -29,14 +29,14 @@ return new class extends Migration {
             $table->string('code')->unique();
             $table->string('name_ru');
             $table->string('name_en');
-            $table->enum('type', self::TYPES);
+            $table->enum('value_type', self::TYPES);
             $table->boolean('is_filterable')->default(true);
             $table->boolean('is_required')->default(false);
             $table->unsignedInteger('order')->default(self::ZERO_VALUE);
             $table->timestamps();
 
             $table->index('content_type_code');
-            $table->index('type');
+            $table->index('value_type');
             $table->index('order');
         });
     }

@@ -2,7 +2,7 @@
 
 namespace Database\Seeders;
 
-use App\Domain\Catalog\Enums\AttributeDefinition\AttributeType;
+use App\Domain\Catalog\Enums\AttributeDefinition\AttributeValueType;
 use App\Infrastructure\Persistence\Eloquent\Models\AttributeDefinition;
 use App\Infrastructure\Persistence\Eloquent\Models\Title;
 use App\Infrastructure\Persistence\Eloquent\Models\TitleAttribute;
@@ -78,9 +78,9 @@ class TitleAttributeSeeder extends Seeder
      */
     private function getAttributeValueByDefinition(AttributeDefinition $definition): mixed
     {
-        return match ($definition->type) {
-            AttributeType::ARRAY => $this->randomOptions($definition),
-            AttributeType::STRING => $definition->options->random()->value_ru,
+        return match ($definition->value_type) {
+            AttributeValueType::ARRAY => $this->randomOptions($definition),
+            AttributeValueType::STRING => $definition->options->random()->value_ru,
             default => null,
         };
     }
@@ -90,13 +90,13 @@ class TitleAttributeSeeder extends Seeder
      */
     private function getDataToMergedByDefinitionAndValue(AttributeDefinition $definition, mixed $value): array
     {
-        return match ($definition->type) {
-            AttributeType::ARRAY => [
+        return match ($definition->value_type) {
+            AttributeValueType::ARRAY => [
                 TitleAttribute::FIELD_VALUE_TEXT => null,
                 TitleAttribute::FIELD_VALUE_ARRAY => json_encode($value, JSON_UNESCAPED_UNICODE),
                 TitleAttribute::FIELD_SEARCHABLE_TEXT => implode(' ', $value),
             ],
-            AttributeType::STRING => [
+            AttributeValueType::STRING => [
                 TitleAttribute::FIELD_VALUE_TEXT => $value,
                 TitleAttribute::FIELD_VALUE_ARRAY => null,
                 TitleAttribute::FIELD_SEARCHABLE_TEXT => $value,

@@ -2,7 +2,7 @@
 
 namespace App\Domain\Catalog\Enums\AttributeDefinition;
 
-enum AttributeType: string
+enum AttributeValueType: string
 {
     case STRING = 'string';
     case ARRAY = 'array';

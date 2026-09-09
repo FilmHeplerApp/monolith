@@ -2,7 +2,7 @@
 
 namespace App\Infrastructure\Persistence\Eloquent\Models;
 
-use App\Domain\Catalog\Enums\AttributeDefinition\AttributeType;
+use App\Domain\Catalog\Enums\AttributeDefinition\AttributeValueType;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -15,7 +15,7 @@ use Illuminate\Support\Carbon;
  * @property string $code
  * @property string $name_ru
  * @property string $name_en
- * @property string $type
+ * @property string $value_type
  * @property bool $is_filterable
  * @property bool $is_required
  * @property int $order
@@ -36,7 +36,7 @@ class AttributeDefinition extends Model
     public const string FIELD_CODE = 'code';
     public const string FIELD_NAME_RU = 'name_ru';
     public const string FIELD_NAME_EN = 'name_en';
-    public const string FIELD_TYPE = 'type';
+    public const string FIELD_VALUE_TYPE = 'value_type';
     public const string FIELD_IS_FILTERABLE = 'is_filterable';
     public const string FIELD_IS_REQUIRED = 'is_required';
     public const string FIELD_ORDER = 'order';
@@ -50,7 +50,7 @@ class AttributeDefinition extends Model
         self::FIELD_CODE,
         self::FIELD_NAME_RU,
         self::FIELD_NAME_EN,
-        self::FIELD_TYPE,
+        self::FIELD_VALUE_TYPE,
         self::FIELD_IS_FILTERABLE,
         self::FIELD_IS_REQUIRED,
         self::FIELD_ORDER,
@@ -62,7 +62,7 @@ class AttributeDefinition extends Model
     {
         return [
             self::FIELD_CONTENT_TYPE_CODE => 'string',
-            self::FIELD_TYPE => AttributeType::class,
+            self::FIELD_VALUE_TYPE => AttributeValueType::class,
             self::FIELD_IS_FILTERABLE => 'boolean',
             self::FIELD_IS_REQUIRED => 'boolean',
             self::FIELD_ORDER => 'integer',
