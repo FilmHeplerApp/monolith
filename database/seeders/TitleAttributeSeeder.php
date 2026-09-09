@@ -6,6 +6,7 @@ use App\Domain\Catalog\Enums\AttributeDefinition\AttributeType;
 use App\Infrastructure\Persistence\Eloquent\Models\AttributeDefinition;
 use App\Infrastructure\Persistence\Eloquent\Models\Title;
 use App\Infrastructure\Persistence\Eloquent\Models\TitleAttribute;
+use Database\Seeders\Exceptions\UnexpectedTitleAttributeTypeException;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Collection;
 use Random\RandomException;
@@ -100,7 +101,7 @@ class TitleAttributeSeeder extends Seeder
                 TitleAttribute::FIELD_VALUE_ARRAY => null,
                 TitleAttribute::FIELD_SEARCHABLE_TEXT => $value,
             ],
-            default => throw new \Exception('Unexpected match value')
+            default => throw new UnexpectedTitleAttributeTypeException('Unexpected match value')
         };
     }
 
