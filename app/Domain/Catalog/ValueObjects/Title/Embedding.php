@@ -11,16 +11,15 @@ final readonly class Embedding
     public const int DIMENSION = 1536;
 
     /**
-     * @param list<int> $vector
+     * @param list<float> $vector
      */
     private function __construct(
         private array $vector,
     ) {
     }
 
-
     /**
-     * @param list<int>|null $vector
+     * @param list<float|int>|null $vector
      */
     public static function createFromArray(?array $vector): ?self
     {
@@ -32,11 +31,11 @@ final readonly class Embedding
             throw InvalidCatalogValueException::invalidEmbeddingDimension(self::DIMENSION, count($vector));
         }
 
-        return new self(array_map(static fn (int $value): int => $value, $vector));
+        return new self(array_map(static fn (float|int $value): float => (float) $value, $vector));
     }
 
     /**
-     * @return list<int>
+     * @return list<float>
      */
     public function getVector(): array
     {
