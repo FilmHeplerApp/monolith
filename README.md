@@ -2,6 +2,12 @@
 
 Backend monolith for FilmHelperApp built with Laravel, PostgreSQL, Redis, and S3-compatible object storage.
 
+## Documentation
+
+- [docs/TZ.md](docs/TZ.md) - product and technical requirements.
+- [docs/Roadmap.md](docs/Roadmap.md) - ordered task list for the whole project.
+- [docs/How_infrastructure_works.md](docs/How_infrastructure_works.md) - how to write code in this codebase.
+
 ## Architecture
 
 The application is organized as a modular monolith with DDD-light boundaries:
