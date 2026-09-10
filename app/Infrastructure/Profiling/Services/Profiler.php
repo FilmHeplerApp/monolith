@@ -11,7 +11,7 @@ class Profiler
 {
     private const string START = 'start';
     private const string MEMORY_USAGE = 'memory_usage';
-    private const string EXECUTION_TIME = 'execution_time';
+    private const string EXECUTION_TIME = 'execution_time_s';
 
     private const string CALLS = 'calls';
     private const string TOTAL_TIME = 'total_time';
@@ -19,6 +19,7 @@ class Profiler
     private const string MAX_TIME = 'max_time';
     private const string TOTAL_MEMORY_DELTA = 'total_memory_delta';
     private const string PROCESS_PEAK_MEMORY = 'process_peak_memory';
+    private const string MEMORY_USAGE_DELTA = 'memory_usage_delta';
 
     private const string LOG_KEY = 'key';
     private const string LOG_CALLS = 'calls';
@@ -87,7 +88,7 @@ class Profiler
         if ($executionTime >= self::getExecutionTimeThreshold()) {
             self::$extendedResults[$key][] = [
                 self::EXECUTION_TIME => $executionTime,
-                self::MEMORY_USAGE => $memoryUsage,
+                self::MEMORY_USAGE_DELTA => $memoryUsage,
                 ...$context,
             ];
         }
