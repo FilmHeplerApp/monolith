@@ -15,7 +15,7 @@ services:
 
         container_name: ${COMPOSE_PROJECT_NAME:-filmhelper}-app
         environment:
-            PHP_IDE_CONFIG: "serverName=film-app-monolith"
+            PHP_IDE_CONFIG: "serverName=film-helper-app"
         extra_hosts:
             - "host.docker.internal:host-gateway"
         depends_on:
