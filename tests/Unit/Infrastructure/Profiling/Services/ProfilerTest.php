@@ -21,6 +21,7 @@ class ProfilerTest extends TestCase
         $this->clearProfilerState();
     }
 
+
     /**
      * @throws ProfilerExistingPointException
      */
@@ -110,7 +111,7 @@ class ProfilerTest extends TestCase
             ->once()
             ->withArgs(function (string $message, array $context): bool {
                 return $message === 'Profiler Log'
-                    && $context['execution_time'] > 0;
+                    && $context['total_s'] > 0;
             });
 
         Profiler::stats('test');
@@ -136,8 +137,7 @@ class ProfilerTest extends TestCase
             ->once()
             ->withArgs(function (string $message, array $context): bool {
                 return $message === 'Profiler Log'
-                    && isset($context['memory_bytes'])
-                    && isset($context['memory_mb']);
+                    && isset($context['avg_memory_delta_mb']);
             });
 
         Profiler::stats('test');
@@ -165,7 +165,7 @@ class ProfilerTest extends TestCase
             ->once()
             ->withArgs(function (string $message, array $context): bool {
                 return $message === 'Profiler Log'
-                    && isset($context['peak_memory_usage_mb']);
+                    && isset($context['process_peak_memory_mb']);
             });
 
         Profiler::stats('test');
@@ -212,6 +212,255 @@ class ProfilerTest extends TestCase
         Profiler::stats('test');
     }
 
+    /**
+     * @throws ProfilerExistingPointException
+     */
+    public function test_it_allows_profiling_same_point_multiple_times(): void
+    {
+        for ($i = 0; $i < 3; $i++) {
+            Profiler::start('test');
+            usleep(1_000);
+            Profiler::stop('test');
+        }
+
+        Log::shouldReceive('channel')
+            ->once()
+            ->with('daily')
+            ->andReturnSelf();
+
+        Log::shouldReceive('info')
+            ->once()
+            ->withArgs(function (string $message, array $context): bool {
+                return $message === 'Profiler Log'
+                    && $context['calls'] === 3
+                    && $context['total_s'] > 0
+                    && $context['avg_s'] > 0
+                    && $context['min_s'] > 0
+                    && $context['max_s'] > 0;
+            });
+
+        Profiler::stats('test');
+    }
+
+    /**
+     * @throws ProfilerExistingPointException
+     */
+    public function test_it_accumulates_samples_for_same_point(): void
+    {
+        Profiler::start('test');
+        usleep(1_000);
+        Profiler::stop('test');
+
+        Profiler::start('test');
+        usleep(2_000);
+        Profiler::stop('test');
+
+        Profiler::start('test');
+        usleep(3_000);
+        Profiler::stop('test');
+
+        Log::shouldReceive('channel')
+            ->once()
+            ->with('daily')
+            ->andReturnSelf();
+
+        Log::shouldReceive('info')
+            ->once()
+            ->withArgs(function (string $message, array $context): bool {
+                return $message === 'Profiler Log'
+                    && $context['key'] === 'test'
+                    && $context['calls'] === 3;
+            });
+
+        Profiler::stats('test');
+    }
+
+    /**
+     * @throws ProfilerExistingPointException
+     */
+    public function test_it_logs_context_for_slow_point(): void
+    {
+        config()->set('profiler.execution_time_threshold', 0.01);
+
+        Profiler::start('test');
+        usleep(20_000);
+        Profiler::stop('test', [
+            'title_id' => 123,
+            'title' => 'One Piece',
+        ]);
+
+        Log::shouldReceive('channel')
+            ->once()
+            ->with('daily')
+            ->andReturnSelf();
+
+        Log::shouldReceive('info')
+            ->once()
+            ->withArgs(function (string $message, array $context): bool {
+                return $message === 'Profiler Log'
+                    && isset($context['slow_points'])
+                    && count($context['slow_points']) === 1
+                    && $context['slow_points'][0]['title_id'] === 123
+                    && $context['slow_points'][0]['title'] === 'One Piece'
+                    && $context['slow_points'][0]['execution_time'] >= 0.01;
+            });
+
+        Profiler::stats('test');
+    }
+
+    /**
+     * @throws ProfilerExistingPointException
+     */
+    public function test_it_does_not_log_context_for_fast_point(): void
+    {
+        config()->set('profiler.execution_time_threshold', 1.0);
+
+        Profiler::start('test');
+        usleep(1_000);
+        Profiler::stop('test', [
+            'title_id' => 123,
+        ]);
+
+        Log::shouldReceive('channel')
+            ->once()
+            ->with('daily')
+            ->andReturnSelf();
+
+        Log::shouldReceive('info')
+            ->once()
+            ->withArgs(function (string $message, array $context): bool {
+                return $message === 'Profiler Log'
+                    && !isset($context['slow_points']);
+            });
+
+        Profiler::stats('test');
+    }
+
+    /**
+     * @throws ProfilerExistingPointException
+     */
+    public function test_it_logs_multiple_slow_points_with_their_context(): void
+    {
+        config()->set('profiler.execution_time_threshold', 0.01);
+
+        Profiler::start('test');
+        usleep(20_000);
+        Profiler::stop('test', [
+            'title_id' => 100,
+        ]);
+
+        Profiler::start('test');
+        usleep(20_000);
+        Profiler::stop('test', [
+            'title_id' => 200,
+        ]);
+
+        Log::shouldReceive('channel')
+            ->once()
+            ->with('daily')
+            ->andReturnSelf();
+
+        Log::shouldReceive('info')
+            ->once()
+            ->withArgs(function (string $message, array $context): bool {
+                if ($message !== 'Profiler Log') {
+                    return false;
+                }
+
+                if (!isset($context['slow_points'])) {
+                    return false;
+                }
+
+                if (count($context['slow_points']) !== 2) {
+                    return false;
+                }
+
+                return $context['slow_points'][0]['title_id'] === 100
+                    && $context['slow_points'][1]['title_id'] === 200;
+            });
+
+        Profiler::stats('test');
+    }
+
+    /**
+     * @throws ProfilerExistingPointException
+     */
+    public function test_it_accumulates_statistics_for_multiple_calls(): void
+    {
+        Profiler::start('test');
+        usleep(1_000);
+        Profiler::stop('test');
+
+        Profiler::start('test');
+        usleep(2_000);
+        Profiler::stop('test');
+
+        Profiler::start('test');
+        usleep(3_000);
+        Profiler::stop('test');
+
+        Log::shouldReceive('channel')
+            ->once()
+            ->with('daily')
+            ->andReturnSelf();
+
+        Log::shouldReceive('info')
+            ->once()
+            ->withArgs(function (string $message, array $context): bool {
+                return $message === 'Profiler Log'
+                    && $context['calls'] === 3
+                    && $context['total_s'] >= 0.006
+                    && $context['min_s'] <= $context['avg_s']
+                    && $context['avg_s'] <= $context['max_s'];
+            });
+
+        Profiler::stats('test');
+    }
+
+    /**
+     * @throws ProfilerExistingPointException
+     */
+    public function test_it_clears_extended_results_after_stats(): void
+    {
+        config()->set('profiler.execution_time_threshold', 0.01);
+
+        Profiler::start('test');
+        usleep(20_000);
+        Profiler::stop('test', [
+            'title_id' => 123,
+        ]);
+
+        Log::shouldReceive('channel')
+            ->once()
+            ->with('daily')
+            ->andReturnSelf();
+
+        Log::shouldReceive('info')
+            ->once();
+
+        Profiler::stats('test');
+
+        config()->set('profiler.execution_time_threshold', 1.0);
+
+        Profiler::start('test');
+        usleep(1_000);
+        Profiler::stop('test');
+
+        Log::shouldReceive('channel')
+            ->once()
+            ->with('daily')
+            ->andReturnSelf();
+
+        Log::shouldReceive('info')
+            ->once()
+            ->withArgs(function (string $message, array $context): bool {
+                return $message === 'Profiler Log'
+                    && !isset($context['slow_points']);
+            });
+
+        Profiler::stats('test');
+    }
+
 
     /**
      * @throws \ReflectionException
@@ -220,7 +469,7 @@ class ProfilerTest extends TestCase
     {
         $reflection = new \ReflectionClass(Profiler::class);
 
-        foreach (['points', 'results'] as $propertyName) {
+        foreach (['points', 'results', 'extendedResults'] as $propertyName) {
             $property = $reflection->getProperty($propertyName);
             $property->setValue([]);
         }
