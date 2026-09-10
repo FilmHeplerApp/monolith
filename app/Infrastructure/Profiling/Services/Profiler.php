@@ -82,7 +82,7 @@ class Profiler
             $key,
             $executionTime,
             $memoryUsage,
-            $memoryPeakUsage
+            $memoryPeakUsage,
         );
 
         if ($executionTime >= self::getExecutionTimeThreshold()) {
@@ -119,11 +119,11 @@ class Profiler
             self::LOG_MAX_TIME => $results[self::MAX_TIME],
             self::LOG_AVG_MEMORY_DELTA => round(
                 ($results[self::TOTAL_MEMORY_DELTA] / $calls) / 1024 / 1024,
-                2
+                2,
             ),
             self::LOG_PROCESS_PEAK_MEMORY => round(
                 $results[self::PROCESS_PEAK_MEMORY] / 1024 / 1024,
-                2
+                2,
             ),
         ];
 
@@ -131,9 +131,9 @@ class Profiler
             $logData[self::LOG_SLOW_POINTS] = self::$extendedResults[$key];
         }
 
-        Log::channel(self::LOG_CHANNEL)->info(
+        Log::channel(self::LOG_CHANNEL)->debug(
             self::PROFILER_LOG,
-            $logData
+            $logData,
         );
 
         unset(self::$results[$key]);
@@ -164,16 +164,16 @@ class Profiler
         self::$results[$key][self::TOTAL_TIME] += $executionTime;
         self::$results[$key][self::MIN_TIME] = min(
             self::$results[$key][self::MIN_TIME],
-            $executionTime
+            $executionTime,
         );
         self::$results[$key][self::MAX_TIME] = max(
             self::$results[$key][self::MAX_TIME],
-            $executionTime
+            $executionTime,
         );
         self::$results[$key][self::TOTAL_MEMORY_DELTA] += $memoryUsage;
         self::$results[$key][self::PROCESS_PEAK_MEMORY] = max(
             self::$results[$key][self::PROCESS_PEAK_MEMORY],
-            $memoryPeakUsage
+            $memoryPeakUsage,
         );
     }
 
@@ -191,7 +191,7 @@ class Profiler
     {
         return (float) config(
             self::PROFILER_EXECUTION_TIME_THRESHOLD_CONFIG_PATH,
-            0
+            0,
         );
     }
 }

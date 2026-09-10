@@ -36,7 +36,7 @@ class ProfilerTest extends TestCase
             ->with('daily')
             ->andReturnSelf();
 
-        Log::shouldReceive('info')
+        Log::shouldReceive('debug')
             ->once();
 
         Profiler::stats('test');
@@ -70,7 +70,7 @@ class ProfilerTest extends TestCase
             ->with('daily')
             ->andReturnSelf();
 
-        Log::shouldReceive('info')
+        Log::shouldReceive('debug')
             ->twice();
 
         Profiler::stats('first');
@@ -107,7 +107,7 @@ class ProfilerTest extends TestCase
             ->with('daily')
             ->andReturnSelf();
 
-        Log::shouldReceive('info')
+        Log::shouldReceive('debug')
             ->once()
             ->withArgs(function (string $message, array $context): bool {
                 return $message === 'Profiler Log'
@@ -133,7 +133,7 @@ class ProfilerTest extends TestCase
             ->with('daily')
             ->andReturnSelf();
 
-        Log::shouldReceive('info')
+        Log::shouldReceive('debug')
             ->once()
             ->withArgs(function (string $message, array $context): bool {
                 return $message === 'Profiler Log'
@@ -161,7 +161,7 @@ class ProfilerTest extends TestCase
             ->with('daily')
             ->andReturnSelf();
 
-        Log::shouldReceive('info')
+        Log::shouldReceive('debug')
             ->once()
             ->withArgs(function (string $message, array $context): bool {
                 return $message === 'Profiler Log'
@@ -203,7 +203,7 @@ class ProfilerTest extends TestCase
             ->with('daily')
             ->andReturnSelf();
 
-        Log::shouldReceive('info')
+        Log::shouldReceive('debug')
             ->once();
 
         Profiler::stats('test');
@@ -228,7 +228,7 @@ class ProfilerTest extends TestCase
             ->with('daily')
             ->andReturnSelf();
 
-        Log::shouldReceive('info')
+        Log::shouldReceive('debug')
             ->once()
             ->withArgs(function (string $message, array $context): bool {
                 return $message === 'Profiler Log'
@@ -264,7 +264,7 @@ class ProfilerTest extends TestCase
             ->with('daily')
             ->andReturnSelf();
 
-        Log::shouldReceive('info')
+        Log::shouldReceive('debug')
             ->once()
             ->withArgs(function (string $message, array $context): bool {
                 return $message === 'Profiler Log'
@@ -294,7 +294,7 @@ class ProfilerTest extends TestCase
             ->with('daily')
             ->andReturnSelf();
 
-        Log::shouldReceive('info')
+        Log::shouldReceive('debug')
             ->once()
             ->withArgs(function (string $message, array $context): bool {
                 return $message === 'Profiler Log'
@@ -326,7 +326,7 @@ class ProfilerTest extends TestCase
             ->with('daily')
             ->andReturnSelf();
 
-        Log::shouldReceive('info')
+        Log::shouldReceive('debug')
             ->once()
             ->withArgs(function (string $message, array $context): bool {
                 return $message === 'Profiler Log'
@@ -360,7 +360,7 @@ class ProfilerTest extends TestCase
             ->with('daily')
             ->andReturnSelf();
 
-        Log::shouldReceive('info')
+        Log::shouldReceive('debug')
             ->once()
             ->withArgs(function (string $message, array $context): bool {
                 if ($message !== 'Profiler Log') {
@@ -404,7 +404,7 @@ class ProfilerTest extends TestCase
             ->with('daily')
             ->andReturnSelf();
 
-        Log::shouldReceive('info')
+        Log::shouldReceive('debug')
             ->once()
             ->withArgs(function (string $message, array $context): bool {
                 return $message === 'Profiler Log'
@@ -435,7 +435,7 @@ class ProfilerTest extends TestCase
             ->with('daily')
             ->andReturnSelf();
 
-        Log::shouldReceive('info')
+        Log::shouldReceive('debug')
             ->once();
 
         Profiler::stats('test');
@@ -451,7 +451,7 @@ class ProfilerTest extends TestCase
             ->with('daily')
             ->andReturnSelf();
 
-        Log::shouldReceive('info')
+        Log::shouldReceive('debug')
             ->once()
             ->withArgs(function (string $message, array $context): bool {
                 return $message === 'Profiler Log'
