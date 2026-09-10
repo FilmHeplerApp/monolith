@@ -302,7 +302,7 @@ class ProfilerTest extends TestCase
                     && count($context['slow_points']) === 1
                     && $context['slow_points'][0]['title_id'] === 123
                     && $context['slow_points'][0]['title'] === 'One Piece'
-                    && $context['slow_points'][0]['execution_time'] >= 0.01;
+                    && $context['slow_points'][0]['execution_time_s'] >= 0.01;
             });
 
         Profiler::stats('test');
