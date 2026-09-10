@@ -4,19 +4,18 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Providers\Mock;
 
-use App\Domain\Import\Contracts\CatalogProviderClient;
+use App\Domain\Import\Contracts\ProviderClientInterface;
 use App\Domain\Import\Enums\ProviderSource;
 use App\Domain\Import\Exceptions\ProviderException;
 use App\Domain\Import\ValueObjects\ProviderTitle;
 
-final class MockProviderClient implements CatalogProviderClient
+final class MockProviderClient implements ProviderClientInterface
 {
     /** @var list<ProviderTitle> */
     private array $titles;
-
     private ?ProviderException $failure = null;
-
     private int $failAfter = 0;
+
 
     /** @param  list<ProviderTitle>|null  $titles */
     public function __construct(?array $titles = null)
@@ -61,6 +60,7 @@ final class MockProviderClient implements CatalogProviderClient
         $this->failure = $exception;
         $this->failAfter = $afterItems;
     }
+
 
     /** @return list<ProviderTitle> */
     private static function defaultFixtures(): array

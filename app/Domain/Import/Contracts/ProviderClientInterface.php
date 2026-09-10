@@ -7,7 +7,7 @@ namespace App\Domain\Import\Contracts;
 use App\Domain\Import\Enums\ProviderSource;
 use App\Domain\Import\ValueObjects\ProviderTitle;
 
-interface CatalogProviderClient
+interface ProviderClientInterface
 {
     public function source(): ProviderSource;
 
