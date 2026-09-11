@@ -21,22 +21,22 @@ final readonly class TitleDto
      * @param list<TitleAttributeDto> $attributes
      */
     public function __construct(
-        public ?int $id,
-        public ExternalId $externalId,
-        public LocalizedText $title,
-        public ?LocalizedText $description,
-        public ?string $shortPlotRu,
-        public ?Duration $duration,
-        public TitleContentType $type,
-        public TitleStatus $status,
-        public ?string $posterUrl,
-        public ?string $bannerUrl,
-        public TitleRating $rating,
-        public ?Embedding $embedding,
-        public TitleUpdatedBy $updatedBy,
+        public ?int               $id,
+        public ExternalId         $externalId,
+        public LocalizedText      $title,
+        public ?LocalizedText     $description,
+        public ?string            $shortPlotRu,
+        public ?Duration          $duration,
+        public TitleContentType   $type,
+        public TitleStatus        $status,
+        public ?string            $posterUrl,
+        public ?string            $bannerUrl,
+        public TitleRating        $rating,
+        public ?Embedding         $embedding,
+        public TitleUpdatedBy     $updatedBy,
         public ?DateTimeImmutable $createdAt = null,
         public ?DateTimeImmutable $updatedAt = null,
-        public array $attributes = [],
+        public array              $attributes = [],
     ) {
     }
 }
