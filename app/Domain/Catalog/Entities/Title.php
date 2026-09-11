@@ -2,9 +2,8 @@
 
 declare(strict_types=1);
 
-namespace App\Domain\Catalog\DTOs\Title;
+namespace App\Domain\Catalog\Entities;
 
-use App\Domain\Catalog\DTOs\TitleAttribute\TitleAttributeDto;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\Enums\Title\TitleStatus;
 use App\Domain\Catalog\Enums\Title\TitleUpdatedBy;
@@ -15,10 +14,10 @@ use App\Domain\Catalog\ValueObjects\Title\ExternalId;
 use App\Domain\Catalog\ValueObjects\Title\TitleRating;
 use DateTimeImmutable;
 
-final readonly class TitleDto
+final readonly class Title
 {
     /**
-     * @param list<TitleAttributeDto> $attributes
+     * @param list<TitleAttribute> $attributes
      */
     public function __construct(
         public ?int               $id,
