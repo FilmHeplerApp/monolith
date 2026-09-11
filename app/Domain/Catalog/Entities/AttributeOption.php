@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace App\Domain\Catalog\DTOs\AttributeOption;
+namespace App\Domain\Catalog\Entities;
 
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use DateTimeImmutable;
 
-final readonly class AttributeOptionDto
+final readonly class AttributeOption
 {
     public function __construct(
         public ?int               $id,

@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace App\Domain\Catalog\DTOs\TitleAttribute;
+namespace App\Domain\Catalog\Entities;
 
 use App\Domain\Catalog\ValueObjects\TitleAttribute\AttributeValue;
 use DateTimeImmutable;
 
-final readonly class TitleAttributeDto
+final readonly class TitleAttribute
 {
     public function __construct(
         public ?int $id,
