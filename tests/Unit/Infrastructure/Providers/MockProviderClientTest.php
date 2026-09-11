@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Infrastructure\Providers;
 
-use App\Domain\Import\Enums\ProviderSource;
-use App\Domain\Import\Exceptions\ProviderRateLimitedException;
-use App\Domain\Import\Exceptions\ProviderUnavailableException;
-use App\Domain\Import\ValueObjects\ProviderTitle;
+use App\Application\Import\DTO\ProviderTitle;
+use App\Application\Import\Enums\ProviderSource;
+use App\Application\Import\Exceptions\ProviderRateLimitedException;
+use App\Application\Import\Exceptions\ProviderUnavailableException;
 use App\Infrastructure\Providers\Mock\MockProviderClient;
 use PHPUnit\Framework\TestCase;
 

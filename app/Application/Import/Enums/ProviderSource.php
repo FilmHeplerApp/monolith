@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Domain\Import\Enums;
+namespace App\Application\Import\Enums;
 
 enum ProviderSource: string
 {

@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\Domain\Import\Contracts;
+namespace App\Application\Import\Contracts;
 
-use App\Domain\Import\Enums\ProviderSource;
-use App\Domain\Import\ValueObjects\ProviderTitle;
+use App\Application\Import\DTO\ProviderTitle;
+use App\Application\Import\Enums\ProviderSource;
 
 interface ProviderClientInterface
 {

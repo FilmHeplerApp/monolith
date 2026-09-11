@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Domain\Import\Exceptions;
+namespace App\Application\Import\Exceptions;
 
-use App\Domain\Import\Enums\ProviderSource;
+use App\Application\Import\Enums\ProviderSource;
 use Throwable;
 
 final class ProviderRateLimitedException extends ProviderException

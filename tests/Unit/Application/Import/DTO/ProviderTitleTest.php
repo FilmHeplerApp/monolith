@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Tests\Unit\Domain\Import\ValueObjects;
+namespace Tests\Unit\Application\Import\DTO;
 
-use App\Domain\Import\Enums\ProviderSource;
-use App\Domain\Import\ValueObjects\ProviderTitle;
+use App\Application\Import\DTO\ProviderTitle;
+use App\Application\Import\Enums\ProviderSource;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -64,7 +64,7 @@ final class ProviderTitleTest extends TestCase
         ];
     }
 
-    /**  @param list<string> $genres */
+    /** @param list<string> $genres */
     private static function makeTitle(
         ProviderSource $source = ProviderSource::Mock,
         string $externalId = '5114',

@@ -4,20 +4,21 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Providers\Mock;
 
-use App\Domain\Import\Contracts\ProviderClientInterface;
-use App\Domain\Import\Enums\ProviderSource;
-use App\Domain\Import\Exceptions\ProviderException;
-use App\Domain\Import\ValueObjects\ProviderTitle;
+use App\Application\Import\Contracts\ProviderClientInterface;
+use App\Application\Import\DTO\ProviderTitle;
+use App\Application\Import\Enums\ProviderSource;
+use App\Application\Import\Exceptions\ProviderException;
 
 final class MockProviderClient implements ProviderClientInterface
 {
     /** @var list<ProviderTitle> */
     private array $titles;
+
     private ?ProviderException $failure = null;
+
     private int $failAfter = 0;
 
-
-    /** @param  list<ProviderTitle>|null  $titles */
+    /** @param list<ProviderTitle>|null $titles */
     public function __construct(?array $titles = null)
     {
         $this->titles = $titles ?? self::defaultFixtures();
@@ -60,7 +61,6 @@ final class MockProviderClient implements ProviderClientInterface
         $this->failure = $exception;
         $this->failAfter = $afterItems;
     }
-
 
     /** @return list<ProviderTitle> */
     private static function defaultFixtures(): array
