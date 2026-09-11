@@ -18,16 +18,6 @@ final class InvalidCatalogValueException extends InvalidArgumentException
         return new self(sprintf('External id "%s" is not a valid UUID.', $value));
     }
 
-    public static function emptyAttributeCode(): self
-    {
-        return new self('Attribute code must not be empty.');
-    }
-
-    public static function invalidAttributeCode(string $value): self
-    {
-        return new self(sprintf('Attribute code "%s" has an invalid format.', $value));
-    }
-
     public static function nonPositiveDuration(int $minutes): self
     {
         return new self(sprintf('Duration must be positive, got %d.', $minutes));
