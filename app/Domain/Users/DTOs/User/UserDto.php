@@ -11,9 +11,9 @@ use DateTimeImmutable;
 final readonly class UserDto
 {
     public function __construct(
-        public ?int $id,
-        public string $name,
-        public Email $email,
+        public ?int               $id,
+        public string             $name,
+        public Email              $email,
         public ?DateTimeImmutable $emailVerifiedAt = null,
         public ?DateTimeImmutable $createdAt = null,
         public ?DateTimeImmutable $updatedAt = null,

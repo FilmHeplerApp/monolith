@@ -11,8 +11,8 @@ final class ProviderUnavailableException extends ProviderException
 {
     public function __construct(
         public readonly ProviderSource $source,
-        string $message = '',
-        ?Throwable $previous = null,
+        string                         $message = '',
+        ?Throwable                     $previous = null,
     ) {
         parent::__construct(
             $message !== '' ? $message : "Provider {$source->value} is unavailable.",

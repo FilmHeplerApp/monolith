@@ -56,10 +56,10 @@ class TitleAttribute extends Model
     protected function casts(): array
     {
         return [
-            self::FIELD_TITLE_ID => 'integer',
-            self::FIELD_ATTRIBUTE_ID => 'integer',
-            self::FIELD_VALUE_ARRAY => 'array',
-            self::FIELD_VALUE_NUMBER => 'float',
+            self::FIELD_TITLE_ID      => 'integer',
+            self::FIELD_ATTRIBUTE_ID  => 'integer',
+            self::FIELD_VALUE_ARRAY   => 'array',
+            self::FIELD_VALUE_NUMBER  => 'float',
             self::FIELD_VALUE_BOOLEAN => 'boolean',
         ];
     }
