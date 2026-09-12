@@ -2,9 +2,9 @@
 
 namespace Database\Factories;
 
-use App\Infrastructure\Persistence\Eloquent\Models\AttributeDefinition;
-use App\Infrastructure\Persistence\Eloquent\Models\Title;
-use App\Infrastructure\Persistence\Eloquent\Models\TitleAttribute;
+use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeDefinition;
+use App\Infrastructure\Persistence\Eloquent\Models\Catalog\Title;
+use App\Infrastructure\Persistence\Eloquent\Models\Catalog\TitleAttribute;
 use Illuminate\Database\Eloquent\Factories\Attributes\UseModel;
 use Illuminate\Database\Eloquent\Factories\Factory;
 

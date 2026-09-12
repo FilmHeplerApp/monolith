@@ -7,8 +7,9 @@ namespace Tests\Unit\Domain\Catalog\ValueObjects\Title;
 use App\Domain\Catalog\Exceptions\InvalidCatalogValueException;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use App\Domain\Catalog\ValueObjects\Title\Embedding;
-use App\Domain\Catalog\ValueObjects\Title\ExternalId;
+use App\Domain\Catalog\ValueObjects\Title\TitleCanonicalKey;
 use App\Domain\Catalog\ValueObjects\Title\TitleRating;
+use App\Domain\Catalog\ValueObjects\Title\TitleUuid;
 use App\Domain\Catalog\ValueObjects\TitleAttribute\AttributeValue;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -16,19 +17,35 @@ use PHPUnit\Framework\TestCase;
 final class CatalogValueObjectsTest extends TestCase
 {
     #[Test]
-    public function external_id_normalizes_uuid(): void
+    public function uuid_normalizes_value(): void
     {
-        $id = ExternalId::createFromString('018FE2F8-0A2E-7A42-B0A7-6F6F5B0F0F13');
+        $id = TitleUuid::createFromString('018FE2F8-0A2E-7A42-B0A7-6F6F5B0F0F13');
 
         $this->assertSame('018fe2f8-0a2e-7a42-b0a7-6f6f5b0f0f13', $id->getValue());
     }
 
     #[Test]
-    public function external_id_rejects_invalid_uuid(): void
+    public function uuid_rejects_invalid_value(): void
     {
         $this->expectException(InvalidCatalogValueException::class);
 
-        ExternalId::createFromString('not-a-uuid');
+        TitleUuid::createFromString('not-a-uuid');
+    }
+
+    #[Test]
+    public function canonical_key_trims_value(): void
+    {
+        $key = TitleCanonicalKey::createFromString('  naruto|anime|2002  ');
+
+        $this->assertSame('naruto|anime|2002', $key->getValue());
+    }
+
+    #[Test]
+    public function canonical_key_rejects_empty_value(): void
+    {
+        $this->expectException(InvalidCatalogValueException::class);
+
+        TitleCanonicalKey::createFromString('   ');
     }
 
     #[Test]

@@ -5,7 +5,7 @@ namespace Database\Factories;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\Enums\Title\TitleStatus;
 use App\Domain\Catalog\Enums\Title\TitleUpdatedBy;
-use App\Infrastructure\Persistence\Eloquent\Models\Title;
+use App\Infrastructure\Persistence\Eloquent\Models\Catalog\Title;
 use Database\Factories\Fixtures\TitleFixture;
 use Illuminate\Database\Eloquent\Factories\Attributes\UseModel;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -21,7 +21,8 @@ class TitleFactory extends Factory
     public function definition(): array
     {
         return [
-            Title::FIELD_EXTERNAL_ID => fake()->uuid(),
+            Title::FIELD_UUID => fake()->uuid(),
+            Title::FIELD_CANONICAL_KEY => fake()->unique()->bothify('canonical-????-####'),
             Title::FIELD_TITLE_RU => $this->generateRuTitle(),
             Title::FIELD_TITLE_EN => fake(self::EN_LOCALE)->title,
             Title::FIELD_DESCRIPTION_RU => fake()->randomElement(TitleFixture::RU_DESCRIPTIONS),
@@ -38,7 +39,6 @@ class TitleFactory extends Factory
             Title::FIELD_UPDATED_BY => fake()->randomElement(TitleUpdatedBy::cases()),
         ];
     }
-
 
     private function generateEmbedding(): array
     {

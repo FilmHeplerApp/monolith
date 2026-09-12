@@ -1,10 +1,11 @@
 <?php
 
-namespace App\Infrastructure\Persistence\Eloquent\Models;
+namespace App\Infrastructure\Persistence\Eloquent\Models\Catalog;
 
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\Enums\Title\TitleStatus;
 use App\Domain\Catalog\Enums\Title\TitleUpdatedBy;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -12,7 +13,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * @property int $id
- * @property string $external_id
+ * @property string $uuid
+ * @property string $canonical_key
  * @property string $title_ru
  * @property string|null $title_en
  * @property string|null $description_ru
@@ -31,9 +33,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $rating_count
  * @property array|null $embedding
  * @property string $updated_by
- * @property \Carbon\Carbon|null $created_at
- * @property \Carbon\Carbon|null $updated_at
- *
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  * @property-read Collection<int, TitleAttribute> $attributes
  */
 class Title extends Model
@@ -43,7 +44,8 @@ class Title extends Model
 
     public const string TABLE_NAME = 'titles';
     public const string FIELD_ID = 'id';
-    public const string FIELD_EXTERNAL_ID = 'external_id';
+    public const string FIELD_UUID = 'uuid';
+    public const string FIELD_CANONICAL_KEY = 'canonical_key';
     public const string FIELD_TITLE_RU = 'title_ru';
     public const string FIELD_TITLE_EN = 'title_en';
     public const string FIELD_DESCRIPTION_RU = 'description_ru';
@@ -59,11 +61,13 @@ class Title extends Model
     public const string FIELD_EMBEDDING = 'embedding';
     public const string FIELD_UPDATED_BY = 'updated_by';
     public const string FIELD_CREATED_AT = 'created_at';
+    public const string FIELD_UPDATED_AT = 'updated_at';
     public const string FIELD_DELETED_AT = 'deleted_at';
 
     protected $fillable = [
         self::FIELD_ID,
-        self::FIELD_EXTERNAL_ID,
+        self::FIELD_UUID,
+        self::FIELD_CANONICAL_KEY,
         self::FIELD_TITLE_RU,
         self::FIELD_TITLE_EN,
         self::FIELD_DESCRIPTION_RU,
@@ -79,6 +83,7 @@ class Title extends Model
         self::FIELD_EMBEDDING,
         self::FIELD_UPDATED_BY,
         self::FIELD_CREATED_AT,
+        self::FIELD_UPDATED_AT,
         self::FIELD_DELETED_AT,
     ];
 

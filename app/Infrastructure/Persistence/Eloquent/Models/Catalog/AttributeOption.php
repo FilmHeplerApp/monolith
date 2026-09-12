@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Infrastructure\Persistence\Eloquent\Models;
+namespace App\Infrastructure\Persistence\Eloquent\Models\Catalog;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -25,7 +25,9 @@ class AttributeOption extends Model
     public const string FIELD_VALUE_RU = 'value_ru';
     public const string FIELD_VALUE_EN = 'value_en';
     public const string FIELD_CREATED_AT = 'created_at';
+    public const string FIELD_UPDATED_AT = 'updated_at';
     public const string FIELD_DELETED_AT = 'deleted_at';
+
 
     protected $fillable = [
         self::FIELD_ID,
@@ -33,6 +35,7 @@ class AttributeOption extends Model
         self::FIELD_VALUE_RU,
         self::FIELD_VALUE_EN,
         self::FIELD_CREATED_AT,
+        self::FIELD_UPDATED_AT,
         self::FIELD_DELETED_AT,
     ];
 }

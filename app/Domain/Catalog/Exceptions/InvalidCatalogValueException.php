@@ -8,14 +8,19 @@ use InvalidArgumentException;
 
 final class InvalidCatalogValueException extends InvalidArgumentException
 {
-    public static function emptyExternalId(): self
+    public static function emptyCanonicalKey(): self
     {
-        return new self('External id must not be empty.');
+        return new self('Title canonical key must not be empty.');
     }
 
-    public static function invalidExternalId(string $value): self
+    public static function emptyUuid(): self
     {
-        return new self(sprintf('External id "%s" is not a valid UUID.', $value));
+        return new self('Title uuid must not be empty.');
+    }
+
+    public static function invalidUuid(string $value): self
+    {
+        return new self(sprintf('Title uuid "%s" is not a valid UUID.', $value));
     }
 
     public static function nonPositiveDuration(int $minutes): self

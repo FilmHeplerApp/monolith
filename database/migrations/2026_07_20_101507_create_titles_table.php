@@ -30,7 +30,8 @@ return new class extends Migration {
     {
         Schema::create('titles', function (Blueprint $table) {
             $table->id();
-            $table->uuid('external_id')->index();
+            $table->uuid()->unique();
+            $table->string('canonical_key')->unique();
             $table->string('title_ru')->nullable();
             $table->string('title_en')->nullable();
             $table->text('description_ru')->nullable();
