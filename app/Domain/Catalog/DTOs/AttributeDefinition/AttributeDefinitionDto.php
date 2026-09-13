@@ -6,7 +6,7 @@ namespace App\Domain\Catalog\DTOs\AttributeDefinition;
 
 use App\Domain\Catalog\DTOs\AttributeOption\AttributeOptionDto;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
-use App\Domain\Catalog\ValueObjects\AttributeDefinition\AttributeValueType;
+use App\Domain\Catalog\Enums\AttributeDefinition\AttributeValueType;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use DateTimeImmutable;
 

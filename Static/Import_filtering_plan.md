@@ -119,6 +119,9 @@ API (`released`, `tv`). Плюс отдельный Python-процесс в PHP
 | 3.9 | Жанр **не входит** в `dedup_key` | Жанры меняются между прогонами -> ключ поехал бы -> дубль на upsert |
 | 3.10 | Граница с задачей 6.3.3 — интерфейс `CatalogBatchSaver` + DTO | Не сериализованный джоб: пачка не гоняется через Redis, переезд на джоб позже — замена реализации |
 | 3.11 | Полный дамп — в `storage/app/import/` под gitignore; в `tests/Fixtures/` — курированный срез 300–500 записей | 26 МБ в git означает новый блоб при каждой перевыгрузке |
+| 3.12 | Фундамент `Domain/Catalog` построен: `Title*` enum/VO, `LocalizedText`, `AttributeValue`, EAV-DTO. Фильтр целится в него | Реализация модели ТЗ 7.1.2–7.1.8 (наш разбор полей) |
+| 3.13 | Слои по ревью абстракций: `ProviderTitle` + нормализация/маппинг/мерджер — в `Application`; `Domain/Import` = правила над `TitleCandidate` + доменные сервисы `ImportFilterEngine` и `TitleKeyFactory` (чистые, без `ProviderTitle`/I/O) | `Domain` не зависит от `Application`; движок и фабрика ключей не касаются `ProviderTitle`, значит их место в `Domain` |
+| 3.14 | Два семейства DTO: `Domain/Catalog/DTOs` (числовые id) — для сохранения/чтения (6.3.3); `Application/Import/DTOs/Prepared*` (натуральные ключи) — выход фильтра | До сохранения числовых id нет (см. 4.4); смешивать нельзя |
 
 ---
 
@@ -256,30 +259,59 @@ dedup_key = sha1(natural)
 
 ```text
 app/
-├─ Domain/Import/
-│  ├─ Contracts/     ImportFilterRule, CatalogReferenceProvider, CatalogBatchSaver
-│  ├─ ValueObjects/  TitleKey, ProviderExternalId, AttributeRegistry, FilterDecision
-│  ├─ Services/      TitleNormalizer, TitleKeyFactory, AttributeValueResolver,
-│  │                 ImportFilterEngine, ProviderTitleMerger
+├─ Domain/Catalog/                        [ФУНДАМЕНТ УЖЕ ПОСТРОЕН на этой ветке]
+│  ├─ Enums/Title/                         TitleContentType, TitleStatus, TitleUpdatedBy
+│  ├─ Enums/AttributeDefinition/           AttributeValueType (enum)
+│  ├─ ValueObjects/Title/                  ExternalId (UUID тайтла), Duration, TitleRating, Embedding
+│  ├─ ValueObjects/Shared/                 LocalizedText (ru/en)
+│  ├─ ValueObjects/TitleAttribute/         AttributeValue (text|array|number|boolean)
+│  ├─ DTOs/                                TitleDto, TitleAttributeDto, AttributeDefinitionDto,
+│  │                                       AttributeOptionDto  — persistence/read-модель (числовые id)
+│  └─ Exceptions/                          InvalidCatalogValueException
+│
+├─ Domain/Import/                          [бизнес-правила + доменные сервисы, на TitleCandidate]
+│  ├─ ValueObjects/  TitleCandidate, TitleKey, FilterDecision
+│  ├─ Contracts/     ImportFilterRuleContract, CatalogReferenceProvider
+│  ├─ Services/      TitleKeyFactory (идентичность), ImportFilterEngine (агрегация вердиктов правил)
 │  ├─ Rules/         HasAnyTitleRule, AllowedContentTypeRule, MinReleaseYearRule,
-│  │                 MinProviderScoreRule, CompletenessRule
-│  ├─ Enums/         RejectionReason, CandidateOutcome
-│  └─ Exceptions/
-├─ Application/Import/
-│  ├─ DTOs/          PreparedCatalogBatch, PreparedTitleDto,
-│  │                 PreparedAttributeDefinitionDto, PreparedAttributeOptionDto,
-│  │                 PreparedTitleAttributeDto, RejectedTitleDto, FilterReport
+│  │                 MinProviderScoreRule, CompletenessRule   (работают на TitleCandidate)
+│  └─ Enums/         RejectionReason, CandidateOutcome
+│
+├─ Application/Import/                      [сценарий импорта; ЗНАЕТ про ProviderTitle]
+│  ├─ Contracts/     ProviderClientInterface, CatalogBatchSaver
+│  ├─ DTO/           ProviderTitle                    (перенесён из абстракций по ревью)
+│  ├─ DTOs/Prepared/ PreparedCatalogBatch, PreparedTitleDto, PreparedAttributeDefinitionDto,
+│  │                 PreparedAttributeOptionDto, PreparedTitleAttributeDto,
+│  │                 RejectedTitleDto, FilterReport   — ВЫХОД фильтра (натуральные ключи)
+│  ├─ Services/      ProviderTitleNormalizer, ProviderTitleMapper (ProviderTitle -> TitleCandidate),
+│  │                 ProviderTitleMerger, AttributeRegistry
 │  ├─ UseCases/      FilterProviderTitlesHandler
 │  └─ Jobs/          FilterProviderBatchJob
+│
 ├─ Infrastructure/
-│  ├─ Providers/Shikimori/   транспорт + адаптер ProviderClientInterface
-│  └─ Persistence/Eloquent/Repositories/  EloquentCatalogReferenceProvider
-└─ Interfaces/Console/Commands/           DumpShikimoriCatalogCommand, ImportAnimeCommand
+│  ├─ Providers/Shikimori/                 транспорт + адаптер -> ProviderClientInterface
+│  └─ Persistence/Eloquent/Repositories/   EloquentCatalogReferenceProvider
+└─ Interfaces/Console/Commands/            DumpShikimoriCatalogCommand, ImportAnimeCommand
 ```
 
-`Domain/Import` не тянет `DB`, `Model`, `Cache`, `Http` — работа со справочниками
-только через порт `CatalogReferenceProvider`. Конфиг фильтров читается в
-`Application` и передаётся в правила конструктором.
+Главное изменение против прежней версии плана (по ревью абстракций):
+
+- `ProviderTitle`, нормализация, маппинг и мерджер — **в `Application`**:
+  они держат в руках `ProviderTitle`, а он теперь в `Application`, и `Domain` не может от него зависеть;
+- в `Domain/Import` — **чистые правила** над `TitleCandidate` плюс доменные сервисы
+  `ImportFilterEngine` (агрегация вердиктов) и `TitleKeyFactory` (идентичность): они не касаются
+  `ProviderTitle` и не делают I/O, значит их место в `Domain`. `TitleCandidate` собирает из
+  `ProviderTitle` маппер (`Application`); правило отвечает «валидно / невалидно / флаг», не зная про провайдера;
+- целевая модель (`Title*` VO/enum, атрибуты) — в `Domain/Catalog`, **уже построена**.
+
+`Domain` не тянет `DB`, `Model`, `Cache`, `Http`; справочники — только через порт
+`CatalogReferenceProvider`. Конфиг фильтров читается в `Application` и передаётся в правила
+конструктором.
+
+**Два семейства DTO (не путать):**
+
+- `Domain/Catalog/DTOs/*` — числовые `id` + таймстемпы: read/write-модель для **сохранения** (6.3.3) и чтения из БД;
+- `Application/Import/DTOs/Prepared*` — на **натуральных ключах**: **выход фильтра**, числовых id ещё нет (см. 4.4).
 
 ---
 
@@ -312,6 +344,9 @@ iterable<ProviderTitle>
    с флагом, а не отбрасываются.
 3. **Никаких HTTP-вызовов внутри фильтрации.** Постеры и эмбеддинги — отдельные
    джобы после сохранения.
+4. **`Domain` не зависит от `Application`.** `ProviderTitle` живёт в `Application`,
+   поэтому правила работают не на нём, а на доменном `TitleCandidate`, который собирает
+   `ProviderTitleMapper` (Application). Нормализация и мерж — тоже Application (раздел 7).
 
 ---
 
@@ -353,25 +388,34 @@ iterable<ProviderTitle>
 **Зачем:** фундамент идентичности. Без UNIQUE-индекса `ON CONFLICT` не существует,
 без разделения рейтингов импорт затрёт пользовательские оценки.
 
-### Этап 4. Расширение контракта провайдера
+### Этап 4. Контракт провайдера (`ProviderTitle`)
 
 - [ ] Довести `ProviderTitle` до реальных данных Shikimori: RU/EN названия, описание, `kind`, `status`, год, жанры с разделением по `kind`, студии массивом, `malId`, `updatedAt`
-- [ ] Добавить non-throwing фабрику рядом с конструктором
+- [ ] Non-throwing фабрика рядом с конструктором (пачка в 10k не должна падать на одной кривой записи)
 
-**Зачем:** нынешний `ProviderTitle` имеет плоский `genres: array` без разделения
-на жанр/демографию/тему и не знает про второй внешний id.
-**Зависимость:** требует влитой ветки `abstract_provider_clients`.
+**Где живёт:** `Application/Import/DTO/ProviderTitle` — по ревью абстракций перенесён из `Domain` в `Application`; доменный фильтр его не принимает (раздел 7).
+**Зависимость:** перенос сделан на ветке `abstract_provider_clients` и сюда ещё не влит — на этой ветке `app/Application/Import` пуст. До мержа разработка идёт на фикстуре и `TitleCandidate`.
 
-### Этап 5. Доменное ядро фильтрации — основной объём
+### Этап 5. Ядро фильтрации — основной объём
 
-- [ ] `TitleNormalizer` — BBCode, HTML, обрезка, пробелы
-- [ ] `TitleKeyFactory` — детерминированный `dedup_key`
-- [ ] `ImportFilterRule` + `ImportFilterEngine` + набор правил
-- [ ] `AttributeRegistry`
+Разнесено по слоям (раздел 7):
+
+**Domain/Import — чистые правила и сервисы на `TitleCandidate`:**
+
+- [x] `TitleCandidate`, `FilterDecision`, `RejectionReason`, `CandidateOutcome`
+- [x] `ImportFilterRuleContract` + правила: `HasAnyTitleRule`, `AllowedContentTypeRule`, `MinReleaseYearRule`, `MinProviderScoreRule`, `CompletenessRule`
+- [x] `TitleKeyFactory` — детерминированный `dedup_key` (идентичность)
+- [x] `ImportFilterEngine` — агрегация вердиктов правил (reject > flag > accept)
+
+**Application/Import — знает про `ProviderTitle`:**
+
+- [ ] `ProviderTitleNormalizer` — BBCode, HTML, обрезка, пробелы
+- [ ] `ProviderTitleMapper` — `ProviderTitle` -> `TitleCandidate` (non-throwing)
 - [ ] `ProviderTitleMerger` — приоритет провайдеров
+- [ ] `AttributeRegistry` — реестр справочников в памяти
 
-**Зачем:** ~90% смысла задачи, чистый PHP без Laravel, БД и сети. Покрывается
-быстрыми юнит-тестами, отлаживается на фикстуре из этапа 2.
+**Зачем:** ~90% смысла задачи, чистый PHP без БД и сети; быстрые юнит-тесты на фикстуре из этапа 2.
+**Готово:** фундамент `Domain/Catalog` (VO/enum/DTO) уже на ветке — маппер и правила целятся в него.
 
 ### Этап 6. Адаптеры провайдера
 
@@ -498,6 +542,8 @@ genres      100.0%
 | Порог по популярности | значение `provider_score` и `provider_score_count` | Нужно бизнес-решение |
 | Минимальный год | ТЗ предлагает 1990 | Подтвердить |
 | Приоритет провайдеров при merge | порядок источников | Пока источник один, но правило должно быть детерминированным заранее |
+| **Баг в коде:** `ValueObjects/AttributeDefinition/AttributeValueType` сломан | копипаста VO кода атрибута: валидирует регэкспом кода + зовёт `self::tryFrom()` на не-enum (фатал) | **Fix:** в `AttributeDefinitionDto.type` брать enum `Enums/AttributeDefinition/AttributeValueType`, битый VO удалить |
+| Где именно правила приёмки | Domain (на `TitleCandidate`) / Application (проще) | Принято Domain — «как обсуждали»; Application проще, если решишь упростить |
 
 ---
 
