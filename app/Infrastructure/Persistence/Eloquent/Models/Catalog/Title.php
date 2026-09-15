@@ -21,6 +21,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string|null $description_en
  * @property string|null $short_plot_ru
  * @property int|null $duration
+ * @property int|null $release_year
  * @property string $type
  * @property string $status
  * @property string|null $poster_url
@@ -32,6 +33,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property float $rating_avg
  * @property int $rating_count
  * @property array|null $embedding
+ * @property bool $is_incomplete
  * @property string $updated_by
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
@@ -52,6 +54,7 @@ class Title extends Model
     public const string FIELD_DESCRIPTION_EN = 'description_en';
     public const string FIELD_SHORT_PLOT_RU = 'short_plot_ru';
     public const string FIELD_DURATION = 'duration';
+    public const string FIELD_RELEASE_YEAR = 'release_year';
     public const string FIELD_TYPE = 'type';
     public const string FIELD_STATUS = 'status';
     public const string FIELD_POSTER_URL = 'poster_url';
@@ -59,6 +62,7 @@ class Title extends Model
     public const string FIELD_RATING_AVG = 'rating_avg';
     public const string FIELD_RATING_COUNT = 'rating_count';
     public const string FIELD_EMBEDDING = 'embedding';
+    public const string FIELD_IS_INCOMPLETE = 'is_incomplete';
     public const string FIELD_UPDATED_BY = 'updated_by';
     public const string FIELD_CREATED_AT = 'created_at';
     public const string FIELD_UPDATED_AT = 'updated_at';
@@ -74,6 +78,7 @@ class Title extends Model
         self::FIELD_DESCRIPTION_EN,
         self::FIELD_SHORT_PLOT_RU,
         self::FIELD_DURATION,
+        self::FIELD_RELEASE_YEAR,
         self::FIELD_TYPE,
         self::FIELD_STATUS,
         self::FIELD_POSTER_URL,
@@ -81,6 +86,7 @@ class Title extends Model
         self::FIELD_RATING_AVG,
         self::FIELD_RATING_COUNT,
         self::FIELD_EMBEDDING,
+        self::FIELD_IS_INCOMPLETE,
         self::FIELD_UPDATED_BY,
         self::FIELD_CREATED_AT,
         self::FIELD_UPDATED_AT,
@@ -94,6 +100,8 @@ class Title extends Model
             self::FIELD_STATUS => TitleStatus::class,
             self::FIELD_EMBEDDING => 'array',
             self::FIELD_RATING_AVG => 'float',
+            self::FIELD_RELEASE_YEAR => 'integer',
+            self::FIELD_IS_INCOMPLETE => 'boolean',
             self::FIELD_UPDATED_BY => TitleUpdatedBy::class,
         ];
     }

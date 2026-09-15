@@ -38,6 +38,7 @@ return new class extends Migration {
             $table->text('description_en')->nullable();
             $table->text('short_plot_ru')->nullable();
             $table->unsignedInteger('duration')->nullable();
+            $table->unsignedSmallInteger('release_year')->nullable();
             $table->enum('type', self::CONTENT_TYPE_CODES);
             $table->enum('status', self::STATUSES);
             $table->string('poster_url')->nullable();
@@ -45,6 +46,7 @@ return new class extends Migration {
             $table->decimal('rating_avg', self::RATING_AVG_TOTAL)->default(self::ZERO_VALUE);
             $table->unsignedInteger('rating_count')->default(self::ZERO_VALUE);
             $table->vector('embedding', self::EMBEDDING_DIMENSION)->vectorIndex()->nullable();
+            $table->boolean('is_incomplete')->default(false);
             $table->enum('updated_by', self::UPDATED_BY)->default('process');
             $table->timestamp('updated_at')->nullable();
             $table->timestamp('created_at')->nullable();

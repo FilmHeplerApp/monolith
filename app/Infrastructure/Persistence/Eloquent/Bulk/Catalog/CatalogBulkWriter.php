@@ -4,20 +4,21 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Persistence\Eloquent\Bulk\Catalog;
 
+use App\Application\Catalog\Contracts\CatalogBulkWriterContract;
 use App\Application\Catalog\DTOs\AttributeOptionData;
 use App\Application\Catalog\DTOs\PreparedCatalogDto;
 use App\Application\Catalog\DTOs\TitleAttributeData;
-
 use Illuminate\Support\Facades\DB;
 
-readonly class CatalogBulkWriter implements \App\Application\Catalog\Contracts\CatalogBulkWriter
+readonly class CatalogBulkWriter implements CatalogBulkWriterContract
 {
     public function __construct(
-        private TitleBulkWriter $titleBulkWriter,
-        private TitleAttributeBulkWriter $titleAttributeBulkWriter,
+        private TitleBulkWriter               $titleBulkWriter,
+        private TitleAttributeBulkWriter      $titleAttributeBulkWriter,
         private AttributeDefinitionBulkWriter $attributeDefinitionBulkWriter,
-        private AttributeOptionBulkWriter $attributeOptionBulkWriter,
-    ) {}
+        private AttributeOptionBulkWriter     $attributeOptionBulkWriter,
+    ) {
+    }
 
     public function write(PreparedCatalogDto $preparedCatalogDto): void
     {
@@ -25,7 +26,7 @@ readonly class CatalogBulkWriter implements \App\Application\Catalog\Contracts\C
             $this->attributeDefinitionBulkWriter->write($preparedCatalogDto->attributeDefinitions);
 
             $definitionIdsByCode = $this->attributeDefinitionBulkWriter->getDefinitionIdsByCodes(
-                $this->definitionCodes($preparedCatalogDto),
+                $this->getDefinitionCodes($preparedCatalogDto),
             );
 
             $this->attributeOptionBulkWriter->write(
@@ -37,7 +38,7 @@ readonly class CatalogBulkWriter implements \App\Application\Catalog\Contracts\C
 
             $this->titleAttributeBulkWriter->write(
                 $preparedCatalogDto->titleAttributes,
-                $this->titleBulkWriter->getTitleIdsByUuids($this->titleUuids($preparedCatalogDto)),
+                $this->titleBulkWriter->getTitleIdsByCanonicalKeys($this->getTitleCanonicalKeys($preparedCatalogDto)),
                 $definitionIdsByCode,
             );
         });
@@ -47,7 +48,7 @@ readonly class CatalogBulkWriter implements \App\Application\Catalog\Contracts\C
     /**
      * @return list<string>
      */
-    private function definitionCodes(PreparedCatalogDto $preparedCatalogDto): array
+    private function getDefinitionCodes(PreparedCatalogDto $preparedCatalogDto): array
     {
         $codes = array_map(
             static fn (AttributeOptionData $option): string => $option->attributeCode,
@@ -64,10 +65,10 @@ readonly class CatalogBulkWriter implements \App\Application\Catalog\Contracts\C
     /**
      * @return list<string>
      */
-    private function titleUuids(PreparedCatalogDto $preparedCatalogDto): array
+    private function getTitleCanonicalKeys(PreparedCatalogDto $preparedCatalogDto): array
     {
         return array_map(
-            static fn (TitleAttributeData $titleAttribute): string => $titleAttribute->titleUuid->getValue(),
+            static fn (TitleAttributeData $titleAttribute): string => $titleAttribute->titleCanonicalKey->getValue(),
             $preparedCatalogDto->titleAttributes,
         );
     }

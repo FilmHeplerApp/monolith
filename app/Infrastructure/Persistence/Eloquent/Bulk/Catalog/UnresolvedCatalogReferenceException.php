@@ -13,8 +13,8 @@ final class UnresolvedCatalogReferenceException extends RuntimeException
         return new self(sprintf('Attribute definition "%s" was not found for bulk write.', $code));
     }
 
-    public static function title(string $uuid): self
+    public static function title(string $canonicalKey): self
     {
-        return new self(sprintf('Title "%s" was not found for bulk write.', $uuid));
+        return new self(sprintf('Title "%s" was not found for bulk write.', $canonicalKey));
     }
 }

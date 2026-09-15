@@ -7,6 +7,7 @@ namespace Tests\Unit\Domain\Catalog\ValueObjects\Title;
 use App\Domain\Catalog\Exceptions\InvalidCatalogValueException;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use App\Domain\Catalog\ValueObjects\Title\Embedding;
+use App\Domain\Catalog\ValueObjects\Title\ReleaseYear;
 use App\Domain\Catalog\ValueObjects\Title\TitleCanonicalKey;
 use App\Domain\Catalog\ValueObjects\Title\TitleRating;
 use App\Domain\Catalog\ValueObjects\Title\TitleUuid;
@@ -56,6 +57,35 @@ final class CatalogValueObjectsTest extends TestCase
         $this->assertSame('Название', $text?->getPreferred('ru'));
         $this->assertNull(LocalizedText::create(null, null));
         $this->assertNull(LocalizedText::create('  ', null));
+    }
+
+    #[Test]
+    public function release_year_returns_null_when_year_is_null(): void
+    {
+        $this->assertNull(ReleaseYear::createFromYear(null));
+    }
+
+    #[Test]
+    public function release_year_accepts_value_inside_range(): void
+    {
+        $this->assertSame(ReleaseYear::MIN_YEAR, ReleaseYear::createFromYear(ReleaseYear::MIN_YEAR)->getYear());
+        $this->assertSame(ReleaseYear::MAX_YEAR, ReleaseYear::createFromYear(ReleaseYear::MAX_YEAR)->getYear());
+    }
+
+    #[Test]
+    public function release_year_rejects_value_below_range(): void
+    {
+        $this->expectException(InvalidCatalogValueException::class);
+
+        ReleaseYear::createFromYear(ReleaseYear::MIN_YEAR - 1);
+    }
+
+    #[Test]
+    public function release_year_rejects_value_above_range(): void
+    {
+        $this->expectException(InvalidCatalogValueException::class);
+
+        ReleaseYear::createFromYear(ReleaseYear::MAX_YEAR + 1);
     }
 
     #[Test]

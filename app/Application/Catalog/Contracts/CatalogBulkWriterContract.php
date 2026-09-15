@@ -6,7 +6,7 @@ namespace App\Application\Catalog\Contracts;
 
 use App\Application\Catalog\DTOs\PreparedCatalogDto;
 
-interface CatalogBulkWriter
+interface CatalogBulkWriterContract
 {
     public function write(PreparedCatalogDto $preparedCatalogDto): void;
 }

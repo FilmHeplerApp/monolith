@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domain\Catalog\Exceptions;
 
+use App\Domain\Catalog\ValueObjects\Title\ReleaseYear;
 use InvalidArgumentException;
 
 final class InvalidCatalogValueException extends InvalidArgumentException
@@ -26,6 +27,16 @@ final class InvalidCatalogValueException extends InvalidArgumentException
     public static function nonPositiveDuration(int $minutes): self
     {
         return new self(sprintf('Duration must be positive, got %d.', $minutes));
+    }
+
+    public static function releaseYearOutOfRange(int $year): self
+    {
+        return new self(sprintf(
+            'Release year must be between %d and %d, got %d.',
+            ReleaseYear::MIN_YEAR,
+            ReleaseYear::MAX_YEAR,
+            $year,
+        ));
     }
 
     public static function ratingOutOfRange(float $average): self

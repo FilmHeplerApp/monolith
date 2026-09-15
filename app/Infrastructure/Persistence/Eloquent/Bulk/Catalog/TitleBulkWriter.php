@@ -26,19 +26,20 @@ class TitleBulkWriter
         foreach (array_chunk($titleData, self::CHUNK_SIZE) as $dtoChunk) {
             DB::table(Title::TABLE_NAME)->upsert(
                 $this->unpackTitleData($dtoChunk, $now),
-                [Title::FIELD_UUID],
+                [Title::FIELD_CANONICAL_KEY],
                 [
-                    Title::FIELD_CANONICAL_KEY,
                     Title::FIELD_TITLE_RU,
                     Title::FIELD_TITLE_EN,
                     Title::FIELD_DESCRIPTION_RU,
                     Title::FIELD_DESCRIPTION_EN,
                     Title::FIELD_SHORT_PLOT_RU,
                     Title::FIELD_DURATION,
+                    Title::FIELD_RELEASE_YEAR,
                     Title::FIELD_TYPE,
                     Title::FIELD_STATUS,
                     Title::FIELD_POSTER_URL,
                     Title::FIELD_BANNER_URL,
+                    Title::FIELD_IS_INCOMPLETE,
                     Title::FIELD_UPDATED_BY,
                     Title::FIELD_UPDATED_AT,
                 ],
@@ -64,10 +65,12 @@ class TitleBulkWriter
                 Title::FIELD_DESCRIPTION_EN => $titleData->description?->getEn(),
                 Title::FIELD_SHORT_PLOT_RU => $titleData->shortPlotRu,
                 Title::FIELD_DURATION => $titleData->duration?->getMinutes(),
+                Title::FIELD_RELEASE_YEAR => $titleData->releaseYear?->getYear(),
                 Title::FIELD_TYPE => $titleData->type->value,
                 Title::FIELD_STATUS => $titleData->status->value,
                 Title::FIELD_POSTER_URL => $titleData->posterUrl,
                 Title::FIELD_BANNER_URL => $titleData->bannerUrl,
+                Title::FIELD_IS_INCOMPLETE => $titleData->isIncomplete,
                 Title::FIELD_UPDATED_BY => $titleData->updatedBy->value,
                 Title::FIELD_CREATED_AT => $now,
                 Title::FIELD_UPDATED_AT => $now,
@@ -78,25 +81,25 @@ class TitleBulkWriter
     }
 
     /**
-     * @param list<string> $uuids
+     * @param list<string> $canonicalKeys
      * @return array<string, int>
      */
-    public function getTitleIdsByUuids(array $uuids): array
+    public function getTitleIdsByCanonicalKeys(array $canonicalKeys): array
     {
-        if ($uuids === []) {
+        if ($canonicalKeys === []) {
             return [];
         }
 
         $map = [];
 
-        foreach (array_chunk(array_values(array_unique($uuids)), self::CHUNK_SIZE) as $chunk) {
+        foreach (array_chunk(array_values(array_unique($canonicalKeys)), self::CHUNK_SIZE) as $chunk) {
             $rows = DB::table(Title::TABLE_NAME)
-                ->whereIn(Title::FIELD_UUID, $chunk)
-                ->pluck(Title::FIELD_ID, Title::FIELD_UUID)
+                ->whereIn(Title::FIELD_CANONICAL_KEY, $chunk)
+                ->pluck(Title::FIELD_ID, Title::FIELD_CANONICAL_KEY)
                 ->toArray();
 
-            foreach ($rows as $uuid => $id) {
-                $map[(string)$uuid] = (int)$id;
+            foreach ($rows as $canonicalKey => $id) {
+                $map[(string)$canonicalKey] = (int)$id;
             }
         }
 

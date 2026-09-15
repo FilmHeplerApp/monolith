@@ -17,13 +17,13 @@ class TitleAttributeBulkWriter
 
     /**
      * @param list<TitleAttributeData> $titleAttributes
-     * @param array<string, int> $titleIdsByUuid
+     * @param array<string, int> $titleIdsByCanonicalKey
      * @param array<string, int> $definitionIdsByCode
      * @throws JsonException
      */
     public function write(
         array $titleAttributes,
-        array $titleIdsByUuid,
+        array $titleIdsByCanonicalKey,
         array $definitionIdsByCode,
     ): void {
         if ($titleAttributes === []) {
@@ -34,7 +34,7 @@ class TitleAttributeBulkWriter
 
         foreach (array_chunk($titleAttributes, self::CHUNK_SIZE) as $dtoChunk) {
             DB::table(TitleAttribute::TABLE_NAME)->upsert(
-                $this->unpackTitleAttributeData($dtoChunk, $titleIdsByUuid, $definitionIdsByCode, $now),
+                $this->unpackTitleAttributeData($dtoChunk, $titleIdsByCanonicalKey, $definitionIdsByCode, $now),
                 [
                     TitleAttribute::FIELD_TITLE_ID,
                     TitleAttribute::FIELD_ATTRIBUTE_ID,
@@ -54,23 +54,23 @@ class TitleAttributeBulkWriter
 
     /**
      * @param list<TitleAttributeData> $dtoChunk
-     * @param array<string, int> $titleIdsByUuid
+     * @param array<string, int> $titleIdsByCanonicalKey
      * @param array<string, int> $definitionIdsByCode
      * @return list<array<string, mixed>>
      * @throws JsonException
      */
     private function unpackTitleAttributeData(
         array             $dtoChunk,
-        array             $titleIdsByUuid,
+        array             $titleIdsByCanonicalKey,
         array             $definitionIdsByCode,
         DateTimeInterface $now,
     ): array {
         $rows = [];
 
         foreach ($dtoChunk as $titleAttribute) {
-            $uuid = $titleAttribute->titleUuid->getValue();
-            $titleId = $titleIdsByUuid[$uuid]
-                ?? throw UnresolvedCatalogReferenceException::title($uuid);
+            $canonicalKey = $titleAttribute->titleCanonicalKey->getValue();
+            $titleId = $titleIdsByCanonicalKey[$canonicalKey]
+                ?? throw UnresolvedCatalogReferenceException::title($canonicalKey);
             $attributeId = $definitionIdsByCode[$titleAttribute->attributeCode]
                 ?? throw UnresolvedCatalogReferenceException::attributeDefinition($titleAttribute->attributeCode);
 

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Catalog;
 
-use App\Application\Catalog\Contracts\CatalogBulkWriter;
+use App\Application\Catalog\Contracts\CatalogBulkWriterContract;
 use App\Application\Catalog\DTOs\AttributeDefinitionData;
 use App\Application\Catalog\DTOs\AttributeOptionData;
 use App\Application\Catalog\DTOs\PreparedCatalogDto;
@@ -16,6 +16,7 @@ use App\Domain\Catalog\Enums\Title\TitleStatus;
 use App\Domain\Catalog\Enums\Title\TitleUpdatedBy;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use App\Domain\Catalog\ValueObjects\Title\Duration;
+use App\Domain\Catalog\ValueObjects\Title\ReleaseYear;
 use App\Domain\Catalog\ValueObjects\Title\TitleCanonicalKey;
 use App\Domain\Catalog\ValueObjects\Title\TitleUuid;
 use App\Domain\Catalog\ValueObjects\TitleAttribute\AttributeValue;
@@ -26,6 +27,7 @@ use App\Infrastructure\Persistence\Eloquent\Models\Catalog\Title;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\TitleAttribute;
 use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
@@ -33,39 +35,25 @@ use Tests\TestCase;
 final class CatalogBulkWriterTest extends TestCase
 {
     private const string TITLE_UUID = '018fe2f8-0a2e-7a42-b0a7-6f6f5b0f0f13';
-
     private const string SECOND_TITLE_UUID = '018fe2f8-0a2e-7a42-b0a7-6f6f5b0f0f14';
-
     private const string CANONICAL_KEY = 'naruto|anime';
-
     private const string SECOND_CANONICAL_KEY = 'bleach|anime';
-
     private const string ATTRIBUTE_GENRES = 'genres';
-
     private const string ATTRIBUTE_STUDIOS = 'studios';
-
     private const string TITLE_RU = 'Наруто';
-
     private const string TITLE_EN = 'Naruto';
-
     private const string GENRE_ACTION_RU = 'Экшен';
-
     private const string GENRE_ACTION_EN = 'Action';
-
     private const string GENRE_DRAMA_RU = 'Драма';
-
     private const string STUDIO_NAME = 'Pierrot';
-
     private const int DURATION_MINUTES = 24;
-
+    private const int RELEASE_YEAR = 2002;
     private const int EXPECTED_DEFINITION_COUNT = 2;
-
     private const int EXPECTED_OPTION_COUNT = 2;
-
     private const int EXPECTED_TITLE_ATTRIBUTE_COUNT = 2;
 
 
-    private CatalogBulkWriter $writer;
+    private CatalogBulkWriterContract $writer;
 
 
     /**
@@ -76,7 +64,7 @@ final class CatalogBulkWriterTest extends TestCase
         parent::setUp();
 
         $this->createCatalogSchema();
-        $this->writer = $this->app->make(CatalogBulkWriter::class);
+        $this->writer = $this->app->make(CatalogBulkWriterContract::class);
     }
 
 
@@ -101,8 +89,10 @@ final class CatalogBulkWriterTest extends TestCase
         $this->assertSame(self::TITLE_RU, $title->{Title::FIELD_TITLE_RU});
         $this->assertSame(self::TITLE_EN, $title->{Title::FIELD_TITLE_EN});
         $this->assertSame(self::DURATION_MINUTES, $title->{Title::FIELD_DURATION});
+        $this->assertSame(self::RELEASE_YEAR, $title->{Title::FIELD_RELEASE_YEAR});
         $this->assertSame(self::CANONICAL_KEY, $title->{Title::FIELD_CANONICAL_KEY});
         $this->assertSame(TitleContentType::ANIME, $title->{Title::FIELD_TYPE});
+        $this->assertFalse($title->{Title::FIELD_IS_INCOMPLETE});
         $this->assertSame(TitleUpdatedBy::PROCESS, $title->{Title::FIELD_UPDATED_BY});
 
         $this->assertDatabaseHas(AttributeOption::TABLE_NAME, [
@@ -172,6 +162,7 @@ final class CatalogBulkWriterTest extends TestCase
         $this->writer->write($this->preparedCatalog());
 
         $secondUuid = TitleUuid::createFromString(self::SECOND_TITLE_UUID);
+        $secondCanonicalKey = TitleCanonicalKey::createFromString(self::SECOND_CANONICAL_KEY);
 
         $this->writer->write(new PreparedCatalogDto(
             titles: [$this->createTitleData(
@@ -185,7 +176,7 @@ final class CatalogBulkWriterTest extends TestCase
             ],
             titleAttributes: [
                 new TitleAttributeData(
-                    $secondUuid,
+                    $secondCanonicalKey,
                     self::ATTRIBUTE_GENRES,
                     AttributeValue::createFromArray(['Комедия']),
                 ),
@@ -210,7 +201,7 @@ final class CatalogBulkWriterTest extends TestCase
                 titles: [$this->createTitleData(TitleUuid::createFromString(self::TITLE_UUID))],
                 titleAttributes: [
                     new TitleAttributeData(
-                        TitleUuid::createFromString(self::TITLE_UUID),
+                        TitleCanonicalKey::createFromString(self::CANONICAL_KEY),
                         'missing',
                         AttributeValue::createFromText('nope'),
                     ),
@@ -222,6 +213,67 @@ final class CatalogBulkWriterTest extends TestCase
         }
     }
 
+    #[Test]
+    public function it_keeps_the_original_uuid_and_created_at_when_title_is_reimported(): void
+    {
+        $this->travelTo(now()->subDay());
+
+        $this->writer->write($this->preparedCatalog());
+
+        $createdAt = DB::table(Title::TABLE_NAME)->value(Title::FIELD_CREATED_AT);
+
+        $this->travelBack();
+
+        $this->writer->write(new PreparedCatalogDto(
+            titles: [$this->createTitleData(
+                TitleUuid::createFromString(self::SECOND_TITLE_UUID),
+                'Наруто обновлённый',
+            )],
+        ));
+
+        $this->assertDatabaseCount(Title::TABLE_NAME, 1);
+
+        $this->assertDatabaseHas(Title::TABLE_NAME, [
+            Title::FIELD_CANONICAL_KEY => self::CANONICAL_KEY,
+            Title::FIELD_UUID => self::TITLE_UUID,
+            Title::FIELD_TITLE_RU => 'Наруто обновлённый',
+            Title::FIELD_CREATED_AT => $createdAt,
+        ]);
+
+        $this->assertNotSame(
+            $createdAt,
+            DB::table(Title::TABLE_NAME)->value(Title::FIELD_UPDATED_AT),
+        );
+    }
+
+    #[Test]
+    public function it_clears_the_incomplete_flag_when_title_is_reimported_with_full_data(): void
+    {
+        $this->writer->write(new PreparedCatalogDto(
+            titles: [$this->createTitleData(
+                TitleUuid::createFromString(self::TITLE_UUID),
+                releaseYear: null,
+                isIncomplete: true,
+            )],
+        ));
+
+        $partial = Title::query()->where(Title::FIELD_CANONICAL_KEY, self::CANONICAL_KEY)->firstOrFail();
+
+        $this->assertNull($partial->{Title::FIELD_RELEASE_YEAR});
+        $this->assertTrue($partial->{Title::FIELD_IS_INCOMPLETE});
+
+        $this->writer->write(new PreparedCatalogDto(
+            titles: [$this->createTitleData(TitleUuid::createFromString(self::TITLE_UUID))],
+        ));
+
+        $this->assertDatabaseCount(Title::TABLE_NAME, 1);
+
+        $completed = Title::query()->where(Title::FIELD_CANONICAL_KEY, self::CANONICAL_KEY)->firstOrFail();
+
+        $this->assertSame(self::RELEASE_YEAR, $completed->{Title::FIELD_RELEASE_YEAR});
+        $this->assertFalse($completed->{Title::FIELD_IS_INCOMPLETE});
+    }
+
 
     private function preparedCatalog(
         string $titleRu = self::TITLE_RU,
@@ -230,6 +282,7 @@ final class CatalogBulkWriterTest extends TestCase
         string $studioOptionEn = self::STUDIO_NAME,
     ): PreparedCatalogDto {
         $uuid = TitleUuid::createFromString(self::TITLE_UUID);
+        $canonicalKey = TitleCanonicalKey::createFromString(self::CANONICAL_KEY);
 
         return new PreparedCatalogDto(
             titles: [$this->createTitleData($uuid, $titleRu, self::TITLE_EN)],
@@ -259,12 +312,12 @@ final class CatalogBulkWriterTest extends TestCase
             ],
             titleAttributes: [
                 new TitleAttributeData(
-                    $uuid,
+                    $canonicalKey,
                     self::ATTRIBUTE_GENRES,
                     AttributeValue::createFromArray([self::GENRE_ACTION_RU, self::GENRE_DRAMA_RU]),
                 ),
                 new TitleAttributeData(
-                    $uuid,
+                    $canonicalKey,
                     self::ATTRIBUTE_STUDIOS,
                     AttributeValue::createFromText($studioName),
                 ),
@@ -277,6 +330,8 @@ final class CatalogBulkWriterTest extends TestCase
         string    $titleRu = self::TITLE_RU,
         string    $titleEn = self::TITLE_EN,
         string    $canonicalKey = self::CANONICAL_KEY,
+        ?int      $releaseYear = self::RELEASE_YEAR,
+        bool      $isIncomplete = false,
     ): TitleData {
         return new TitleData(
             $uuid,
@@ -285,10 +340,12 @@ final class CatalogBulkWriterTest extends TestCase
             $this->createLocalizedText('Описание', 'Description'),
             'Короткий сюжет',
             Duration::createFromMinutes(self::DURATION_MINUTES),
+            ReleaseYear::createFromYear($releaseYear),
             TitleContentType::ANIME,
             TitleStatus::RELEASED,
             'https://example.test/poster.jpg',
             'https://example.test/banner.jpg',
+            $isIncomplete,
         );
     }
 
@@ -325,6 +382,7 @@ final class CatalogBulkWriterTest extends TestCase
             $table->text(Title::FIELD_DESCRIPTION_EN)->nullable();
             $table->text(Title::FIELD_SHORT_PLOT_RU)->nullable();
             $table->unsignedInteger(Title::FIELD_DURATION)->nullable();
+            $table->unsignedSmallInteger(Title::FIELD_RELEASE_YEAR)->nullable();
             $table->string(Title::FIELD_TYPE);
             $table->string(Title::FIELD_STATUS);
             $table->string(Title::FIELD_POSTER_URL)->nullable();
@@ -332,6 +390,7 @@ final class CatalogBulkWriterTest extends TestCase
             $table->decimal(Title::FIELD_RATING_AVG, 3)->default(0);
             $table->unsignedInteger(Title::FIELD_RATING_COUNT)->default(0);
             $table->text(Title::FIELD_EMBEDDING)->nullable();
+            $table->boolean(Title::FIELD_IS_INCOMPLETE)->default(false);
             $table->string(Title::FIELD_UPDATED_BY)->default('process');
             $table->timestamps();
         });

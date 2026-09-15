@@ -9,6 +9,7 @@ use App\Domain\Catalog\Enums\Title\TitleStatus;
 use App\Domain\Catalog\Enums\Title\TitleUpdatedBy;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use App\Domain\Catalog\ValueObjects\Title\Duration;
+use App\Domain\Catalog\ValueObjects\Title\ReleaseYear;
 use App\Domain\Catalog\ValueObjects\Title\TitleCanonicalKey;
 use App\Domain\Catalog\ValueObjects\Title\TitleUuid;
 
@@ -21,10 +22,12 @@ final readonly class TitleData
         public ?LocalizedText    $description,
         public ?string           $shortPlotRu,
         public ?Duration         $duration,
+        public ?ReleaseYear      $releaseYear,
         public TitleContentType  $type,
         public TitleStatus       $status,
         public ?string           $posterUrl,
         public ?string           $bannerUrl,
+        public bool              $isIncomplete = false,
         public TitleUpdatedBy    $updatedBy = TitleUpdatedBy::PROCESS,
     ) {
     }
