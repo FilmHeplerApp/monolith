@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace Tests\Unit\Domain\Import\Services;
 
 use App\Domain\Import\Contracts\ImportFilterRuleContract;
+use App\Domain\Import\DTOs\TitleCandidate;
 use App\Domain\Import\Enums\RejectionReason;
 use App\Domain\Import\Services\ImportFilterEngine;
 use App\Domain\Import\ValueObjects\FilterDecision;
-use App\Domain\Import\ValueObjects\TitleCandidate;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Tests\Unit\Domain\Import\Support\CandidateParent;
@@ -92,7 +92,8 @@ final class ImportFilterEngineTest extends TestCase
 
     private static function ruleReturning(FilterDecision $decision): ImportFilterRuleContract
     {
-        return new readonly class($decision) implements ImportFilterRuleContract {
+        return new readonly class($decision) implements ImportFilterRuleContract
+        {
             public function __construct(private FilterDecision $decision) {}
 
             public function evaluate(TitleCandidate $candidate): FilterDecision

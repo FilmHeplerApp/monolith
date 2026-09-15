@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domain\Import\Services;
 
-use App\Domain\Import\ValueObjects\TitleCandidate;
+use App\Domain\Import\DTOs\TitleCandidate;
 use App\Domain\Import\ValueObjects\TitleKey;
 use Normalizer;
 

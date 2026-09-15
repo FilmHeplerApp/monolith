@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Domain\Import\ValueObjects;
+namespace App\Domain\Import\DTOs;
 
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\Enums\Title\TitleStatus;
@@ -23,6 +23,8 @@ final readonly class TitleCandidate
         public ?int             $durationMinutes,
         public ?string          $posterUrl,
         public ?string          $bannerUrl,
+        /** @var list<CandidateAttribute> */
+        public array            $attributes = [],
     ) {
     }
 }

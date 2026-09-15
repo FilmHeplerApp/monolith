@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Interfaces\Console\Commands;
 
 use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriGraphQLClient;
+use App\Infrastructure\Providers\Shikimori\ShikimoriConfig;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Storage;
@@ -17,27 +18,52 @@ final class DumpShikimoriCatalogCommand extends Command
     protected $description = 'Anime catalog dump Shikimori in NDJSON (storage/app/private/import)';
 
     private const string DISK = 'local';
-    private const string ANIME_FILE = 'import/shikimori_anime.ndjson';
-    private const string GENRES_FILE = 'import/shikimori_genres.ndjson';
-    private const string CHECKPOINT = 'import/shikimori_anime.checkpoint';
+
+    private const string ANIME_FILE_PATH = 'import/shikimori_anime.ndjson';
+
+    private const string GENRES_FILE_PATH = 'import/shikimori_genres.ndjson';
+
+    private const string CHECKPOINT_PATH = 'import/shikimori_anime.checkpoint';
 
     /**
      * @throws JsonException
      */
     public function handle(ShikimoriGraphQLClient $client): int
     {
-        $limit = (int)config('shikimori.page_size');
         $disk = Storage::disk(self::DISK);
+        $limit = ShikimoriConfig::pageSize();
 
+        $startPage = $this->resolveStartPage($disk);
+
+        $titleCount = $this->dumpAnimes($client, $disk, $startPage, $limit);
+        $genreCount = $this->dumpGenres($client, $disk);
+
+        $this->info("Done: titles {$titleCount}, genres {$genreCount}.");
+
+        return self::SUCCESS;
+    }
+
+    private function resolveStartPage(Filesystem $disk): int
+    {
         if ($this->option('resume')) {
-            $page = ($disk->exists(self::CHECKPOINT) ? (int)$disk->get(self::CHECKPOINT) : 0) + 1;
-            $this->info("Continuing from the page {$page}.");
-        } else {
-            $page = 1;
-            $disk->delete([self::ANIME_FILE, self::CHECKPOINT]);
-            $this->info('Fresh dump.');
+            $page = ($disk->exists(self::CHECKPOINT_PATH) ? (int) $disk->get(self::CHECKPOINT_PATH) : 0) + 1;
+            $this->info("Continuing from page {$page}.");
+
+            return $page;
         }
 
+        $disk->delete([self::ANIME_FILE_PATH, self::CHECKPOINT_PATH]);
+        $this->info('Dumps deleted.');
+
+        return 1;
+    }
+
+    /**
+     * @throws JsonException
+     */
+    private function dumpAnimes(ShikimoriGraphQLClient $client, Filesystem $disk, int $startPage, int $limit): int
+    {
+        $page = $startPage;
         $total = 0;
 
         while (true) {
@@ -47,38 +73,38 @@ final class DumpShikimoriCatalogCommand extends Command
                 break;
             }
 
-            $this->appendNdjson($disk, self::ANIME_FILE, $animes);
-            $disk->put(self::CHECKPOINT, (string)$page);
+            $disk->append(self::ANIME_FILE_PATH, $this->toNdjson($animes));
+            $disk->put(self::CHECKPOINT_PATH, (string) $page);
             $total += count($animes);
-            $this->line("page {$page}: +" . count($animes) . " (in total {$total})");
+            $this->line("page {$page}: +".count($animes)." (total {$total})");
             $page++;
         }
 
-        $genres = $client->query($this->genresQuery())['genres'] ?? [];
-        $disk->delete(self::GENRES_FILE);
-        $this->appendNdjson($disk, self::GENRES_FILE, $genres);
-
-        $this->info("Done: titles {$total}, genres " . count($genres) . '.');
-
-        return self::SUCCESS;
+        return $total;
     }
 
     /**
-     * @param list<array<string, mixed>> $rows
      * @throws JsonException
      */
-    private function appendNdjson(Filesystem $disk, string $file, array $rows): void
+    private function dumpGenres(ShikimoriGraphQLClient $client, Filesystem $disk): int
     {
-        if ($rows === []) {
-            return;
-        }
+        $genres = $client->query($this->genresQuery())['genres'] ?? [];
+        $disk->put(self::GENRES_FILE_PATH, $this->toNdjson($genres));
 
-        $block = implode("\n", array_map(
-            static fn(array $row): string => json_encode($row, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+        return count($genres);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $rows
+     *
+     * @throws JsonException
+     */
+    private function toNdjson(array $rows): string
+    {
+        return implode("\n", array_map(
+            static fn (array $row): string => json_encode($row, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
             $rows,
         ));
-
-        $disk->append($file, $block);
     }
 
     private function animeQuery(): string

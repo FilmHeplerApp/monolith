@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Domain\Import\Services;
 
 use App\Domain\Import\Contracts\ImportFilterRuleContract;
+use App\Domain\Import\DTOs\TitleCandidate;
 use App\Domain\Import\ValueObjects\FilterDecision;
-use App\Domain\Import\ValueObjects\TitleCandidate;
 
 final readonly class ImportFilterEngine
 {
@@ -35,8 +35,8 @@ final readonly class ImportFilterEngine
     }
 
     /**
-     * @param array<string, mixed> $base
-     * @param array<string, mixed> $add
+     * @param  array<string, mixed>  $base
+     * @param  array<string, mixed>  $add
      * @return array<string, mixed>
      */
     private function mergeContext(array $base, array $add): array

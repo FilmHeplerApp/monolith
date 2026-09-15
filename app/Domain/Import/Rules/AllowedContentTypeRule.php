@@ -6,9 +6,9 @@ namespace App\Domain\Import\Rules;
 
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Import\Contracts\ImportFilterRuleContract;
+use App\Domain\Import\DTOs\TitleCandidate;
 use App\Domain\Import\Enums\RejectionReason;
 use App\Domain\Import\ValueObjects\FilterDecision;
-use App\Domain\Import\ValueObjects\TitleCandidate;
 
 final readonly class AllowedContentTypeRule implements ImportFilterRuleContract
 {

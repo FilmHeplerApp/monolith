@@ -5,17 +5,16 @@ declare(strict_types=1);
 namespace App\Domain\Import\Rules;
 
 use App\Domain\Import\Contracts\ImportFilterRuleContract;
+use App\Domain\Import\DTOs\TitleCandidate;
 use App\Domain\Import\Enums\RejectionReason;
 use App\Domain\Import\ValueObjects\FilterDecision;
-use App\Domain\Import\ValueObjects\TitleCandidate;
 
 final readonly class MinProviderScoreRule implements ImportFilterRuleContract
 {
     public function __construct(
         private float $minScore,
-        private int   $minScoreCount,
-    ) {
-    }
+        private int $minScoreCount,
+    ) {}
 
     public function evaluate(TitleCandidate $candidate): FilterDecision
     {
