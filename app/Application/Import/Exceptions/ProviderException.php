@@ -6,4 +6,4 @@ namespace App\Application\Import\Exceptions;
 
 use RuntimeException;
 
-class ProviderException extends RuntimeException {}
+abstract class ProviderException extends RuntimeException {}

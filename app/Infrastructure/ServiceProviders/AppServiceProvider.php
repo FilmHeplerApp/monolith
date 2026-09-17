@@ -2,8 +2,9 @@
 
 namespace App\Infrastructure\ServiceProviders;
 
-use App\Application\Import\Contracts\ProviderClientInterface;
-use App\Infrastructure\Providers\Mock\MockProviderClient;
+use App\Application\Import\Contracts\ProviderClientFactoryContract;
+use App\Infrastructure\Providers\ProviderClientFactory;
+use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\ServiceProvider;
 
@@ -11,7 +12,15 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->app->bind(ProviderClientInterface::class, MockProviderClient::class);
+        $this->app->singleton(
+            ProviderClientFactoryContract::class,
+            static fn (Application $app): ProviderClientFactory => new ProviderClientFactory(
+                container: $app,
+                clients: (array) config('import.providers.clients'),
+                enabled: (array) config('import.providers.enabled'),
+                isProduction: $app->isProduction(),
+            ),
+        );
     }
 
     public function boot(): void

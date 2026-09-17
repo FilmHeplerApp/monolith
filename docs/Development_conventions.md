@@ -126,7 +126,7 @@ final class TitleImporter
 чтобы все `$имена` начинались с одной позиции. Недопустимо писать «спецификатор, тип и
 сразу переменную» — тогда имена разъезжаются по длине соседних типов.
 
-Эталон — конструктор [ProviderTitle](../app/Domain/Import/ValueObjects/ProviderTitle.php).
+Эталон — конструктор [ProviderTitle](../app/Application/Import/DTOs/ProviderTitle.php).
 
 ### Зачем
 

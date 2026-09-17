@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Providers\Mock;
 
-use App\Application\Import\Contracts\ProviderClientInterface;
-use App\Application\Import\DTO\ProviderTitle;
+use App\Application\Import\Contracts\ProviderClientContract;
+use App\Application\Import\DTOs\ProviderTitle;
 use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\Exceptions\ProviderException;
+use Generator;
+use InvalidArgumentException;
 
-final class MockProviderClient implements ProviderClientInterface
+final class MockProviderClient implements ProviderClientContract
 {
     /** @var list<ProviderTitle> */
     private array $titles;
@@ -29,23 +31,30 @@ final class MockProviderClient implements ProviderClientInterface
         return ProviderSource::Mock;
     }
 
-    /** @return iterable<ProviderTitle> */
-    public function fetchTitles(int $limit = 50): iterable
+    public function fetchTitles(int $limit = 50): Generator
     {
-        $yielded = 0;
-
-        foreach ($this->titles as $title) {
-            if ($yielded >= $limit) {
-                return;
-            }
-
-            if ($this->failure !== null && $yielded >= $this->failAfter) {
-                throw $this->failure;
-            }
-
-            yield $title;
-            $yielded++;
+        if ($this->failure !== null && $this->failAfter >= $limit) {
+            throw new InvalidArgumentException(
+                "Failure configured after {$this->failAfter} item(s), but the fetch limit is {$limit}; it would never be reached."
+            );
         }
+
+        return (function () use ($limit) {
+            $yielded = 0;
+
+            foreach ($this->titles as $title) {
+                if ($yielded >= $limit) {
+                    return;
+                }
+
+                if ($this->failure !== null && $yielded >= $this->failAfter) {
+                    throw $this->failure;
+                }
+
+                yield $title;
+                $yielded++;
+            }
+        })();
     }
 
     public function fetchTitleByExternalId(string $externalId): ?ProviderTitle
@@ -58,6 +67,18 @@ final class MockProviderClient implements ProviderClientInterface
 
     public function failWith(ProviderException $exception, int $afterItems = 0): void
     {
+        $available = count($this->titles);
+
+        if ($afterItems < 0) {
+            throw new InvalidArgumentException("Failure offset must be >= 0, got {$afterItems}.");
+        }
+
+        if ($afterItems >= $available) {
+            throw new InvalidArgumentException(
+                "Failure configured after {$afterItems} item(s), but the mock holds only {$available}; it would never be reached."
+            );
+        }
+
         $this->failure = $exception;
         $this->failAfter = $afterItems;
     }
@@ -107,6 +128,81 @@ final class MockProviderClient implements ProviderClientInterface
                 durationMinutes: 24,
                 rating: 9.0,
                 posterUrl: 'https://mock.local/posters/9253.jpg',
+                bannerUrl: null,
+                type: 'anime',
+                status: 'released',
+            ),
+            new ProviderTitle(
+                source: ProviderSource::Mock,
+                externalId: '52991',
+                titleRu: 'Магическая битва',
+                titleEn: 'Jujutsu Kaisen',
+                description: 'Старшеклассник глотает проклятый артефакт и попадает в школу магов.',
+                genres: ['action', 'fantasy'],
+                year: 2023,
+                durationMinutes: 24,
+                rating: null,
+                posterUrl: 'https://mock.local/posters/52991.jpg',
+                bannerUrl: null,
+                type: 'anime',
+                status: 'ongoing',
+            ),
+            new ProviderTitle(
+                source: ProviderSource::Mock,
+                externalId: '48926',
+                titleRu: null,
+                titleEn: 'Bocchi the Rock!',
+                description: null,
+                genres: ['music', 'comedy'],
+                year: 2022,
+                durationMinutes: null,
+                rating: null,
+                posterUrl: 'https://mock.local/posters/48926.jpg',
+                bannerUrl: null,
+                type: 'anime',
+                status: 'released',
+            ),
+            new ProviderTitle(
+                source: ProviderSource::Mock,
+                externalId: '30123',
+                titleRu: 'Забытое старое кино',
+                titleEn: null,
+                description: null,
+                genres: [],
+                year: 1975,
+                durationMinutes: null,
+                rating: null,
+                posterUrl: null,
+                bannerUrl: null,
+                type: 'anime',
+                status: 'released',
+            ),
+            new ProviderTitle(
+                source: ProviderSource::Mock,
+                externalId: '58567',
+                titleRu: null,
+                titleEn: 'Untitled Announced Project',
+                description: null,
+                genres: [],
+                year: null,
+                durationMinutes: null,
+                rating: null,
+                posterUrl: null,
+                bannerUrl: null,
+                type: 'anime',
+                status: 'announced',
+            ),
+            new ProviderTitle(
+                source: ProviderSource::Mock,
+                externalId: '999999',
+                titleRu: null,
+                titleEn: null,
+                description: null,
+                genres: [],
+                year: null,
+                durationMinutes: null,
+                rating: null,
+                posterUrl: null,
                 bannerUrl: null,
                 type: 'anime',
                 status: 'released',
