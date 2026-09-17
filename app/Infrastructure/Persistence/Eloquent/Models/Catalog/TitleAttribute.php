@@ -1,10 +1,11 @@
 <?php
 
-namespace App\Infrastructure\Persistence\Eloquent\Models;
+namespace App\Infrastructure\Persistence\Eloquent\Models\Catalog;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 /**
  * @property int $id
@@ -15,9 +16,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property float|null $value_number
  * @property bool|null $value_boolean
  * @property string|null $searchable_text
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
- *
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  * @property-read Title $title
  * @property-read AttributeDefinition $attribute
  */
@@ -38,6 +38,7 @@ class TitleAttribute extends Model
     public const string FIELD_CREATED_AT = 'created_at';
     public const string FIELD_UPDATED_AT = 'updated_at';
     public const string FIELD_DELETED_AT = 'deleted_at';
+
 
     protected $fillable = [
         self::FIELD_ID,
@@ -63,6 +64,7 @@ class TitleAttribute extends Model
             self::FIELD_VALUE_BOOLEAN => 'boolean',
         ];
     }
+
 
     public function title(): BelongsTo
     {

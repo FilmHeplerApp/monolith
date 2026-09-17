@@ -2,6 +2,8 @@
 
 namespace App\Infrastructure\ServiceProviders;
 
+use App\Application\Catalog\Contracts\CatalogBulkWriterContract;
+use App\Infrastructure\Persistence\Eloquent\Bulk\Catalog\CatalogBulkWriter;
 use App\Application\Import\Contracts\ProviderClientFactoryContract;
 use App\Infrastructure\Providers\ProviderClientFactory;
 use Illuminate\Contracts\Foundation\Application;
@@ -21,12 +23,16 @@ class AppServiceProvider extends ServiceProvider
                 isProduction: $app->isProduction(),
             ),
         );
+        $this->app->bind(
+            CatalogBulkWriterContract::class,
+            CatalogBulkWriter::class,
+        );
     }
 
     public function boot(): void
     {
         Factory::guessFactoryNamesUsing(function (string $modelName) {
-            return 'Database\\Factories\\'.class_basename($modelName).'Factory';
+            return 'Database\\Factories\\' . class_basename($modelName) . 'Factory';
         });
     }
 }

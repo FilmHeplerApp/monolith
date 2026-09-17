@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Infrastructure\Persistence\Eloquent\Models;
+namespace App\Infrastructure\Persistence\Eloquent\Models\Catalog;
 
 use App\Domain\Catalog\Enums\AttributeDefinition\AttributeValueType;
 use Illuminate\Database\Eloquent\Collection;
@@ -21,7 +21,6 @@ use Illuminate\Support\Carbon;
  * @property int $order
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
- *
  * @property-read Collection<int, TitleAttribute> $titleAttributes
  * @property-read Collection<int, AttributeOption> $options
  */
@@ -41,6 +40,7 @@ class AttributeDefinition extends Model
     public const string FIELD_IS_REQUIRED = 'is_required';
     public const string FIELD_ORDER = 'order';
     public const string FIELD_CREATED_AT = 'created_at';
+    public const string FIELD_UPDATED_AT = 'updated_at';
     public const string FIELD_DELETED_AT = 'deleted_at';
 
 
@@ -55,6 +55,7 @@ class AttributeDefinition extends Model
         self::FIELD_IS_REQUIRED,
         self::FIELD_ORDER,
         self::FIELD_CREATED_AT,
+        self::FIELD_UPDATED_AT,
         self::FIELD_DELETED_AT,
     ];
 
@@ -68,6 +69,7 @@ class AttributeDefinition extends Model
             self::FIELD_ORDER => 'integer',
         ];
     }
+
 
     public function titleAttributes(): HasMany
     {
