@@ -2,18 +2,17 @@
 
 declare(strict_types=1);
 
-namespace App\Domain\Catalog\DTOs\TitleAttribute;
+namespace App\Domain\Catalog\Entities;
 
-use App\Domain\Catalog\ValueObjects\TitleAttribute\AttributeValue;
+use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use DateTimeImmutable;
 
-final readonly class TitleAttributeDto
+final readonly class AttributeOption
 {
     public function __construct(
         public ?int               $id,
-        public int                $titleId,
         public int                $attributeId,
-        public AttributeValue     $value,
+        public LocalizedText      $value,
         public ?DateTimeImmutable $createdAt = null,
         public ?DateTimeImmutable $updatedAt = null,
     ) {

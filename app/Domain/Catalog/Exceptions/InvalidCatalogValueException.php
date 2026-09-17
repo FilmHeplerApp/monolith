@@ -4,33 +4,39 @@ declare(strict_types=1);
 
 namespace App\Domain\Catalog\Exceptions;
 
+use App\Domain\Catalog\ValueObjects\Title\ReleaseYear;
 use InvalidArgumentException;
 
 final class InvalidCatalogValueException extends InvalidArgumentException
 {
-    public static function emptyExternalId(): self
+    public static function emptyCanonicalKey(): self
     {
-        return new self('External id must not be empty.');
+        return new self('Title canonical key must not be empty.');
     }
 
-    public static function invalidExternalId(string $value): self
+    public static function emptyUuid(): self
     {
-        return new self(sprintf('External id "%s" is not a valid UUID.', $value));
+        return new self('Title uuid must not be empty.');
     }
 
-    public static function emptyAttributeCode(): self
+    public static function invalidUuid(string $value): self
     {
-        return new self('Attribute code must not be empty.');
-    }
-
-    public static function invalidAttributeCode(string $value): self
-    {
-        return new self(sprintf('Attribute code "%s" has an invalid format.', $value));
+        return new self(sprintf('Title uuid "%s" is not a valid UUID.', $value));
     }
 
     public static function nonPositiveDuration(int $minutes): self
     {
         return new self(sprintf('Duration must be positive, got %d.', $minutes));
+    }
+
+    public static function releaseYearOutOfRange(int $year): self
+    {
+        return new self(sprintf(
+            'Release year must be between %d and %d, got %d.',
+            ReleaseYear::MIN_YEAR,
+            ReleaseYear::MAX_YEAR,
+            $year,
+        ));
     }
 
     public static function ratingOutOfRange(float $average): self

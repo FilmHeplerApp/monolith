@@ -2,18 +2,17 @@
 
 declare(strict_types=1);
 
-namespace App\Domain\Catalog\DTOs\AttributeDefinition;
+namespace App\Domain\Catalog\Entities;
 
-use App\Domain\Catalog\DTOs\AttributeOption\AttributeOptionDto;
-use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\Enums\AttributeDefinition\AttributeValueType;
+use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use DateTimeImmutable;
 
-final readonly class AttributeDefinitionDto
+final readonly class AttributeDefinition
 {
     /**
-     * @param list<AttributeOptionDto> $options
+     * @param list<AttributeOption> $options
      */
     public function __construct(
         public ?int               $id,
