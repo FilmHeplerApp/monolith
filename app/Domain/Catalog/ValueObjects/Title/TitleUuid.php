@@ -6,7 +6,7 @@ namespace App\Domain\Catalog\ValueObjects\Title;
 
 use App\Domain\Catalog\Exceptions\InvalidCatalogValueException;
 
-final readonly class ExternalId
+final readonly class TitleUuid
 {
     private function __construct(
         private string $value,
@@ -19,11 +19,11 @@ final readonly class ExternalId
         $normalized = trim($value);
 
         if ($normalized === '') {
-            throw InvalidCatalogValueException::emptyExternalId();
+            throw InvalidCatalogValueException::emptyUuid();
         }
 
         if (!preg_match('/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/', $normalized)) {
-            throw InvalidCatalogValueException::invalidExternalId($normalized);
+            throw InvalidCatalogValueException::invalidUuid($normalized);
         }
 
         return new self(strtolower($normalized));

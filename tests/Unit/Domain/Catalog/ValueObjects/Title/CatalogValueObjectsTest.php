@@ -7,8 +7,10 @@ namespace Tests\Unit\Domain\Catalog\ValueObjects\Title;
 use App\Domain\Catalog\Exceptions\InvalidCatalogValueException;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use App\Domain\Catalog\ValueObjects\Title\Embedding;
-use App\Domain\Catalog\ValueObjects\Title\ExternalId;
+use App\Domain\Catalog\ValueObjects\Title\ReleaseYear;
+use App\Domain\Catalog\ValueObjects\Title\TitleCanonicalKey;
 use App\Domain\Catalog\ValueObjects\Title\TitleRating;
+use App\Domain\Catalog\ValueObjects\Title\TitleUuid;
 use App\Domain\Catalog\ValueObjects\TitleAttribute\AttributeValue;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -16,19 +18,35 @@ use PHPUnit\Framework\TestCase;
 final class CatalogValueObjectsTest extends TestCase
 {
     #[Test]
-    public function external_id_normalizes_uuid(): void
+    public function uuid_normalizes_value(): void
     {
-        $id = ExternalId::createFromString('018FE2F8-0A2E-7A42-B0A7-6F6F5B0F0F13');
+        $id = TitleUuid::createFromString('018FE2F8-0A2E-7A42-B0A7-6F6F5B0F0F13');
 
         $this->assertSame('018fe2f8-0a2e-7a42-b0a7-6f6f5b0f0f13', $id->getValue());
     }
 
     #[Test]
-    public function external_id_rejects_invalid_uuid(): void
+    public function uuid_rejects_invalid_value(): void
     {
         $this->expectException(InvalidCatalogValueException::class);
 
-        ExternalId::createFromString('not-a-uuid');
+        TitleUuid::createFromString('not-a-uuid');
+    }
+
+    #[Test]
+    public function canonical_key_trims_value(): void
+    {
+        $key = TitleCanonicalKey::createFromString('  naruto|anime|2002  ');
+
+        $this->assertSame('naruto|anime|2002', $key->getValue());
+    }
+
+    #[Test]
+    public function canonical_key_rejects_empty_value(): void
+    {
+        $this->expectException(InvalidCatalogValueException::class);
+
+        TitleCanonicalKey::createFromString('   ');
     }
 
     #[Test]
@@ -39,6 +57,35 @@ final class CatalogValueObjectsTest extends TestCase
         $this->assertSame('Название', $text?->getPreferred('ru'));
         $this->assertNull(LocalizedText::create(null, null));
         $this->assertNull(LocalizedText::create('  ', null));
+    }
+
+    #[Test]
+    public function release_year_returns_null_when_year_is_null(): void
+    {
+        $this->assertNull(ReleaseYear::createFromYear(null));
+    }
+
+    #[Test]
+    public function release_year_accepts_value_inside_range(): void
+    {
+        $this->assertSame(ReleaseYear::MIN_YEAR, ReleaseYear::createFromYear(ReleaseYear::MIN_YEAR)->getYear());
+        $this->assertSame(ReleaseYear::MAX_YEAR, ReleaseYear::createFromYear(ReleaseYear::MAX_YEAR)->getYear());
+    }
+
+    #[Test]
+    public function release_year_rejects_value_below_range(): void
+    {
+        $this->expectException(InvalidCatalogValueException::class);
+
+        ReleaseYear::createFromYear(ReleaseYear::MIN_YEAR - 1);
+    }
+
+    #[Test]
+    public function release_year_rejects_value_above_range(): void
+    {
+        $this->expectException(InvalidCatalogValueException::class);
+
+        ReleaseYear::createFromYear(ReleaseYear::MAX_YEAR + 1);
     }
 
     #[Test]

@@ -10,8 +10,10 @@ use App\Domain\Catalog\Enums\Title\TitleUpdatedBy;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use App\Domain\Catalog\ValueObjects\Title\Duration;
 use App\Domain\Catalog\ValueObjects\Title\Embedding;
-use App\Domain\Catalog\ValueObjects\Title\ExternalId;
+use App\Domain\Catalog\ValueObjects\Title\ReleaseYear;
+use App\Domain\Catalog\ValueObjects\Title\TitleCanonicalKey;
 use App\Domain\Catalog\ValueObjects\Title\TitleRating;
+use App\Domain\Catalog\ValueObjects\Title\TitleUuid;
 use DateTimeImmutable;
 
 final readonly class Title
@@ -20,22 +22,25 @@ final readonly class Title
      * @param list<TitleAttribute> $attributes
      */
     public function __construct(
-        public ?int $id,
-        public ExternalId $externalId,
-        public LocalizedText $title,
-        public ?LocalizedText $description,
-        public ?string $shortPlotRu,
-        public ?Duration $duration,
-        public TitleContentType $type,
-        public TitleStatus $status,
-        public ?string $posterUrl,
-        public ?string $bannerUrl,
-        public TitleRating $rating,
-        public ?Embedding $embedding,
-        public TitleUpdatedBy $updatedBy,
+        public ?int               $id,
+        public TitleUuid          $uuid,
+        public TitleCanonicalKey  $canonicalKey,
+        public LocalizedText      $title,
+        public ?LocalizedText     $description,
+        public ?string            $shortPlotRu,
+        public ?Duration          $duration,
+        public ?ReleaseYear       $releaseYear,
+        public TitleContentType   $type,
+        public TitleStatus        $status,
+        public ?string            $posterUrl,
+        public ?string            $bannerUrl,
+        public TitleRating        $rating,
+        public ?Embedding         $embedding,
+        public bool               $isIncomplete,
+        public TitleUpdatedBy     $updatedBy,
         public ?DateTimeImmutable $createdAt = null,
         public ?DateTimeImmutable $updatedAt = null,
-        public array $attributes = [],
+        public array              $attributes = [],
     ) {
     }
 }

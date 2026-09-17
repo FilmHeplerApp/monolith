@@ -3,9 +3,9 @@
 namespace Database\Seeders;
 
 use App\Domain\Catalog\Enums\AttributeDefinition\AttributeValueType;
-use App\Infrastructure\Persistence\Eloquent\Models\AttributeDefinition;
-use App\Infrastructure\Persistence\Eloquent\Models\Title;
-use App\Infrastructure\Persistence\Eloquent\Models\TitleAttribute;
+use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeDefinition;
+use App\Infrastructure\Persistence\Eloquent\Models\Catalog\Title;
+use App\Infrastructure\Persistence\Eloquent\Models\Catalog\TitleAttribute;
 use Database\Seeders\Exceptions\UnexpectedTitleAttributeTypeException;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Collection;
