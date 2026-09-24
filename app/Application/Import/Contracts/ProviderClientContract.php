@@ -12,11 +12,8 @@ interface ProviderClientContract
 {
     public function source(): ProviderSource;
 
-    /**
-     * @param int $limit
-     * @return Generator
-     */
-    public function fetchTitles(int $limit = 50): Generator;
+    /** @return Generator<int, ProviderTitle> */
+    public function fetchTitles(?int $limit = null, int $offset = 0): Generator;
 
     public function fetchTitleByExternalId(string $externalId): ?ProviderTitle;
 }

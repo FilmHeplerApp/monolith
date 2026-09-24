@@ -14,10 +14,14 @@ final readonly class ProviderTitle
         public ?string        $titleRu,
         public ?string        $titleEn,
         public ?string        $description,
+        /** @var list<ProviderTaxonomyItem> */
         public array          $genres,
+        /** @var list<ProviderTaxonomyItem> */
+        public array          $studios,
         public ?int           $year,
         public ?int           $durationMinutes,
         public ?float         $rating,
+        public ?int           $ratingCount,
         public ?string        $posterUrl,
         public ?string        $bannerUrl,
         public string         $type,

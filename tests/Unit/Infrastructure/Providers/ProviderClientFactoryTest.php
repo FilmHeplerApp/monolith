@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Infrastructure\Providers;
 
+use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
 use App\Infrastructure\Providers\Mock\MockProviderClient;
 use App\Infrastructure\Providers\ProviderClientFactory;
@@ -81,7 +82,11 @@ final class ProviderClientFactoryTest extends TestCase
     {
         return new ProviderClientFactory(
             container: new Container,
-            clients: [ProviderSource::Mock->value => MockProviderClient::class],
+            clients: [
+                ProviderSource::Mock->value => [
+                    ProviderDataSource::Api->value => MockProviderClient::class,
+                ],
+            ],
             enabled: $enabled,
             isProduction: $isProduction,
         );
