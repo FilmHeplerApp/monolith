@@ -19,9 +19,9 @@ class ProfilerTest extends TestCase
     {
         parent::setUp();
 
+        config()->set('profiler.enabled', true);
         $this->clearProfilerState();
     }
-
 
     /**
      * @throws ProfilerExistingPointException
@@ -345,7 +345,7 @@ class ProfilerTest extends TestCase
             ->once()
             ->withArgs(function (string $message, array $context): bool {
                 return $message === 'Profiler Log'
-                    && !isset($context['slow_points']);
+                    && ! isset($context['slow_points']);
             });
 
         Profiler::stats('test');
@@ -383,7 +383,7 @@ class ProfilerTest extends TestCase
                     return false;
                 }
 
-                if (!isset($context['slow_points'])) {
+                if (! isset($context['slow_points'])) {
                     return false;
                 }
 
@@ -473,12 +473,11 @@ class ProfilerTest extends TestCase
             ->once()
             ->withArgs(function (string $message, array $context): bool {
                 return $message === 'Profiler Log'
-                    && !isset($context['slow_points']);
+                    && ! isset($context['slow_points']);
             });
 
         Profiler::stats('test');
     }
-
 
     /**
      * @throws \ReflectionException
