@@ -32,6 +32,17 @@ final class ProviderTitleNormalizerTest extends TestCase
     }
 
     #[Test]
+    public function it_strips_html_encoded_as_entities(): void
+    {
+        self::assertSame(
+            'alert(1) safe text',
+            $this->normalizer()->normalizeDescription(
+                '&lt;script&gt;alert(1)&lt;/script&gt; &lt;strong&gt;safe&lt;/strong&gt; text',
+            ),
+        );
+    }
+
+    #[Test]
     public function it_decodes_entities(): void
     {
         self::assertSame('Tom & Jerry', $this->normalizer()->normalizeDescription('Tom &amp; Jerry'));
