@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Infrastructure\Providers;
+namespace App\Infrastructure\Providers\Factories;
 
 use App\Application\Import\Contracts\ProviderClientContract;
 use App\Application\Import\Contracts\ProviderClientFactoryContract;
@@ -60,7 +60,7 @@ final readonly class ProviderClientFactory implements ProviderClientFactoryContr
         return $clients;
     }
 
-    public function enabledSources(): array
+    public function getEnabledSources(): array
     {
         return array_map($this->toSource(...), $this->enabled);
     }

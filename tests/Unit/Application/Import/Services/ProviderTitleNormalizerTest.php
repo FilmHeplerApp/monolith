@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit\Application\Import\Services;
 
 use App\Application\Import\Services\ProviderTitleNormalizer;
+use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
@@ -58,5 +59,24 @@ final class ProviderTitleNormalizerTest extends TestCase
     public function it_returns_null_for_blank(): void
     {
         self::assertNull($this->normalizer()->normalizeDescription('  [b][/b]  '));
+    }
+
+    #[Test]
+    public function it_normalizes_each_localized_description_independently(): void
+    {
+        $description = $this->normalizer()->normalizeLocalizedDescription(
+            LocalizedText::create('<b>Русское</b> описание', 'English &amp; description'),
+        );
+
+        self::assertSame('Русское описание', $description?->getRu());
+        self::assertSame('English & description', $description?->getEn());
+    }
+
+    #[Test]
+    public function it_returns_null_when_all_localized_descriptions_are_blank(): void
+    {
+        self::assertNull($this->normalizer()->normalizeLocalizedDescription(
+            LocalizedText::create('<b></b>', '[description][/description]'),
+        ));
     }
 }

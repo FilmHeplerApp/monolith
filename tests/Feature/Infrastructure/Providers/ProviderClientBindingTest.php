@@ -6,8 +6,8 @@ namespace Tests\Feature\Infrastructure\Providers;
 
 use App\Application\Import\Contracts\ProviderClientFactoryContract;
 use App\Application\Import\Enums\ProviderSource;
+use App\Infrastructure\Providers\Factories\ProviderClientFactory;
 use App\Infrastructure\Providers\Mock\MockProviderClient;
-use App\Infrastructure\Providers\ProviderClientFactory;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 

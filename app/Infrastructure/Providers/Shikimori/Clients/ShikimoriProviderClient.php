@@ -17,8 +17,7 @@ final readonly class ShikimoriProviderClient implements ProviderClientContract
     public function __construct(
         private ShikimoriGraphQLClient $client,
         private ShikimoriTitleMapper   $mapper,
-    ) {
-    }
+    ) {}
 
     public function source(): ProviderSource
     {
@@ -39,6 +38,24 @@ final readonly class ShikimoriProviderClient implements ProviderClientContract
         if ($pageSize < 1) {
             throw new InvalidArgumentException('Shikimori page size must be positive.');
         }
+
+        return $this->iterateTitles($limit, $offset, $pageSize);
+    }
+
+    public function fetchTitleByExternalId(string $externalId): ?ProviderTitle
+    {
+        $rows = $this->client->query(
+            $this->animeByIdQuery(),
+            ['ids' => $externalId],
+        )['animes'] ?? [];
+
+        return isset($rows[0]) ? $this->mapper->map($rows[0]) : null;
+    }
+
+
+    /** @return Generator<int, ProviderTitle> */
+    private function iterateTitles(?int $limit, int $offset, int $pageSize): Generator
+    {
 
         $page = intdiv($offset, $pageSize) + 1;
         $skip = $offset % $pageSize;
@@ -71,17 +88,6 @@ final readonly class ShikimoriProviderClient implements ProviderClientContract
             }
         }
     }
-
-    public function fetchTitleByExternalId(string $externalId): ?ProviderTitle
-    {
-        $rows = $this->client->query(
-            $this->animeByIdQuery(),
-            ['ids' => $externalId],
-        )['animes'] ?? [];
-
-        return isset($rows[0]) ? $this->mapper->map($rows[0]) : null;
-    }
-
 
     private function animeByIdQuery(): string
     {

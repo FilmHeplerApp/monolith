@@ -18,7 +18,7 @@ use App\Domain\Import\Rules\MinReleaseYearRule;
 use App\Domain\Import\Services\ImportFilterEngine;
 use App\Infrastructure\Import\Sinks\LogCandidateSink;
 use App\Infrastructure\Persistence\Eloquent\Import\EloquentImportRunRecorder;
-use App\Infrastructure\Providers\ProviderClientFactory;
+use App\Infrastructure\Providers\Factories\ProviderClientFactory;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
 

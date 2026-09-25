@@ -19,8 +19,7 @@ final readonly class ProviderTitleToCandidateMapper
 {
     public function __construct(
         private ProviderTitleNormalizer $normalizer,
-    ) {
-    }
+    ) {}
 
     public function map(ProviderTitle $title): TitleCandidate
     {
@@ -31,14 +30,27 @@ final readonly class ProviderTitleToCandidateMapper
             );
         }
 
+        if ($title->rating !== null && ($title->rating < 0 || $title->rating > 10)) {
+            throw new ProviderTitleMappingException(
+                RejectionReason::MALFORMED,
+                ['rating' => $title->rating],
+                "Provider title rating must be between 0 and 10, got {$title->rating}.",
+            );
+        }
+
+        if ($title->durationMinutes !== null && $title->durationMinutes <= 0) {
+            throw new ProviderTitleMappingException(
+                RejectionReason::MALFORMED,
+                ['durationMinutes' => $title->durationMinutes],
+                "Provider title duration must be positive, got {$title->durationMinutes}.",
+            );
+        }
+
         return new TitleCandidate(
             source: $title->source->value,
             externalId: $title->externalId,
-            title: LocalizedText::create($title->titleRu, $title->titleEn),
-            description: LocalizedText::create(
-                $this->normalizer->normalizeDescription($title->description),
-                null,
-            ),
+            title: $title->title,
+            description: $this->normalizer->normalizeLocalizedDescription($title->description),
             type: $this->mapType($title),
             status: $this->mapStatus($title->status),
             releaseYear: $title->year,

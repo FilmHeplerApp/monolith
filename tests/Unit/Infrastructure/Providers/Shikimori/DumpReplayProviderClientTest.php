@@ -7,6 +7,7 @@ namespace Tests\Unit\Infrastructure\Providers\Shikimori;
 use App\Application\Import\DTOs\ProviderTitle;
 use App\Infrastructure\Providers\Shikimori\Clients\DumpReplayProviderClient;
 use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
+use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
@@ -28,7 +29,23 @@ final class DumpReplayProviderClientTest extends TestCase
         $title = $this->client()->fetchTitleByExternalId('20');
 
         self::assertNotNull($title);
-        self::assertSame('Наруто', $title->titleRu);
+        self::assertSame('Наруто', $title->title?->getRu());
+    }
+
+    #[Test]
+    public function it_rejects_an_invalid_limit_eagerly(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->client()->fetchTitles(limit: 0);
+    }
+
+    #[Test]
+    public function it_rejects_an_invalid_offset_eagerly(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->client()->fetchTitles(offset: -1);
     }
 
     private function client(): DumpReplayProviderClient

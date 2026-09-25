@@ -11,6 +11,7 @@ use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriProviderClient;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
+use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
@@ -34,8 +35,10 @@ final class ShikimoriProviderClientTest extends TestCase
         self::assertInstanceOf(ProviderTitle::class, $title);
         self::assertSame(ProviderSource::Shikimori, $title->source);
         self::assertSame('5114', $title->externalId);
-        self::assertSame('Стальной алхимик: Братство', $title->titleRu);
-        self::assertSame('Fullmetal Alchemist: Brotherhood', $title->titleEn);
+        self::assertSame('Стальной алхимик: Братство', $title->title?->getRu());
+        self::assertSame('Fullmetal Alchemist: Brotherhood', $title->title?->getEn());
+        self::assertSame('Описание', $title->description?->getRu());
+        self::assertNull($title->description?->getEn());
         self::assertSame(2009, $title->year);
         self::assertSame(24, $title->durationMinutes);
         self::assertEqualsWithDelta(9.1, $title->rating, 0.0001);
@@ -63,7 +66,7 @@ final class ShikimoriProviderClientTest extends TestCase
 
         $title = iterator_to_array($this->client()->fetchTitles(limit: 1))[0];
 
-        self::assertSame('Hagane no Renkinjutsushi', $title->titleEn);
+        self::assertSame('Hagane no Renkinjutsushi', $title->title?->getEn());
     }
 
     #[Test]
@@ -74,6 +77,16 @@ final class ShikimoriProviderClientTest extends TestCase
         Http::fake(['*' => Http::response(['data' => ['animes' => [$row]]])]);
 
         self::assertNull(iterator_to_array($this->client()->fetchTitles(limit: 1))[0]->rating);
+    }
+
+    #[Test]
+    public function it_treats_zero_duration_as_missing(): void
+    {
+        $row = $this->animeRow();
+        $row['duration'] = 0;
+        Http::fake(['*' => Http::response(['data' => ['animes' => [$row]]])]);
+
+        self::assertNull(iterator_to_array($this->client()->fetchTitles(limit: 1))[0]->durationMinutes);
     }
 
     #[Test]
@@ -121,6 +134,22 @@ final class ShikimoriProviderClientTest extends TestCase
         Http::fake(['*' => Http::response(['data' => ['animes' => []]])]);
 
         self::assertNull($this->client()->fetchTitleByExternalId('nope'));
+    }
+
+    #[Test]
+    public function it_rejects_an_invalid_limit_eagerly(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->client()->fetchTitles(limit: 0);
+    }
+
+    #[Test]
+    public function it_rejects_an_invalid_offset_eagerly(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->client()->fetchTitles(offset: -1);
     }
 
     private function client(): ShikimoriProviderClient

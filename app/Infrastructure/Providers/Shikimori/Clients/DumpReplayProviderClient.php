@@ -36,6 +36,25 @@ final readonly class DumpReplayProviderClient implements ProviderClientContract
             throw new InvalidArgumentException('Fetch offset must be zero or greater.');
         }
 
+        return $this->iterateTitles($limit, $offset);
+    }
+
+    public function fetchTitleByExternalId(string $externalId): ?ProviderTitle
+    {
+        foreach ($this->fetchTitles() as $title) {
+            if ($title->externalId === $externalId) {
+                return $title;
+            }
+        }
+
+        return null;
+    }
+
+
+    /** @return Generator<int, ProviderTitle> */
+    private function iterateTitles(?int $limit, int $offset): Generator
+    {
+
         $handle = @fopen($this->path, 'rb');
 
         if ($handle === false) {
@@ -69,18 +88,6 @@ final readonly class DumpReplayProviderClient implements ProviderClientContract
             fclose($handle);
         }
     }
-
-    public function fetchTitleByExternalId(string $externalId): ?ProviderTitle
-    {
-        foreach ($this->fetchTitles() as $title) {
-            if ($title->externalId === $externalId) {
-                return $title;
-            }
-        }
-
-        return null;
-    }
-
 
     /** @return array<string, mixed> */
     private function decode(string $line, int $lineNumber): array

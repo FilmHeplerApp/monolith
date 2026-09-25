@@ -16,6 +16,7 @@ use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\Services\ProviderTitleNormalizer;
 use App\Application\Import\Services\ProviderTitleToCandidateMapper;
 use App\Application\Import\UseCases\ImportTitlesFromProvider;
+use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use App\Domain\Import\DTOs\TitleCandidate;
 use App\Domain\Import\Enums\RejectionReason;
 use App\Domain\Import\Rules\CompletenessRule;
@@ -117,9 +118,8 @@ final class ImportTitlesFromProviderTest extends TestCase
         return new ProviderTitle(
             source: ProviderSource::Mock,
             externalId: $externalId,
-            titleRu: $titleRu,
-            titleEn: $titleEn,
-            description: $description,
+            title: LocalizedText::create($titleRu, $titleEn),
+            description: LocalizedText::create($description, null),
             genres: [],
             studios: [],
             year: 2020,
@@ -150,7 +150,7 @@ final readonly class SingleProviderClientFactory implements ProviderClientFactor
         return [$this->client->source()->value => $this->client];
     }
 
-    public function enabledSources(): array
+    public function getEnabledSources(): array
     {
         return [$this->client->source()];
     }

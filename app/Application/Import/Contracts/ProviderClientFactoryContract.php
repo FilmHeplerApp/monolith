@@ -22,5 +22,5 @@ interface ProviderClientFactoryContract
     /**
      * @return list<ProviderSource>
      */
-    public function enabledSources(): array;
+    public function getEnabledSources(): array;
 }

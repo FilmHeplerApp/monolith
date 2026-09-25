@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Application\Import\Services;
 
+use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
+
 final readonly class ProviderTitleNormalizer
 {
     public function __construct(
@@ -27,6 +29,18 @@ final readonly class ProviderTitleNormalizer
         }
 
         return $this->truncate($text);
+    }
+
+    public function normalizeLocalizedDescription(?LocalizedText $description): ?LocalizedText
+    {
+        if ($description === null) {
+            return null;
+        }
+
+        return LocalizedText::create(
+            $this->normalizeDescription($description->getRu()),
+            $this->normalizeDescription($description->getEn()),
+        );
     }
 
     private function truncate(string $text): string
