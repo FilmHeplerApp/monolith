@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Tests\Unit\Infrastructure\Providers;
 
 use App\Application\Import\Enums\ProviderSource;
+use App\Infrastructure\Providers\Factories\ProviderClientFactory;
 use App\Infrastructure\Providers\Mock\MockProviderClient;
-use App\Infrastructure\Providers\ProviderClientFactory;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Container\BindingResolutionException;
 use InvalidArgumentException;
@@ -38,6 +38,9 @@ final class ProviderClientFactoryTest extends TestCase
         $this->factory()->make(ProviderSource::Shikimori);
     }
 
+    /**
+     * @throws BindingResolutionException
+     */
     #[Test]
     public function it_returns_enabled_clients_keyed_by_source(): void
     {
@@ -50,7 +53,7 @@ final class ProviderClientFactoryTest extends TestCase
     #[Test]
     public function it_exposes_enabled_sources_as_enums(): void
     {
-        $sources = $this->factory(enabled: [ProviderSource::Mock->value])->enabledSources();
+        $sources = $this->factory(enabled: [ProviderSource::Mock->value])->getEnabledSources();
 
         self::assertSame([ProviderSource::Mock], $sources);
     }
@@ -60,7 +63,7 @@ final class ProviderClientFactoryTest extends TestCase
     {
         $this->expectException(InvalidArgumentException::class);
 
-        $this->factory(enabled: ['does-not-exist'])->enabledSources();
+        $this->factory(enabled: ['does-not-exist'])->getEnabledSources();
     }
 
     /**
