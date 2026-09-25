@@ -143,9 +143,9 @@ class Profiler
 
     private static function updateResults(
         string $key,
-        float $executionTime,
-        int $memoryUsage,
-        int $memoryPeakUsage,
+        float  $executionTime,
+        int    $memoryUsage,
+        int    $memoryPeakUsage,
     ): void {
         if (!isset(self::$results[$key])) {
             self::$results[$key] = [

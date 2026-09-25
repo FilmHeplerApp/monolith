@@ -11,9 +11,9 @@ use DateTimeImmutable;
 final readonly class User
 {
     public function __construct(
-        public ?int $id,
-        public Name $name,
-        public Email $email,
+        public ?int               $id,
+        public Name               $name,
+        public Email              $email,
         public ?DateTimeImmutable $emailVerifiedAt = null,
         public ?DateTimeImmutable $createdAt = null,
         public ?DateTimeImmutable $updatedAt = null,
