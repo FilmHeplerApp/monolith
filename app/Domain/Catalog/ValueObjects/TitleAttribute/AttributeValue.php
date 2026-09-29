@@ -13,9 +13,9 @@ final readonly class AttributeValue
      */
     private function __construct(
         private ?string $text,
-        private ?array $array,
-        private ?float $number,
-        private ?bool $boolean,
+        private ?array  $array,
+        private ?float  $number,
+        private ?bool   $boolean,
     ) {
     }
 
@@ -63,9 +63,9 @@ final readonly class AttributeValue
      */
     public static function createFromRaw(
         ?string $text = null,
-        ?array $array = null,
-        ?float $number = null,
-        ?bool $boolean = null,
+        ?array  $array = null,
+        ?float  $number = null,
+        ?bool   $boolean = null,
     ): self {
         $filled = 0;
 
