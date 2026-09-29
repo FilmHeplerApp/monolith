@@ -9,6 +9,9 @@ use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 
 final readonly class ProviderTitle
 {
+    /**
+     * @param  list<string>  $genres
+     */
     public function __construct(
         public ProviderSource $source,
         public string         $externalId,

@@ -44,12 +44,23 @@ final class MockProviderClient implements ProviderClientContract
 
     public function fetchTitleByExternalId(string $externalId): ?ProviderTitle
     {
+        if ($this->failure !== null && $this->failAfter === 0) {
+            throw $this->failure;
+        }
+
         return array_find(
             $this->titles,
             static fn(ProviderTitle $title): bool => $title->externalId === $externalId,
         );
     }
 
+    /**
+     * Fail the stream after this many successful yields.
+     *
+     * Offset 0 means the provider is already down: {@see fetchTitleByExternalId()} throws the same
+     * exception, and {@see fetchTitles()} throws on the first iteration step. A positive offset
+     * leaves lookup working until iteration reaches the failure.
+     */
     public function failWith(ProviderException $exception, int $afterItems = 0): void
     {
         $available = count($this->titles);
@@ -92,16 +103,8 @@ final class MockProviderClient implements ProviderClientContract
     private static function defaultFixtures(): array
     {
         return [
-            ...self::fixturesWithoutDuplicatedExternalId(),
-            self::fixtureWithDuplicatedExternalId(),
-        ];
-    }
-
-    /** @return list<ProviderTitle> */
-    private static function fixturesWithoutDuplicatedExternalId(): array
-    {
-        return [
             ...self::completeFixtures(),
+            self::fixtureWithDuplicatedExternalId(),
             ...self::incompleteFixtures(),
             ...self::invalidFixtures(),
         ];
@@ -149,7 +152,7 @@ final class MockProviderClient implements ProviderClientContract
                 descriptionRu: 'Старшеклассник глотает проклятый артефакт и попадает в школу магов.',
                 genres: ['action', 'fantasy'],
                 year: 2023,
-                rating: null,
+                rating: 8.6,
                 posterUrl: 'https://mock.local/posters/52991.jpg',
                 status: 'ongoing',
             ),

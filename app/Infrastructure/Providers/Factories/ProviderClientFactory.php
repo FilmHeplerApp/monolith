@@ -21,10 +21,13 @@ final readonly class ProviderClientFactory implements ProviderClientFactoryContr
      */
     public function __construct(
         private Container $container,
-        private array $clients,
-        private array $enabled,
-        private bool $isProduction,
+        private array     $clients,
+        private array     $enabled,
+        private bool      $isProduction,
     ) {
+        foreach ($this->enabled as $source) {
+            $this->resolveClass($this->toSource($source));
+        }
     }
 
     /**
@@ -32,17 +35,12 @@ final readonly class ProviderClientFactory implements ProviderClientFactoryContr
      */
     public function make(ProviderSource $source): ProviderClientContract
     {
-        $class = $this->clients[$source->value]
-            ?? throw new InvalidArgumentException("No client registered for provider [$source->value].");
-
-        if ($class === MockProviderClient::class && $this->isProduction) {
-            throw new RuntimeException('MockProviderClient is not allowed in production.');
-        }
-
-        return $this->container->make($class);
+        return $this->container->make($this->resolveClass($source));
     }
 
     /**
+     * @return array<string, ProviderClientContract>
+     *
      * @throws BindingResolutionException
      */
     public function enabled(): array
@@ -56,9 +54,28 @@ final readonly class ProviderClientFactory implements ProviderClientFactoryContr
         return $clients;
     }
 
+    /**
+     * @return list<ProviderSource>
+     */
     public function getEnabledSources(): array
     {
         return array_map($this->toSource(...), $this->enabled);
+    }
+
+
+    /**
+     * @return class-string<ProviderClientContract>
+     */
+    private function resolveClass(ProviderSource $source): string
+    {
+        $class = $this->clients[$source->value]
+            ?? throw new InvalidArgumentException("No client registered for provider [$source->value].");
+
+        if ($class === MockProviderClient::class && $this->isProduction) {
+            throw new RuntimeException('MockProviderClient is not allowed in production.');
+        }
+
+        return $class;
     }
 
     private function toSource(string $source): ProviderSource

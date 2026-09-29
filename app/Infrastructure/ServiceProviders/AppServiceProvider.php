@@ -31,6 +31,8 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->app->make(ProviderClientFactoryContract::class);
+
         Factory::guessFactoryNamesUsing(function (string $modelName) {
             return 'Database\\Factories\\' . class_basename($modelName) . 'Factory';
         });

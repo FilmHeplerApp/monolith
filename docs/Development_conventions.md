@@ -143,9 +143,8 @@ final readonly class ProviderTitle
     public function __construct(
         public ProviderSource $source,
         public string         $externalId,
-        public ?string        $titleRu,
-        public ?string        $titleEn,
-        public ?string        $description,
+        public ?LocalizedText $title,
+        public ?LocalizedText $description,
         public array          $genres,
         public ?int           $year,
         public ?int           $durationMinutes,
@@ -178,7 +177,7 @@ final readonly class ProviderTitle
   new ProviderTitle(
       source: ProviderSource::Mock,
       externalId: '5114',
-      titleRu: 'Стальной алхимик: Братство',
+      title: LocalizedText::create('Стальной алхимик: Братство', 'Fullmetal Alchemist: Brotherhood'),
   );
   ```
 

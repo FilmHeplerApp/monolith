@@ -62,20 +62,46 @@ final class ProviderClientFactoryTest extends TestCase
     public function it_rejects_an_unknown_enabled_provider(): void
     {
         $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Unknown import provider [does-not-exist].');
 
-        $this->factory(enabled: ['does-not-exist'])->getEnabledSources();
+        $this->factory(enabled: ['does-not-exist']);
+    }
+
+    #[Test]
+    public function it_rejects_an_enabled_provider_with_no_registered_client(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('No client registered for provider [mock].');
+
+        new ProviderClientFactory(
+            container: new Container,
+            clients: [],
+            enabled: [ProviderSource::Mock->value],
+            isProduction: false,
+        );
+    }
+
+    #[Test]
+    public function it_rejects_an_enabled_mock_client_in_production_at_construction(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('MockProviderClient is not allowed in production.');
+
+        $this->factory(enabled: [ProviderSource::Mock->value], isProduction: true);
     }
 
     /**
      * @throws BindingResolutionException
      */
     #[Test]
-    public function it_forbids_the_mock_client_in_production(): void
+    public function it_forbids_making_the_mock_client_in_production(): void
     {
         $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('MockProviderClient is not allowed in production.');
 
         $this->factory(isProduction: true)->make(ProviderSource::Mock);
     }
+
 
     /**
      * @param  list<string>  $enabled
