@@ -1,6 +1,11 @@
 <?php
 
+use App\Infrastructure\Providers\Shikimori\ShikimoriServiceProvider;
+use App\Infrastructure\ServiceProviders\AppServiceProvider;
+use App\Infrastructure\ServiceProviders\HorizonServiceProvider;
+
 return [
-    \App\Infrastructure\ServiceProviders\AppServiceProvider::class,
-    \App\Infrastructure\ServiceProviders\HorizonServiceProvider::class,
+    ShikimoriServiceProvider::class,
+    AppServiceProvider::class,
+    HorizonServiceProvider::class,
 ];
