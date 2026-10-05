@@ -39,6 +39,21 @@ final class CatalogValueObjectsTest extends TestCase
         $key = TitleCanonicalKey::createFromString('  naruto|anime|2002  ');
 
         $this->assertSame('naruto|anime|2002', $key->getValue());
+        $this->assertSame('naruto|anime|2002', (string) $key);
+        $this->assertNull($key->getNatural());
+        $this->assertNull($key->getNormalizerVersion());
+    }
+
+    #[Test]
+    public function canonical_key_preserves_stored_import_metadata_without_rehashing(): void
+    {
+        $natural = 'anime|2009|fullmetal alchemist';
+        $value = sha1($natural);
+        $key = TitleCanonicalKey::createFromString($value, natural: $natural, normalizerVersion: 1);
+
+        self::assertSame($value, $key->getValue());
+        self::assertSame($natural, $key->getNatural());
+        self::assertSame(1, $key->getNormalizerVersion());
     }
 
     #[Test]

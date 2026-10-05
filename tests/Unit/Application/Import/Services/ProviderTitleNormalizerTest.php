@@ -10,11 +10,6 @@ use PHPUnit\Framework\TestCase;
 
 final class ProviderTitleNormalizerTest extends TestCase
 {
-    private function normalizer(int $max = 1000): ProviderTitleNormalizer
-    {
-        return new ProviderTitleNormalizer($max);
-    }
-
     #[Test]
     public function it_strips_bbcode_but_keeps_inner_text(): void
     {
@@ -28,6 +23,18 @@ final class ProviderTitleNormalizerTest extends TestCase
     public function it_strips_html(): void
     {
         self::assertSame('bold text', $this->normalizer()->normalizeDescription('<b>bold</b> text'));
+    }
+
+    #[Test]
+    public function it_strips_entity_encoded_html_but_keeps_inner_text(): void
+    {
+        self::assertSame('текст', $this->normalizer()->normalizeDescription('&lt;b&gt;текст&lt;/b&gt;'));
+    }
+
+    #[Test]
+    public function it_returns_null_for_empty_entity_encoded_html(): void
+    {
+        self::assertNull($this->normalizer()->normalizeDescription('&lt;b&gt;&lt;/b&gt;'));
     }
 
     #[Test]
@@ -49,6 +56,23 @@ final class ProviderTitleNormalizerTest extends TestCase
     }
 
     #[Test]
+    public function it_truncates_text_without_spaces_within_the_limit(): void
+    {
+        $result = $this->normalizer()->normalizeDescription(str_repeat('я', 1001));
+
+        self::assertSame(str_repeat('я', 999).'…', $result);
+        self::assertSame(1000, mb_strlen($result));
+    }
+
+    #[Test]
+    public function it_keeps_text_at_the_length_limit(): void
+    {
+        $text = str_repeat('я', 1000);
+
+        self::assertSame($text, $this->normalizer()->normalizeDescription($text));
+    }
+
+    #[Test]
     public function it_returns_null_for_null(): void
     {
         self::assertNull($this->normalizer()->normalizeDescription(null));
@@ -58,5 +82,10 @@ final class ProviderTitleNormalizerTest extends TestCase
     public function it_returns_null_for_blank(): void
     {
         self::assertNull($this->normalizer()->normalizeDescription('  [b][/b]  '));
+    }
+
+    private function normalizer(int $max = 1000): ProviderTitleNormalizer
+    {
+        return new ProviderTitleNormalizer($max);
     }
 }

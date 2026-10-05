@@ -24,15 +24,13 @@ final readonly class ShikimoriGraphQLClient
     }
 
     /**
-     * @param array<string, mixed> $variables
+     * @param  array<string, mixed>  $variables
      * @return array<string, mixed>
      *
      * @throws ShikimoriApiException
      */
     public function query(string $query, array $variables = []): array
     {
-        Sleep::for($this->throttleMs)->milliseconds();
-
         $payload = ['query' => $query];
 
         if ($variables !== []) {
@@ -41,6 +39,9 @@ final readonly class ShikimoriGraphQLClient
 
         try {
             $response = Http::withHeaders(['User-Agent' => $this->userAgent])
+                ->beforeSending(function (): void {
+                    Sleep::for($this->throttleMs)->milliseconds();
+                })
                 ->timeout($this->timeout)
                 ->retry($this->retries, $this->retryBackoffMs, function (Throwable $e): bool {
                     return $e instanceof ConnectionException
@@ -53,12 +54,20 @@ final readonly class ShikimoriGraphQLClient
             throw ShikimoriApiException::transport($e);
         }
 
-        $body = (array)$response->json();
+        $body = $response->json();
+
+        if (! is_array($body)) {
+            throw ShikimoriApiException::invalidResponse();
+        }
 
         if (isset($body['errors'])) {
             throw ShikimoriApiException::graphqlErrors($body['errors']);
         }
 
-        return (array)($body['data'] ?? []);
+        if (! isset($body['data']) || ! is_array($body['data'])) {
+            throw ShikimoriApiException::invalidResponse();
+        }
+
+        return $body['data'];
     }
 }

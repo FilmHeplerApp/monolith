@@ -1,0 +1,8 @@
+{
+    "preset": "laravel",
+    "rules": {
+        "class_attributes_separation": false,
+        "no_extra_blank_lines": false,
+        "type_declaration_spaces": false
+    }
+}

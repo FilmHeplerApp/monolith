@@ -118,9 +118,9 @@ API (`released`, `tv`). Плюс отдельный Python-процесс в PHP
 | 3.8 | `dedup_key` присваивается **один раз** и далее неизменен | Переименование тайтла провайдером не должно порождать дубль |
 | 3.9 | Жанр **не входит** в `dedup_key` | Жанры меняются между прогонами -> ключ поехал бы -> дубль на upsert |
 | 3.10 | Граница с задачей 6.3.3 — интерфейс `CatalogBatchSaver` + DTO | Не сериализованный джоб: пачка не гоняется через Redis, переезд на джоб позже — замена реализации |
-| 3.11 | Полный дамп — в `storage/app/import/` под gitignore; в `tests/Fixtures/` — курированный срез 300–500 записей | 26 МБ в git означает новый блоб при каждой перевыгрузке |
+| 3.11 | Полный дамп — на диске `local` в `storage/app/private/import/` под gitignore; в `Static/Fixtures/Shikimori/` — курированный срез 300–500 записей | 26 МБ в git означает новый блоб при каждой перевыгрузке |
 | 3.12 | Фундамент `Domain/Catalog` построен: `Title*` enum/VO, `LocalizedText`, `AttributeValue`, EAV-DTO. Фильтр целится в него | Реализация модели ТЗ 7.1.2–7.1.8 (наш разбор полей) |
-| 3.13 | Слои по ревью абстракций: `ProviderTitle` + нормализация/маппинг/мерджер — в `Application`; `Domain/Import` = правила над `TitleCandidate` + доменные сервисы `ImportFilterEngine` и `TitleKeyFactory` (чистые, без `ProviderTitle`/I/O) | `Domain` не зависит от `Application`; движок и фабрика ключей не касаются `ProviderTitle`, значит их место в `Domain` |
+| 3.13 | Слои по ревью абстракций: `ProviderTitle` + нормализация/маппинг/мерджер — в `Application`; `Domain/Import` = правила над `TitleCandidate` + доменные сервисы `TitleCandidateEvaluator` и `TitleKeyFactory` (чистые, без `ProviderTitle`/I/O) | `Domain` не зависит от `Application`; движок и фабрика ключей не касаются `ProviderTitle`, значит их место в `Domain` |
 | 3.14 | Два семейства DTO: `Domain/Catalog/DTOs` (числовые id) — для сохранения/чтения (6.3.3); `Application/Import/DTOs/Prepared*` (натуральные ключи) — выход фильтра | До сохранения числовых id нет (см. 4.4); смешивать нельзя |
 
 ---
@@ -132,31 +132,54 @@ API (`released`, `tv`). Плюс отдельный Python-процесс в PHP
 | Ключ | Роль | Где живёт |
 | --- | --- | --- |
 | `(source, external_id)` | **Авторитетная идентичность.** «Это тот же самый тайтл?» | таблица `external_ids`, UNIQUE |
-| `dedup_key` | **Технический ключ склейки.** Цель `ON CONFLICT` + схлопывание дублей внутри пачки | колонка `titles`, UNIQUE |
+| `dedup_key` | **Технический ключ сопоставления.** Цель UNIQUE-индекса; совпадение разных идентичностей требует разбора | колонка `titles`, UNIQUE |
 
 Формула натурального ключа:
 
 ```text
-natural   = type | release_year | normalize(title_en ?? title_ru)
-normalize = lower -> NFKC -> убрать пунктуацию/диакритику -> схлопнуть пробелы -> trim
-dedup_key = sha1(natural)
+natural   = type | format_or_unknown | release_year | normalize(title_en ?? title_ru)
+normalize = NFKD -> удалить combining marks (Mn) -> lower -> заменить пунктуацию пробелами -> схлопнуть пробелы -> trim
+dedup_key = "v" + NORMALIZER_VERSION + ":" + sha1(natural)
 ```
 
-Нормализатор версионируется (`NORMALIZER_VERSION`): при его изменении нужен
-осознанный бэкфилл, иначе существующие ключи протухнут.
+`TitleFormat` отделён от `TitleContentType`: `ANIME` описывает вид контента,
+а `TV`, `MOVIE`, `TV_SHORT`, `SPECIAL`, `TV_SPECIAL`, `OVA`, `ONA`, `MUSIC`,
+`PV`, `CM` — формат. В `TitleCandidate` формат nullable: отсутствие данных
+даёт `unknown`, а не догадку `TV`. `TV_SHORT` и `TV_SPECIAL` не взаимозаменяемы;
+адаптер задаёт формат по явным данным провайдера, без эвристики по длительности.
+
+NFKD нужен перед удалением диакритики: `Pokémon` -> `pokemon`, `Ёлка` -> `елка`.
+Совместимые символы тоже сводятся: полноширинная латиница -> обычная,
+лигатура `ﬁ` -> `fi`. Эти совпадения не доказывают идентичность тайтлов.
+Описание форм нормализации: [Unicode UAX #15](https://www.unicode.org/reports/tr15/).
+
+Текущая версия фабрики — `NORMALIZER_VERSION = 2` (добавлен формат и префикс).
+`TitleCanonicalKey` — общий VO каталога и импорта: `getValue()`, `getNatural()`, `getNormalizerVersion()`; версия включена в
+сохраняемый ключ (`v2:<sha1>`), поэтому не теряется даже при передаче только строки.
+При изменении формулы или нормализации версию нужно увеличивать. Старые ключи
+восстанавливаются через `TitleCanonicalKey::createFromString(value, natural, normalizerVersion)` без пересчёта, включая прежние
+SHA-1 без префикса (версия 1). Обновление известного `(source, external_id)`
+сохраняет уже присвоенный ключ и его версию. Перед переходом на новую версию
+в действующем каталоге нужен отдельный контролируемый бэкфилл с разбором коллизий:
+версии нельзя просто смешать и ожидать склейки между ними.
 
 ### 4.2. Резолв ключа на пачку — 2 запроса, не N
 
 ```text
 1. SELECT по (source, external_id) IN (...)  -> нашли? берём УЖЕ ПРИСВОЕННЫЙ dedup_key
 2. для оставшихся вычисляем natural key
-3. SELECT по dedup_key IN (...)              -> ловим тот же тайтл от другого провайдера
-4. что не нашлось — новые тайтлы, ключ остаётся вычисленным
+3. SELECT по dedup_key IN (...)              -> загружаем ВСЕ связанные (source, external_id) для возможных коллизий
+4. TitleKeyResolver.resolve(candidates, existing) -> resolved + collisions
+5. сохраняем только resolved, collisions отправляем на ручной разбор
 ```
 
 Шаг 1 реализует решение 3.8 и чинит проблему переименований.
-Шаг 3 — это «поиск возможного дубля по названию, году, типу» из ТЗ 6.3.3,
-выполненный пачкой.
+Шаг 3 — это «поиск возможного дубля по названию, году, типу и формату» из ТЗ 6.3.3,
+выполненный пачкой. Он не даёт разрешения на автоматическую склейку.
+`TitleKeyResolver` — чистый доменный сервис, без запросов в БД. Application-слой
+должен передать полный snapshot `TitleIdentity[]` из шагов 1 и 3; неполный snapshot
+не позволяет обнаружить коллизии с каталогом. Для следующих чанков нужен новый
+snapshot с учётом сохранённых записей.
 
 ### 4.3. Почему ключ обязан быть материализован в БД
 
@@ -165,8 +188,14 @@ dedup_key = sha1(natural)
    один конфликтующий ключ: `ON CONFLICT DO UPDATE command cannot affect row a
    second time`. То есть дедуп внутри пачки — условие того, что задача 6.3.3
    вообще не упадёт, а не оптимизация.
-3. Материализованный ключ решает дедуп между чанками и между параллельными
-   воркерами автоматически: второй чанк уходит в ветку UPDATE.
+3. Материализованный ключ обеспечивает проверку уникальности между чанками и
+   воркерами. UPDATE разрешён для уже известной идентичности; новый претендент
+   на занятый ключ требует повторного резолва и отчёта, а не автоматической склейки.
+
+Уже связанные идентичности могут дать несколько `resolved` с одним ключом.
+Перед upsert упаковщик объединяет их по правилам приоритета провайдеров в одну
+строку тайтла, сохраняя все внешние идентичности. Это допустимо только для
+подтверждённых связей, а не для групп из `collisions`.
 
 ### 4.4. Связи — только пары натуральных ключей
 
@@ -195,6 +224,24 @@ dedup_key = sha1(natural)
 в отчёт, а не схлопываются молча (иначе сериал и его рекап того же года сольются
 в одну строку, и восстановить это будет нечем).
 
+Доменный отчёт — `TitleKeyResolution.collisions`, список `TitleKeyCollision`:
+каждый элемент содержит ключ (natural/hash/normalizerVersion) и все спорные
+`TitleIdentity` (source/externalId/key). Новые записи из спорной группы исключаются
+из `resolved` целиком: первый встреченный кандидат не получает приоритет.
+При конфликте с каталогом обновления известных идентичностей разрешены,
+а новые претенденты идут только в отчёт. Повтор одного `(source, external_id)`
+в пачке учитывается один раз (первая запись); уже явно связанные в каталоге
+идентичности сохраняют существующий общий ключ.
+
+Отсутствие года или формата не является причиной отсева само по себе.
+Если такие данные дают одинаковый ключ у разных идентичностей, это такая же
+коллизия с обязательным ручным разбором. NFKD-совпадения обрабатываются аналогично.
+
+Подключение к `FilterReport` / `import_runs` и сохранение отчёта — этапы 10–11.
+На текущем этапе реализован результат доменного резолвера; записи в БД ещё нет.
+Сейвер обязан дополнительно обработать гонку между snapshot и записью:
+конфликт UNIQUE не должен приводить к молчаливому обновлению чужого тайтла.
+
 ---
 
 ## 5. Изменения схемы БД
@@ -204,6 +251,8 @@ dedup_key = sha1(natural)
 | Таблица `external_ids(id, title_id, source, external_id, last_synced_at)`, UNIQUE `(source, external_id)` | Прямое требование ТЗ 6.3.3; авторитетная идентичность |
 | `titles.dedup_key varchar(64)` UNIQUE | Без него upsert без дублей невозможен (4.3) |
 | `titles.natural_key` (nullable, читаемый) | Отладка и админка; уникальность держит хэш |
+| `titles.normalizer_version` | Сохранять `TitleCanonicalKey.getNormalizerVersion()` рядом с ключом; legacy без префикса — версия 1 |
+| `titles.format` (nullable) | `TitleFormat` отдельно от вида контента; отсутствие формата не превращать в TV |
 | `titles.release_year smallint` | Год нужен в ключе, а колонки сейчас нет |
 | `titles.provider_score`, `titles.provider_score_count` | Решение 3.3 |
 | `titles.is_incomplete` (или `data_quality`) | ТЗ 6.3.2: неполные сохранять с флагом, а не отбрасывать |
@@ -235,7 +284,7 @@ dedup_key = sha1(natural)
 | `russian` | `titles.title_ru` | В хвосте каталога заполнено на 82% |
 | `english` ?? `name` | `titles.title_en` | `english` заполнен на 51%, fallback на ромадзи |
 | `description` | `titles.description_ru` | **117/250 содержат BBCode** `[character=...]` — чистить; обрезка до 700–1000 по ТЗ |
-| `kind` | фильтр + атрибут | `pv`, `cm` — отсеивать (промо и реклама) |
+| `kind` | `TitleCandidate.format` -> `titles.format`, фильтр + атрибут | `TitleFormat::tryFrom(kind)`, неизвестный формат -> null; `pv`, `cm` — отсеивать (промо и реклама); `tv_special` не превращать в `tv_short` |
 | `status` | `titles.status` | `anons -> announced`, `ongoing`, `released` — почти 1:1 |
 | `score` | `titles.provider_score` | **Не** в `rating_avg` (решение 3.3) |
 | `scoresStats[].count` сумма | `titles.provider_score_count` | Нужен для фильтра по популярности (ТЗ 6.3.2) |
@@ -270,9 +319,9 @@ app/
 │  └─ Exceptions/                          InvalidCatalogValueException
 │
 ├─ Domain/Import/                          [бизнес-правила + доменные сервисы, на TitleCandidate]
-│  ├─ ValueObjects/  TitleCandidate, TitleKey, FilterDecision
+│  ├─ DTOs/         TitleCandidate, CandidateAttribute, FilterDecision, TitleIdentity, KeyedTitleCandidate, TitleKeyCollision, TitleKeyResolution
 │  ├─ Contracts/     ImportFilterRuleContract, CatalogReferenceProvider
-│  ├─ Services/      TitleKeyFactory (идентичность), ImportFilterEngine (агрегация вердиктов правил)
+│  ├─ Services/      TitleKeyFactory (идентичность), TitleCandidateEvaluator (агрегация вердиктов правил)
 │  ├─ Rules/         HasAnyTitleRule, AllowedContentTypeRule, MinReleaseYearRule,
 │  │                 MinProviderScoreRule, CompletenessRule   (работают на TitleCandidate)
 │  └─ Enums/         RejectionReason, CandidateOutcome
@@ -299,7 +348,7 @@ app/
 - `ProviderTitle`, нормализация, маппинг и мерджер — **в `Application`**:
   они держат в руках `ProviderTitle`, а он теперь в `Application`, и `Domain` не может от него зависеть;
 - в `Domain/Import` — **чистые правила** над `TitleCandidate` плюс доменные сервисы
-  `ImportFilterEngine` (агрегация вердиктов) и `TitleKeyFactory` (идентичность): они не касаются
+  `TitleCandidateEvaluator` (агрегация вердиктов) и `TitleKeyFactory` (идентичность): они не касаются
   `ProviderTitle` и не делают I/O, значит их место в `Domain`. `TitleCandidate` собирает из
   `ProviderTitle` маппер (`Application`); правило отвечает «валидно / невалидно / флаг», не зная про провайдера;
 - целевая модель (`Title*` VO/enum, атрибуты) — в `Domain/Catalog`, **уже построена**.
@@ -364,19 +413,28 @@ iterable<ProviderTitle>
 ### Этап 1. Команда дампа
 
 - [ ] Artisan-команда в `app/Interfaces/Console/Commands/` (по конвенции все class-based команды там)
-- [ ] Вывод в NDJSON в `storage/app/import/` (gitignore)
-- [ ] Чекпоинт с номером последней успешной страницы для `--resume`
+- [x] Потоковая запись NDJSON в `storage/app/private/import/`, без `Storage::append()` и перечитывания всего файла
+- [x] JSON-чекпоинт `{version, page, bytes, titles}`; сначала полная запись и flush страницы, затем проверенные `put(tmp)` + атомарный `move(tmp, checkpoint)` на local
+- [x] `--resume` обрезает неподтверждённый хвост до `bytes`; старый числовой чекпоинт требует перезапуска без `--resume`
+- [x] Блокировка параллельного дампа, обработка ошибок с выводом в консоль, логом и FAILURE
 - [ ] Отдельный дамп таксономии `genres` (80 записей)
 - [ ] Поля: `id malId name russian english japanese synonyms kind status score duration episodes rating franchise airedOn releasedOn description poster genres studios updatedAt scoresStats`
 
 **Зачем:** 479 страниц по ~1.1 с это ~9 минут; без чекпоинта обрыв на 400-й
 означает начинать заново.
+Окончание — две последовательные валидные пустые выдачи одной страницы;
+отсутствующий `data`/`animes`, некорректный JSON и HTTP-сбой не считаются концом.
+API не предоставляет здесь размер снимка: повторная проверка защищает от одиночного
+пустого ответа, но не доказывает полноту при двух ошибочно пустых выдачах или
+изменении каталога во время пагинации. Жанры заменяются через временный файл с
+проверкой записи и переименования. Троттлинг выполняется перед каждой HTTP-попыткой
+через `beforeSending`, включая ретраи независимо от `retry_backoff_ms`.
 **Не брать:** `descriptionHtml` (дублирует `description`), `videos`,
 `screenshots`, `statusesStats`.
 
 ### Этап 2. Курированная фикстура
 
-- [ ] Отобрать 300–500 записей из полного дампа в `tests/Fixtures/Shikimori/`
+- [ ] Отобрать 300–500 записей из полного дампа в `Static/Fixtures/Shikimori/`
 - [ ] Покрыть все краевые случаи из раздела 11
 
 **Зачем:** тесты в CI без сети и без 26 МБ в репозитории.
@@ -404,8 +462,11 @@ iterable<ProviderTitle>
 
 - [x] `TitleCandidate`, `FilterDecision`, `RejectionReason`, `CandidateOutcome`
 - [x] `ImportFilterRuleContract` + правила: `HasAnyTitleRule`, `AllowedContentTypeRule`, `MinReleaseYearRule`, `MinProviderScoreRule`, `CompletenessRule`
-- [x] `TitleKeyFactory` — детерминированный `dedup_key` (идентичность)
-- [x] `ImportFilterEngine` — агрегация вердиктов правил (reject > flag > accept)
+- [x] `TitleFormat` + nullable `TitleCandidate.format`
+- [x] `TitleKeyFactory` — версионированный `dedup_key`, включающий формат
+- [x] `TitleKeyResolver` — сохранение известных ключей, отчёт коллизий `TitleKeyResolution`
+- [ ] Application-резолв: загрузка полного snapshot из БД и подключение доменного резолвера
+- [x] `TitleCandidateEvaluator` — агрегация вердиктов правил (reject > flag > accept)
 
 **Application/Import — знает про `ProviderTitle`:**
 
@@ -460,7 +521,7 @@ iterable<ProviderTitle>
 
 ### Этап 11. Отчётность и профилирование
 
-- [ ] `FilterReport`: принято / помечено флагом / отсеяно с причинами / схлопнуто дублей
+- [ ] `FilterReport`: принято / помечено флагом / отсеяно с причинами / повторов идентичности / коллизий ключа; включить `TitleKeyResolution.collisions`
 - [ ] Запись в `import_runs`
 - [ ] Обвязка стадий существующим `Profiler`
 
@@ -470,7 +531,7 @@ iterable<ProviderTitle>
 ### Этап 12. Тесты
 
 - [ ] Юнит на каждое правило, нормализатор, фабрику ключей, реестр, мерджер
-- [ ] Юнит на дедуп: два `ProviderTitle` от разных провайдеров -> одна запись
+- [x] Юнит на коллизии: разные идентичности с одним ключом -> отчёт, без автоматической склейки; отсутствие года/формата, NFKD-совпадения, занятый ключ, сохранение legacy-ключа
 - [ ] Юнит на инвариант: связь с отсутствующим `titleKey` -> отброшена
 - [ ] **Feature на двойной прогон**: дублей нет, `updated_at` обновился
 - [ ] Feature на переименование провайдером: строка одна, `dedup_key` прежний

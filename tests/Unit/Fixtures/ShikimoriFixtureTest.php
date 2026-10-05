@@ -15,7 +15,7 @@ final class ShikimoriFixtureTest extends TestCase
      */
     private function rows(): array
     {
-        $path = dirname(__DIR__, 2) . '/Fixtures/Shikimori/animes.ndjson';
+        $path = dirname(__DIR__, 3).'/Static/Fixtures/Shikimori/animes.ndjson';
         $lines = array_filter(explode("\n", trim(file_get_contents($path))));
 
         return array_map(

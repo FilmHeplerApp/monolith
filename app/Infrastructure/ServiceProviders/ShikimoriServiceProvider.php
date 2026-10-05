@@ -2,9 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\Infrastructure\Providers\Shikimori;
+namespace App\Infrastructure\ServiceProviders;
 
 use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriGraphQLClient;
+use App\Infrastructure\Providers\Shikimori\ShikimoriConfig;
 use Illuminate\Support\ServiceProvider;
 
 final class ShikimoriServiceProvider extends ServiceProvider

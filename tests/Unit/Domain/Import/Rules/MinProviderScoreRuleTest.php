@@ -8,7 +8,7 @@ use App\Domain\Import\Enums\RejectionReason;
 use App\Domain\Import\Rules\MinProviderScoreRule;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use Tests\Unit\Domain\Import\Support\CandidateParent;
+use Tests\Unit\Domain\Import\Support\TitleCandidateFactory;
 
 final class MinProviderScoreRuleTest extends TestCase
 {
@@ -16,21 +16,21 @@ final class MinProviderScoreRuleTest extends TestCase
     public function accepts_high_score(): void
     {
         self::assertTrue(new MinProviderScoreRule(6.0, 1000)
-            ->evaluate(CandidateParent::create(providerScore: 9.1, providerScoreCount: 50000))->isAccepted());
+            ->evaluate(TitleCandidateFactory::create(providerScore: 9.1, providerScoreCount: 50000))->isAccepted());
     }
 
     #[Test]
     public function accepts_when_count_high_even_if_score_low(): void
     {
         self::assertTrue(new MinProviderScoreRule(6.0, 1000)
-            ->evaluate(CandidateParent::create(providerScore: 5.0, providerScoreCount: 50000))->isAccepted());
+            ->evaluate(TitleCandidateFactory::create(providerScore: 5.0, providerScoreCount: 50000))->isAccepted());
     }
 
     #[Test]
     public function rejects_low_score_and_low_count(): void
     {
         $decision = new MinProviderScoreRule(6.0, 1000)
-            ->evaluate(CandidateParent::create(providerScore: 3.0, providerScoreCount: 10));
+            ->evaluate(TitleCandidateFactory::create(providerScore: 3.0, providerScoreCount: 10));
 
         self::assertTrue($decision->isRejected());
         self::assertSame(RejectionReason::LOW_POPULARITY, $decision->reason);
@@ -40,6 +40,6 @@ final class MinProviderScoreRuleTest extends TestCase
     public function accepts_when_no_popularity_data(): void
     {
         self::assertTrue(new MinProviderScoreRule(6.0, 1000)
-            ->evaluate(CandidateParent::create(providerScore: null, providerScoreCount: null))->isAccepted());
+            ->evaluate(TitleCandidateFactory::create(providerScore: null, providerScoreCount: null))->isAccepted());
     }
 }

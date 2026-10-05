@@ -2,18 +2,20 @@
 
 declare(strict_types=1);
 
-namespace Tests\Unit\Domain\Import\ValueObjects;
+namespace Tests\Unit\Domain\Import\DTOs;
 
+use App\Domain\Import\DTOs\FilterDecision;
 use App\Domain\Import\Enums\CandidateOutcome;
 use App\Domain\Import\Enums\RejectionReason;
-use App\Domain\Import\ValueObjects\FilterDecision;
-use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\TestCase;
 
-class FilterDecisionTest extends TestCase
+final class FilterDecisionTest extends TestCase
 {
-    const array SEVERAL_REASONS_REJECT = ['missing' => ['description', 'poster']];
-    const array CONTEXT = ['score' => 3.2, 'count' => 5];
+    private const array FLAG_CONTEXT = ['missing' => ['description', 'poster']];
+
+    private const array REJECTION_CONTEXT = ['score' => 3.2, 'count' => 5];
+
 
     #[Test]
     public function accept_marks_decision_as_accepted(): void
@@ -43,9 +45,9 @@ class FilterDecisionTest extends TestCase
     #[Test]
     public function flag_carries_context(): void
     {
-        $decision = FilterDecision::flag(self::SEVERAL_REASONS_REJECT);
+        $decision = FilterDecision::flag(self::FLAG_CONTEXT);
 
-        self::assertSame(self::SEVERAL_REASONS_REJECT, $decision->context);
+        self::assertSame(self::FLAG_CONTEXT, $decision->context);
     }
 
     #[Test]
@@ -63,9 +65,9 @@ class FilterDecisionTest extends TestCase
     #[Test]
     public function reject_carries_context(): void
     {
-        $decision = FilterDecision::reject(RejectionReason::LOW_POPULARITY, self::CONTEXT);
+        $decision = FilterDecision::reject(RejectionReason::LOW_POPULARITY, self::REJECTION_CONTEXT);
 
         self::assertSame(RejectionReason::LOW_POPULARITY, $decision->reason);
-        self::assertSame(self::CONTEXT, $decision->context);
+        self::assertSame(self::REJECTION_CONTEXT, $decision->context);
     }
 }

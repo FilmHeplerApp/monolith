@@ -2,20 +2,13 @@
 
 declare(strict_types=1);
 
-namespace App\Domain\Import\ValueObjects;
+namespace App\Domain\Import\DTOs;
 
 use App\Domain\Import\Enums\CandidateOutcome;
 use App\Domain\Import\Enums\RejectionReason;
 
 final readonly class FilterDecision
 {
-    private function __construct(
-        public CandidateOutcome $outcome,
-        public ?RejectionReason $reason,
-        public ?array           $context = null,
-    ) {
-    }
-
     public static function accept(): self
     {
         return new self(CandidateOutcome::ACCEPTED, null);
@@ -44,5 +37,13 @@ final readonly class FilterDecision
     public function isRejected(): bool
     {
         return $this->outcome === CandidateOutcome::REJECTED;
+    }
+
+
+    private function __construct(
+        public CandidateOutcome $outcome,
+        public ?RejectionReason $reason,
+        public ?array           $context = null,
+    ) {
     }
 }

@@ -17,8 +17,8 @@ final readonly class ProviderTitleNormalizer
         }
 
         $text = preg_replace('/\[\/?[a-zA-Z][^\]]*]/u', '', $raw) ?? $raw;
-        $text = strip_tags($text);
         $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = strip_tags($text);
         $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
         $text = trim($text);
 
@@ -35,7 +35,7 @@ final readonly class ProviderTitleNormalizer
             return $text;
         }
 
-        $cut = mb_substr($text, 0, $this->maxDescriptionLength);
+        $cut = mb_substr($text, 0, $this->maxDescriptionLength - 1);
         $lastSpace = mb_strrpos($cut, ' ');
 
         if ($lastSpace !== false) {

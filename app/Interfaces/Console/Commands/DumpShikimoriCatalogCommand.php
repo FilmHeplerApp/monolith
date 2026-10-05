@@ -5,106 +5,98 @@ declare(strict_types=1);
 namespace App\Interfaces\Console\Commands;
 
 use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriGraphQLClient;
+use App\Infrastructure\Providers\Shikimori\Dumps\ShikimoriDumpWriter;
 use App\Infrastructure\Providers\Shikimori\ShikimoriConfig;
 use Illuminate\Console\Command;
-use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use JsonException;
+use RuntimeException;
+use Throwable;
 
 final class DumpShikimoriCatalogCommand extends Command
 {
+    private const string DISK = 'local';
+
+
     protected $signature = 'shikimori:dump {--resume : Continue from the last successful page}';
 
     protected $description = 'Anime catalog dump Shikimori in NDJSON (storage/app/private/import)';
 
-    private const string DISK = 'local';
 
-    private const string ANIME_FILE_PATH = 'import/shikimori_anime.ndjson';
-
-    private const string GENRES_FILE_PATH = 'import/shikimori_genres.ndjson';
-
-    private const string CHECKPOINT_PATH = 'import/shikimori_anime.checkpoint';
-
-    /**
-     * @throws JsonException
-     */
     public function handle(ShikimoriGraphQLClient $client): int
     {
-        $disk = Storage::disk(self::DISK);
-        $limit = ShikimoriConfig::pageSize();
+        $writer = null;
 
-        $startPage = $this->resolveStartPage($disk);
+        try {
+            $limit = ShikimoriConfig::pageSize();
 
-        $titleCount = $this->dumpAnimes($client, $disk, $startPage, $limit);
-        $genreCount = $this->dumpGenres($client, $disk);
-
-        $this->info("Done: titles {$titleCount}, genres {$genreCount}.");
-
-        return self::SUCCESS;
-    }
-
-    private function resolveStartPage(Filesystem $disk): int
-    {
-        if ($this->option('resume')) {
-            $page = ($disk->exists(self::CHECKPOINT_PATH) ? (int) $disk->get(self::CHECKPOINT_PATH) : 0) + 1;
-            $this->info("Continuing from page {$page}.");
-
-            return $page;
-        }
-
-        $disk->delete([self::ANIME_FILE_PATH, self::CHECKPOINT_PATH]);
-        $this->info('Dumps deleted.');
-
-        return 1;
-    }
-
-    /**
-     * @throws JsonException
-     */
-    private function dumpAnimes(ShikimoriGraphQLClient $client, Filesystem $disk, int $startPage, int $limit): int
-    {
-        $page = $startPage;
-        $total = 0;
-
-        while (true) {
-            $animes = $client->query($this->animeQuery(), ['page' => $page, 'limit' => $limit])['animes'] ?? [];
-
-            if ($animes === []) {
-                break;
+            if ($limit < 1) {
+                throw new RuntimeException('Shikimori page size must be positive.');
             }
 
-            $disk->append(self::ANIME_FILE_PATH, $this->toNdjson($animes));
-            $disk->put(self::CHECKPOINT_PATH, (string) $page);
-            $total += count($animes);
-            $this->line("page {$page}: +".count($animes)." (total {$total})");
-            $page++;
+            $writer = new ShikimoriDumpWriter(Storage::disk(self::DISK));
+            $page = $writer->start((bool) $this->option('resume'));
+            $this->info("Starting from page {$page}.");
+
+            while (true) {
+                $animes = $this->fetchAnimes($client, $page, $limit);
+
+                if ($animes === []) {
+                    $animes = $this->fetchAnimes($client, $page, $limit);
+
+                    if ($animes === []) {
+                        $this->line("End of catalog confirmed at page {$page}.");
+                        break;
+                    }
+                }
+
+                $writer->appendPage($page, $animes);
+                $this->line("page {$page}: +".count($animes)." (total {$writer->titleCount()})");
+                $page++;
+            }
+
+            $genres = $this->rows($client->query($this->genresQuery()), 'genres');
+            $writer->writeGenres($genres);
+            $this->info("Done: titles {$writer->titleCount()}, genres ".count($genres).'.');
+
+            return self::SUCCESS;
+        } catch (Throwable $exception) {
+            Log::error('Failed to dump Shikimori catalog.', ['exception' => $exception]);
+            $this->error('Failed to dump Shikimori catalog: '.$exception->getMessage());
+
+            return self::FAILURE;
+        } finally {
+            $writer?->close();
+        }
+    }
+
+
+    /** @return list<array<string, mixed>> */
+    private function fetchAnimes(ShikimoriGraphQLClient $client, int $page, int $limit): array
+    {
+        return $this->rows($client->query($this->animeQuery(), ['page' => $page, 'limit' => $limit]), 'animes');
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return list<array<string, mixed>>
+     */
+    private function rows(array $data, string $field): array
+    {
+        $rows = $data[$field] ?? null;
+
+        if (! is_array($rows) || ! array_is_list($rows)) {
+            throw new RuntimeException("Invalid Shikimori response: {$field} must be a list.");
         }
 
-        return $total;
-    }
+        foreach ($rows as $row) {
+            if (! is_array($row) || ! isset($row['id'])
+                || (! is_string($row['id']) && ! is_int($row['id'])) || (string) $row['id'] === '') {
+                throw new RuntimeException("Invalid Shikimori response: {$field} contains a row without an id.");
+            }
+        }
 
-    /**
-     * @throws JsonException
-     */
-    private function dumpGenres(ShikimoriGraphQLClient $client, Filesystem $disk): int
-    {
-        $genres = $client->query($this->genresQuery())['genres'] ?? [];
-        $disk->put(self::GENRES_FILE_PATH, $this->toNdjson($genres));
-
-        return count($genres);
-    }
-
-    /**
-     * @param  list<array<string, mixed>>  $rows
-     *
-     * @throws JsonException
-     */
-    private function toNdjson(array $rows): string
-    {
-        return implode("\n", array_map(
-            static fn (array $row): string => json_encode($row, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
-            $rows,
-        ));
+        return $rows;
     }
 
     private function animeQuery(): string

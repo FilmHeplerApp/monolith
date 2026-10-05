@@ -5,15 +5,16 @@ declare(strict_types=1);
 namespace Tests\Unit\Domain\Import\DTOs;
 
 use App\Domain\Catalog\Enums\Title\TitleContentType;
+use App\Domain\Catalog\Enums\Title\TitleFormat;
 use App\Domain\Catalog\Enums\Title\TitleStatus;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use App\Domain\Import\DTOs\CandidateAttribute;
 use App\Domain\Import\DTOs\TitleCandidate;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use Tests\Unit\Domain\Import\Support\CandidateParent;
+use Tests\Unit\Domain\Import\Support\TitleCandidateFactory;
 
-class TitleCandidateTest extends TestCase
+final class TitleCandidateTest extends TestCase
 {
     #[Test]
     public function it_exposes_provided_values(): void
@@ -31,9 +32,11 @@ class TitleCandidateTest extends TestCase
             durationMinutes: 24,
             posterUrl: 'https://mock.local/52991.jpg',
             bannerUrl: null,
+            format: TitleFormat::MOVIE,
         );
 
         self::assertSame(TitleContentType::ANIME, $candidate->type);
+        self::assertSame(TitleFormat::MOVIE, $candidate->format);
         self::assertSame('Fullmetal Alchemist', $candidate->title?->getEn());
         self::assertNull($candidate->description);
     }
@@ -62,7 +65,7 @@ class TitleCandidateTest extends TestCase
     #[Test]
     public function it_defaults_to_no_attributes(): void
     {
-        self::assertSame([], CandidateParent::create()->attributes);
+        self::assertSame([], TitleCandidateFactory::create()->attributes);
     }
 
     #[Test]
@@ -73,7 +76,7 @@ class TitleCandidateTest extends TestCase
             LocalizedText::create('Фантастика', 'Sci-Fi'),
         ]);
 
-        $candidate = CandidateParent::create(attributes: [$genres]);
+        $candidate = TitleCandidateFactory::create(attributes: [$genres]);
 
         self::assertCount(1, $candidate->attributes);
         self::assertSame('genres', $candidate->attributes[0]->code);

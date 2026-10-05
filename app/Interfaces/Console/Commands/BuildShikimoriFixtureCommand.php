@@ -7,9 +7,11 @@ namespace App\Interfaces\Console\Commands;
 use Generator;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use JsonException;
 use Symfony\Component\Console\Attribute\AsCommand;
+use Throwable;
 
 #[AsCommand(
     name: 'shikimori:build-fixture',
@@ -23,34 +25,40 @@ final class BuildShikimoriFixtureCommand extends Command
 
     private const string DUMP_GENRES_PATH = 'import/shikimori_genres.ndjson';
 
-    private const string FIXTURE_DIR = 'tests/Fixtures/Shikimori';
+    private const string FIXTURE_DIR = 'Static/Fixtures/Shikimori';
 
-    /**
-     * @throws JsonException
-     */
+
     public function handle(): int
     {
-        $disk = Storage::disk(self::DUMP_DISK);
+        try {
+            $disk = Storage::disk(self::DUMP_DISK);
 
-        foreach ([self::DUMP_ANIME_PATH, self::DUMP_GENRES_PATH] as $file) {
-            if (! $disk->exists($file)) {
-                $this->error("Dump not found: {$file}. At first: php artisan shikimori:dump");
+            foreach ([self::DUMP_ANIME_PATH, self::DUMP_GENRES_PATH] as $file) {
+                if (! $disk->exists($file)) {
+                    $this->error("Dump not found: $file. At first: php artisan shikimori:dump");
 
-                return self::FAILURE;
+                    return self::FAILURE;
+                }
             }
+
+            $dir = base_path(self::FIXTURE_DIR);
+            File::ensureDirectoryExists($dir);
+
+            $animeCount = $this->buildAnimeFixture($disk->path(self::DUMP_ANIME_PATH), $dir.'/animes.ndjson');
+            $genreCount = $this->buildGenreFixture($disk->path(self::DUMP_GENRES_PATH), $dir.'/genres.ndjson');
+
+            $this->info(sprintf('Fixture assembled: %d titles, %d genres.', $animeCount, $genreCount));
+            $this->line('-> '.self::FIXTURE_DIR);
+
+            return self::SUCCESS;
+        } catch (Throwable $exception) {
+            Log::error('Failed to build Shikimori fixture.', ['exception' => $exception]);
+            $this->error('Failed to build Shikimori fixture: '.$exception->getMessage());
+
+            return self::FAILURE;
         }
-
-        $dir = base_path(self::FIXTURE_DIR);
-        File::ensureDirectoryExists($dir);
-
-        $animeCount = $this->buildAnimeFixture($disk->path(self::DUMP_ANIME_PATH), $dir.'/animes.ndjson');
-        $genreCount = $this->buildGenreFixture($disk->path(self::DUMP_GENRES_PATH), $dir.'/genres.ndjson');
-
-        $this->info(sprintf('Fixture assembled: %d titles, %d genres.', $animeCount, $genreCount));
-        $this->line('-> '.self::FIXTURE_DIR);
-
-        return self::SUCCESS;
     }
+
 
     /**
      * @throws JsonException

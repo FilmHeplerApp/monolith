@@ -7,20 +7,20 @@ namespace Tests\Unit\Domain\Import\Rules;
 use App\Domain\Import\Rules\CompletenessRule;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use Tests\Unit\Domain\Import\Support\CandidateParent;
+use Tests\Unit\Domain\Import\Support\TitleCandidateFactory;
 
 final class CompletenessRuleTest extends TestCase
 {
     #[Test]
     public function accepts_complete_title(): void
     {
-        self::assertTrue(new CompletenessRule()->evaluate(CandidateParent::create())->isAccepted());
+        self::assertTrue(new CompletenessRule()->evaluate(TitleCandidateFactory::create())->isAccepted());
     }
 
     #[Test]
     public function flags_missing_poster(): void
     {
-        $decision = new CompletenessRule()->evaluate(CandidateParent::create(posterUrl: null));
+        $decision = new CompletenessRule()->evaluate(TitleCandidateFactory::create(posterUrl: null));
 
         self::assertTrue($decision->isFlagged());
         self::assertSame(['missing' => ['poster']], $decision->context);
@@ -30,7 +30,7 @@ final class CompletenessRuleTest extends TestCase
     public function flags_missing_description_and_poster(): void
     {
         $decision = new CompletenessRule()->evaluate(
-            CandidateParent::create(descriptionRu: null, descriptionEn: null, posterUrl: null),
+            TitleCandidateFactory::create(descriptionRu: null, descriptionEn: null, posterUrl: null),
         );
 
         self::assertTrue($decision->isFlagged());

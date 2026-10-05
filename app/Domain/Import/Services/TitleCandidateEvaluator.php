@@ -5,16 +5,17 @@ declare(strict_types=1);
 namespace App\Domain\Import\Services;
 
 use App\Domain\Import\Contracts\ImportFilterRuleContract;
+use App\Domain\Import\DTOs\FilterDecision;
 use App\Domain\Import\DTOs\TitleCandidate;
-use App\Domain\Import\ValueObjects\FilterDecision;
 
-final readonly class ImportFilterEngine
+final readonly class TitleCandidateEvaluator
 {
     /** @param list<ImportFilterRuleContract> $rules */
     public function __construct(private array $rules) {}
 
     public function decide(TitleCandidate $candidate): FilterDecision
     {
+        $hasFlag = false;
         $flagContext = [];
 
         foreach ($this->rules as $rule) {
@@ -25,14 +26,16 @@ final readonly class ImportFilterEngine
             }
 
             if ($decision->isFlagged()) {
+                $hasFlag = true;
                 $flagContext = $this->mergeContext($flagContext, $decision->context ?? []);
             }
         }
 
-        return $flagContext === []
-            ? FilterDecision::accept()
-            : FilterDecision::flag($flagContext);
+        return $hasFlag
+            ? FilterDecision::flag($flagContext)
+            : FilterDecision::accept();
     }
+
 
     /**
      * @param  array<string, mixed>  $base

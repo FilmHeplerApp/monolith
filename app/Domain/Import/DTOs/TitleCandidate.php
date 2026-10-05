@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Domain\Import\DTOs;
 
 use App\Domain\Catalog\Enums\Title\TitleContentType;
+use App\Domain\Catalog\Enums\Title\TitleFormat;
 use App\Domain\Catalog\Enums\Title\TitleStatus;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 
@@ -25,6 +26,7 @@ final readonly class TitleCandidate
         public ?string          $bannerUrl,
         /** @var list<CandidateAttribute> */
         public array            $attributes = [],
+        public ?TitleFormat     $format = null,
     ) {
     }
 }
