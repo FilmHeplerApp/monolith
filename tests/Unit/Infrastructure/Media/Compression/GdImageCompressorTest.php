@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace Tests\Unit\Infrastructure\Media\Compression;
 
 use App\Application\Media\Contracts\ImageCompressorContract;
-use App\Application\Media\DTOs\ImageVariantSpec;
 use App\Application\Media\DTOs\ProcessedImage;
 use App\Application\Media\Enums\ImageVariant;
 use App\Application\Media\Exceptions\ImageProcessingException;
 use App\Infrastructure\Media\Compression\GdImageCompressor;
+use App\Infrastructure\Media\Config\ImageConfig;
 use Intervention\Image\Drivers\Gd\Driver;
 use Intervention\Image\Exceptions\InvalidArgumentException;
 use Intervention\Image\ImageManager;
@@ -80,7 +80,7 @@ final class GdImageCompressorTest extends TestCase
     #[DataProvider('variants')]
     public function it_does_not_exceed_variant_limits(ImageVariant $variant): void
     {
-        $spec = ImageVariantSpec::fromVariant($variant);
+        $spec = ImageConfig::variant($variant);
         $result = $this->compress($this->fixture(self::FIXTURE_LARGE), $variant);
 
         self::assertLessThanOrEqual($spec->maxWidth, $result->width);
@@ -237,7 +237,7 @@ final class GdImageCompressorTest extends TestCase
 
     private function compress(string $contents, ImageVariant $variant): ProcessedImage
     {
-        return $this->compressor->compress($contents, ImageVariantSpec::fromVariant($variant));
+        return $this->compressor->compress($contents, ImageConfig::variant($variant));
     }
 
     private function decoded(ProcessedImage $result): ImageInterface

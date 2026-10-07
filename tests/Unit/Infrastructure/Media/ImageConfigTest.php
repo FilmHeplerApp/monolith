@@ -2,18 +2,17 @@
 
 declare(strict_types=1);
 
-namespace Tests\Unit\Application\Media\DTOs;
+namespace Tests\Unit\Infrastructure\Media;
 
-use App\Application\Media\DTOs\ImageVariantSpec;
 use App\Application\Media\Enums\ImageVariant;
 use App\Application\Media\Enums\ResizeStrategy;
-use App\Application\Media\Exceptions\ImageProcessingException;
+use App\Infrastructure\Media\Config\ImageConfig;
+use App\Infrastructure\Media\Config\ImageConfigurationException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
-use ValueError;
 
-final class ImageVariantSpecTest extends TestCase
+final class ImageConfigTest extends TestCase
 {
     /**
      * @return array<string, array{ImageVariant, int, int, ResizeStrategy, int, int}>
@@ -30,7 +29,7 @@ final class ImageVariantSpecTest extends TestCase
 
     #[Test]
     #[DataProvider('configuredVariants')]
-    public function it_builds_from_config(
+    public function it_builds_a_variant_from_config(
         ImageVariant $variant,
         int $maxWidth,
         int $maxHeight,
@@ -38,7 +37,7 @@ final class ImageVariantSpecTest extends TestCase
         int $quality,
         int $sharpen,
     ): void {
-        $spec = ImageVariantSpec::fromVariant($variant);
+        $spec = ImageConfig::variant($variant);
 
         self::assertSame($maxWidth, $spec->maxWidth);
         self::assertSame($maxHeight, $spec->maxHeight);
@@ -48,18 +47,33 @@ final class ImageVariantSpecTest extends TestCase
     }
 
     #[Test]
+    public function it_exposes_the_remaining_image_settings(): void
+    {
+        self::assertSame('s3', ImageConfig::disk());
+        self::assertSame('images', ImageConfig::queue());
+        self::assertSame(15 * 1024 * 1024, ImageConfig::maxBytes());
+        self::assertSame(25_000_000, ImageConfig::maxPixels());
+        self::assertSame(['image/jpeg', 'image/png', 'image/webp'], ImageConfig::allowedMimeTypes());
+        self::assertSame(['http', 'https'], ImageConfig::allowedSchemes());
+        self::assertSame(10, ImageConfig::connectTimeout());
+        self::assertSame(30, ImageConfig::timeout());
+        self::assertSame('webp', ImageConfig::outputFormat());
+        self::assertSame('public, max-age=31536000, immutable', ImageConfig::cacheControl());
+    }
+
+    #[Test]
     public function it_throws_when_the_variant_is_missing_from_config(): void
     {
         config(['images.variants.banner' => null]);
 
-        $this->expectException(ImageProcessingException::class);
+        $this->expectException(ImageConfigurationException::class);
         $this->expectExceptionMessage('Image variant "banner" is not configured');
 
-        ImageVariantSpec::fromVariant(ImageVariant::Banner);
+        ImageConfig::variant(ImageVariant::Banner);
     }
 
     #[Test]
-    public function it_throws_when_a_required_key_is_missing(): void
+    public function it_throws_when_a_required_variant_key_is_missing(): void
     {
         config(['images.variants.avatar' => [
             'max_width' => 256,
@@ -68,10 +82,10 @@ final class ImageVariantSpecTest extends TestCase
             'quality' => 82,
         ]]);
 
-        $this->expectException(ImageProcessingException::class);
+        $this->expectException(ImageConfigurationException::class);
         $this->expectExceptionMessage('Image variant "avatar" is not configured');
 
-        ImageVariantSpec::fromVariant(ImageVariant::Avatar);
+        ImageConfig::variant(ImageVariant::Avatar);
     }
 
     #[Test]
@@ -79,8 +93,20 @@ final class ImageVariantSpecTest extends TestCase
     {
         config(['images.variants.banner.strategy' => 'squish']);
 
-        $this->expectException(ValueError::class);
+        $this->expectException(ImageConfigurationException::class);
+        $this->expectExceptionMessage('images.variants.banner.strategy');
 
-        ImageVariantSpec::fromVariant(ImageVariant::Banner);
+        ImageConfig::variant(ImageVariant::Banner);
+    }
+
+    #[Test]
+    public function it_throws_when_a_scalar_setting_has_the_wrong_type(): void
+    {
+        config(['images.input.max_bytes' => '15mb']);
+
+        $this->expectException(ImageConfigurationException::class);
+        $this->expectExceptionMessage('images.input.max_bytes');
+
+        ImageConfig::maxBytes();
     }
 }

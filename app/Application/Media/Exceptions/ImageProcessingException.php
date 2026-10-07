@@ -8,11 +8,6 @@ use RuntimeException;
 
 final class ImageProcessingException extends RuntimeException
 {
-    public static function missingVariantConfig(string $variant): self
-    {
-        return new self(sprintf('Image variant "%s" is not configured in config/images.php.', $variant));
-    }
-
     public static function decodeFailed(string $reason): self
     {
         return new self(sprintf('Image could not be decoded: %s', $reason));

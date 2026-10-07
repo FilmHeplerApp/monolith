@@ -5,7 +5,9 @@ namespace App\Infrastructure\ServiceProviders;
 use App\Application\Catalog\Contracts\CatalogBulkWriterContract;
 use App\Application\Import\Contracts\ProviderClientFactoryContract;
 use App\Application\Media\Contracts\ImageCompressorContract;
+use App\Application\Media\Contracts\ImageDownloaderContract;
 use App\Infrastructure\Media\Compression\GdImageCompressor;
+use App\Infrastructure\Media\Download\HttpImageDownloader;
 use App\Infrastructure\Persistence\Eloquent\Bulk\Catalog\CatalogBulkWriter;
 use App\Infrastructure\Providers\Factories\ProviderClientFactory;
 use Illuminate\Contracts\Foundation\Application;
@@ -39,6 +41,10 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(
             ImageCompressorContract::class,
             GdImageCompressor::class,
+        );
+        $this->app->bind(
+            ImageDownloaderContract::class,
+            HttpImageDownloader::class,
         );
     }
 

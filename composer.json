@@ -11,7 +11,9 @@
         "laravel/framework": "^13.8",
         "laravel/horizon": "^5.47",
         "laravel/tinker": "^3.0",
-        "league/flysystem-aws-s3-v3": "^3.35"
+        "league/flysystem-aws-s3-v3": "^3.35",
+        "ext-curl": "*",
+        "ext-fileinfo": "*"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
@@ -20,7 +22,9 @@
         "laravel/pint": "^1.27",
         "mockery/mockery": "^1.6",
         "nunomaduro/collision": "^8.6",
-        "phpunit/phpunit": "^12.5.12"
+        "phpunit/phpunit": "^12.5.12",
+        "ext-exif": "*",
+        "ext-gd": "*"
     },
     "autoload": {
         "psr-4": {
