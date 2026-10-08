@@ -6,8 +6,10 @@ use App\Application\Catalog\Contracts\CatalogBulkWriterContract;
 use App\Application\Import\Contracts\ProviderClientFactoryContract;
 use App\Application\Media\Contracts\ImageCompressorContract;
 use App\Application\Media\Contracts\ImageDownloaderContract;
+use App\Application\Media\Contracts\ImageStorageContract;
 use App\Infrastructure\Media\Compression\GdImageCompressor;
 use App\Infrastructure\Media\Download\HttpImageDownloader;
+use App\Infrastructure\Media\Storage\S3ImageStorage;
 use App\Infrastructure\Persistence\Eloquent\Bulk\Catalog\CatalogBulkWriter;
 use App\Infrastructure\Providers\Factories\ProviderClientFactory;
 use Illuminate\Contracts\Foundation\Application;
@@ -45,6 +47,10 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(
             ImageDownloaderContract::class,
             HttpImageDownloader::class,
+        );
+        $this->app->bind(
+            ImageStorageContract::class,
+            S3ImageStorage::class,
         );
     }
 
