@@ -25,8 +25,11 @@ final readonly class TitleData
         public ?ReleaseYear      $releaseYear,
         public TitleContentType  $type,
         public TitleStatus       $status,
-        public ?string           $posterUrl,
-        public ?string           $bannerUrl,
+        public ?string           $posterKey,
+        public ?string           $posterThumbKey,
+        public ?string           $bannerKey,
+        public ?string           $posterSourceHash,
+        public ?string           $bannerSourceHash,
         public bool              $isIncomplete = false,
         public TitleUpdatedBy    $updatedBy = TitleUpdatedBy::PROCESS,
     ) {

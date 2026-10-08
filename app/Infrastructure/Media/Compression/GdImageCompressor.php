@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Media\Compression;
 
-use App\Application\Media\Contracts\ImageCompressorContract;
 use App\Application\Media\DTOs\ImageVariantSpec;
 use App\Application\Media\DTOs\ProcessedImage;
 use App\Application\Media\Enums\ResizeStrategy;
@@ -15,7 +14,7 @@ use Intervention\Image\Interfaces\EncodedImageInterface;
 use Intervention\Image\Interfaces\ImageInterface;
 use Intervention\Image\Interfaces\ImageManagerInterface;
 
-readonly class GdImageCompressor implements ImageCompressorContract
+readonly class GdImageCompressor implements SpecImageCompressor
 {
     private const string OUTPUT_FORMAT = 'webp';
 

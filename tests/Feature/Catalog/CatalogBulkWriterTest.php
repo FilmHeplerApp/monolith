@@ -157,6 +157,42 @@ final class CatalogBulkWriterTest extends TestCase
     }
 
     #[Test]
+    public function it_does_not_overwrite_image_keys_on_upsert(): void
+    {
+        $this->writer->write($this->preparedCatalog());
+
+        $inserted = Title::query()->where(Title::FIELD_CANONICAL_KEY, self::CANONICAL_KEY)->firstOrFail();
+
+        $this->assertNull($inserted->{Title::FIELD_POSTER_KEY});
+        $this->assertNull($inserted->{Title::FIELD_POSTER_THUMB_KEY});
+        $this->assertNull($inserted->{Title::FIELD_BANNER_KEY});
+        $this->assertNull($inserted->{Title::FIELD_POSTER_SOURCE_HASH});
+        $this->assertNull($inserted->{Title::FIELD_BANNER_SOURCE_HASH});
+
+        DB::table(Title::TABLE_NAME)
+            ->where(Title::FIELD_CANONICAL_KEY, self::CANONICAL_KEY)
+            ->update([
+                Title::FIELD_POSTER_KEY => 'titles/posters/uuid/full.webp',
+                Title::FIELD_POSTER_THUMB_KEY => 'titles/posters/uuid/thumb.webp',
+                Title::FIELD_BANNER_KEY => 'titles/banners/uuid/banner.webp',
+                Title::FIELD_POSTER_SOURCE_HASH => str_repeat('a', 64),
+                Title::FIELD_BANNER_SOURCE_HASH => str_repeat('b', 64),
+            ]);
+
+        $this->writer->write($this->preparedCatalog(titleRu: 'Наруто: обновлённый'));
+
+        $this->assertDatabaseHas(Title::TABLE_NAME, [
+            Title::FIELD_CANONICAL_KEY => self::CANONICAL_KEY,
+            Title::FIELD_TITLE_RU => 'Наруто: обновлённый',
+            Title::FIELD_POSTER_KEY => 'titles/posters/uuid/full.webp',
+            Title::FIELD_POSTER_THUMB_KEY => 'titles/posters/uuid/thumb.webp',
+            Title::FIELD_BANNER_KEY => 'titles/banners/uuid/banner.webp',
+            Title::FIELD_POSTER_SOURCE_HASH => str_repeat('a', 64),
+            Title::FIELD_BANNER_SOURCE_HASH => str_repeat('b', 64),
+        ]);
+    }
+
+    #[Test]
     public function it_resolves_definitions_already_stored_when_dto_definitions_are_empty(): void
     {
         $this->writer->write($this->preparedCatalog());
@@ -334,18 +370,21 @@ final class CatalogBulkWriterTest extends TestCase
         bool      $isIncomplete = false,
     ): TitleData {
         return new TitleData(
-            $uuid,
-            TitleCanonicalKey::createFromString($canonicalKey),
-            $this->createLocalizedText($titleRu, $titleEn),
-            $this->createLocalizedText('Описание', 'Description'),
-            'Короткий сюжет',
-            Duration::createFromMinutes(self::DURATION_MINUTES),
-            ReleaseYear::createFromYear($releaseYear),
-            TitleContentType::ANIME,
-            TitleStatus::RELEASED,
-            'https://example.test/poster.jpg',
-            'https://example.test/banner.jpg',
-            $isIncomplete,
+            uuid: $uuid,
+            canonicalKey: TitleCanonicalKey::createFromString($canonicalKey),
+            title: $this->createLocalizedText($titleRu, $titleEn),
+            description: $this->createLocalizedText('Описание', 'Description'),
+            shortPlotRu: 'Короткий сюжет',
+            duration: Duration::createFromMinutes(self::DURATION_MINUTES),
+            releaseYear: ReleaseYear::createFromYear($releaseYear),
+            type: TitleContentType::ANIME,
+            status: TitleStatus::RELEASED,
+            posterKey: null,
+            posterThumbKey: null,
+            bannerKey: null,
+            posterSourceHash: null,
+            bannerSourceHash: null,
+            isIncomplete: $isIncomplete,
         );
     }
 
@@ -385,8 +424,11 @@ final class CatalogBulkWriterTest extends TestCase
             $table->unsignedSmallInteger(Title::FIELD_RELEASE_YEAR)->nullable();
             $table->string(Title::FIELD_TYPE);
             $table->string(Title::FIELD_STATUS);
-            $table->string(Title::FIELD_POSTER_URL)->nullable();
-            $table->string(Title::FIELD_BANNER_URL)->nullable();
+            $table->string(Title::FIELD_POSTER_KEY)->nullable();
+            $table->string(Title::FIELD_POSTER_THUMB_KEY)->nullable();
+            $table->string(Title::FIELD_BANNER_KEY)->nullable();
+            $table->char(Title::FIELD_POSTER_SOURCE_HASH, 64)->nullable();
+            $table->char(Title::FIELD_BANNER_SOURCE_HASH, 64)->nullable();
             $table->decimal(Title::FIELD_RATING_AVG, 3)->default(0);
             $table->unsignedInteger(Title::FIELD_RATING_COUNT)->default(0);
             $table->text(Title::FIELD_EMBEDDING)->nullable();

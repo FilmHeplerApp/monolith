@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Infrastructure\Media\Compression;
 
-use App\Application\Media\Contracts\ImageCompressorContract;
 use App\Application\Media\DTOs\ProcessedImage;
 use App\Application\Media\Enums\ImageVariant;
 use App\Application\Media\Exceptions\ImageProcessingException;
 use App\Infrastructure\Media\Compression\GdImageCompressor;
+use App\Infrastructure\Media\Compression\SpecImageCompressor;
 use App\Infrastructure\Media\Config\ImageConfig;
 use Intervention\Image\Drivers\Gd\Driver;
 use Intervention\Image\Exceptions\InvalidArgumentException;
@@ -229,7 +229,7 @@ final class GdImageCompressorTest extends TestCase
     #[Test]
     public function it_is_bound_in_the_container(): void
     {
-        $resolved = $this->app->make(ImageCompressorContract::class);
+        $resolved = $this->app->make(SpecImageCompressor::class);
 
         self::assertInstanceOf(GdImageCompressor::class, $resolved);
     }

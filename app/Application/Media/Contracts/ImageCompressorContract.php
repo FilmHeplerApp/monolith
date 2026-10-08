@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Application\Media\Contracts;
 
-use App\Application\Media\DTOs\ImageVariantSpec;
 use App\Application\Media\DTOs\ProcessedImage;
+use App\Application\Media\Enums\ImageVariant;
 use App\Application\Media\Exceptions\ImageProcessingException;
 
 interface ImageCompressorContract
@@ -17,5 +17,5 @@ interface ImageCompressorContract
      *
      * @throws ImageProcessingException When the source cannot be decoded or the result cannot be encoded.
      */
-    public function compress(string $contents, ImageVariantSpec $spec): ProcessedImage;
+    public function compress(string $contents, ImageVariant $variant): ProcessedImage;
 }
