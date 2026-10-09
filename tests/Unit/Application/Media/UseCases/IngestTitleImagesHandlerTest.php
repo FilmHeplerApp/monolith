@@ -32,20 +32,32 @@ use Throwable;
 final class IngestTitleImagesHandlerTest extends TestCase
 {
     private const string CANONICAL_KEY = 'naruto|anime';
+
     private const string INGESTION_UUID = '6f1c2a44-9c0e-4b1a-8d3e-1a2b3c4d5e6f';
+
     private const string POSTER_URL = 'https://cdn.example/poster.jpg';
+
     private const string BANNER_URL = 'https://cdn.example/banner.jpg';
+
     private const string POSTER_RAW = 'poster-bytes';
+
     private const string BANNER_RAW = 'banner-bytes';
+
     private const string OLD_POSTER_KEY = 'titles/posters/old-uuid/full.webp';
+
     private const string OLD_POSTER_THUMB_KEY = 'titles/posters/old-uuid/thumb.webp';
+
     private const string OLD_BANNER_KEY = 'titles/banners/old-uuid/banner.webp';
+
     private const string STALE_HASH = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
 
     private MockInterface $imageCompressor;
+
     private MockInterface $titleRepository;
+
     private MockInterface $imageDownloader;
+
     private MockInterface $imageStorage;
 
 
@@ -53,7 +65,7 @@ final class IngestTitleImagesHandlerTest extends TestCase
     {
         parent::setUp();
 
-        Str::createUuidsUsing(static fn() => Uuid::fromString(self::INGESTION_UUID));
+        Str::createUuidsUsing(static fn () => Uuid::fromString(self::INGESTION_UUID));
 
         $this->imageCompressor = Mockery::mock(ImageCompressorContract::class);
         $this->titleRepository = Mockery::mock(TitleRepositoryContract::class);
@@ -297,7 +309,7 @@ final class IngestTitleImagesHandlerTest extends TestCase
         $this->titleRepository->shouldReceive('saveBanner')->once();
         $this->imageStorage->shouldReceive('deleteByPrefix')
             ->once()
-            ->with('titles/posters/' . self::INGESTION_UUID);
+            ->with('titles/posters/'.self::INGESTION_UUID);
         $this->imageStorage->shouldReceive('deleteByPrefix')
             ->once()
             ->with('titles/banners/old-uuid');
@@ -327,7 +339,7 @@ final class IngestTitleImagesHandlerTest extends TestCase
         $this->titleRepository->shouldReceive('saveBanner')->once();
         $this->imageStorage->shouldReceive('deleteByPrefix')
             ->once()
-            ->with('titles/posters/' . self::INGESTION_UUID);
+            ->with('titles/posters/'.self::INGESTION_UUID);
         $this->imageStorage->shouldReceive('deleteByPrefix')
             ->once()
             ->with('titles/banners/old-uuid');
@@ -340,7 +352,7 @@ final class IngestTitleImagesHandlerTest extends TestCase
     }
 
     #[Test]
-    public function it_does_not_fail_when_old_prefix_delete_fails(): void
+    public function it_does_not_fail_when_old_poster_prefix_delete_fails(): void
     {
         $deleteException = ImageStorageException::deletingFailed('titles/posters/old-uuid');
 
@@ -358,10 +370,63 @@ final class IngestTitleImagesHandlerTest extends TestCase
     }
 
     #[Test]
+    public function it_does_not_fail_when_old_banner_prefix_delete_fails(): void
+    {
+        $deleteException = ImageStorageException::deletingFailed('titles/banners/old-uuid');
+
+        $this->givenTitle($this->staleImageData(
+            posterSourceHash: hash('sha256', self::POSTER_URL),
+        ));
+        $this->expectBannerDownload();
+        $this->expectBannerStored();
+        $this->titleRepository->shouldReceive('savePoster')->never();
+        $this->titleRepository->shouldReceive('saveBanner')->once();
+        $this->imageStorage->shouldReceive('deleteByPrefix')
+            ->once()
+            ->with('titles/banners/old-uuid')
+            ->andThrow($deleteException);
+        $this->imageStorage->shouldReceive('deleteByPrefix')
+            ->with('titles/posters/old-uuid')
+            ->never();
+        $this->expectWarning($deleteException, 'banner', self::BANNER_URL);
+
+        $this->handler()->handle(self::CANONICAL_KEY, self::POSTER_URL, self::BANNER_URL);
+    }
+
+    #[Test]
+    public function it_does_not_delete_poster_prefixes_when_poster_full_fails_before_put(): void
+    {
+        $processingException = ImageProcessingException::decodeFailed('gd');
+
+        $this->givenTitle($this->staleImageData());
+        $this->expectPosterDownload();
+        $this->imageCompressor->shouldReceive('compress')
+            ->once()
+            ->with(self::POSTER_RAW, ImageVariant::PosterFull)
+            ->andThrow($processingException);
+        $this->expectBannerDownload();
+        $this->expectBannerStored();
+        $this->titleRepository->shouldReceive('savePoster')->never();
+        $this->titleRepository->shouldReceive('saveBanner')->once();
+        $this->imageStorage->shouldReceive('deleteByPrefix')
+            ->once()
+            ->with('titles/banners/old-uuid');
+        $this->imageStorage->shouldReceive('deleteByPrefix')
+            ->with('titles/posters/'.self::INGESTION_UUID)
+            ->never();
+        $this->imageStorage->shouldReceive('deleteByPrefix')
+            ->with('titles/posters/old-uuid')
+            ->never();
+        $this->expectWarning($processingException, 'poster', self::POSTER_URL);
+
+        $this->handler()->handle(self::CANONICAL_KEY, self::POSTER_URL, self::BANNER_URL);
+    }
+
+    #[Test]
     public function it_keeps_the_original_storage_error_when_current_prefix_delete_fails(): void
     {
         $storageException = ImageStorageException::storingFailed($this->posterThumbKey());
-        $deleteException = ImageStorageException::deletingFailed('titles/posters/' . self::INGESTION_UUID);
+        $deleteException = ImageStorageException::deletingFailed('titles/posters/'.self::INGESTION_UUID);
 
         $this->givenTitle($this->staleImageData());
         $this->expectPosterDownload();
@@ -372,7 +437,7 @@ final class IngestTitleImagesHandlerTest extends TestCase
         $this->titleRepository->shouldReceive('savePoster')->never();
         $this->imageStorage->shouldReceive('deleteByPrefix')
             ->once()
-            ->with('titles/posters/' . self::INGESTION_UUID)
+            ->with('titles/posters/'.self::INGESTION_UUID)
             ->andThrow($deleteException);
         $this->imageStorage->shouldReceive('deleteByPrefix')
             ->once()
@@ -441,14 +506,12 @@ final class IngestTitleImagesHandlerTest extends TestCase
         $this->handler()->handle(self::CANONICAL_KEY, self::POSTER_URL, self::BANNER_URL);
     }
 
-
     protected function tearDown(): void
     {
         Str::createUuidsNormally();
 
         parent::tearDown();
     }
-
 
     private function handler(): IngestTitleImagesHandler
     {
