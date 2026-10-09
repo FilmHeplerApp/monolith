@@ -24,8 +24,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int|null $release_year
  * @property string $type
  * @property string $status
- * @property string|null $poster_url
- * @property string|null $banner_url
+ * @property string|null $poster_key
+ * @property string|null $poster_thumb_key
+ * @property string|null $banner_key
+ * @property string|null $poster_source_hash
+ * @property string|null $banner_source_hash
  * @property array|null $genres_ru
  * @property array|null $genres_en
  * @property array|null $mood
@@ -57,8 +60,11 @@ class Title extends Model
     public const string FIELD_RELEASE_YEAR = 'release_year';
     public const string FIELD_TYPE = 'type';
     public const string FIELD_STATUS = 'status';
-    public const string FIELD_POSTER_URL = 'poster_url';
-    public const string FIELD_BANNER_URL = 'banner_url';
+    public const string FIELD_POSTER_KEY = 'poster_key';
+    public const string FIELD_POSTER_THUMB_KEY = 'poster_thumb_key';
+    public const string FIELD_BANNER_KEY = 'banner_key';
+    public const string FIELD_POSTER_SOURCE_HASH = 'poster_source_hash';
+    public const string FIELD_BANNER_SOURCE_HASH = 'banner_source_hash';
     public const string FIELD_RATING_AVG = 'rating_avg';
     public const string FIELD_RATING_COUNT = 'rating_count';
     public const string FIELD_EMBEDDING = 'embedding';
@@ -81,8 +87,11 @@ class Title extends Model
         self::FIELD_RELEASE_YEAR,
         self::FIELD_TYPE,
         self::FIELD_STATUS,
-        self::FIELD_POSTER_URL,
-        self::FIELD_BANNER_URL,
+        self::FIELD_POSTER_KEY,
+        self::FIELD_POSTER_THUMB_KEY,
+        self::FIELD_BANNER_KEY,
+        self::FIELD_POSTER_SOURCE_HASH,
+        self::FIELD_BANNER_SOURCE_HASH,
         self::FIELD_RATING_AVG,
         self::FIELD_RATING_COUNT,
         self::FIELD_EMBEDDING,

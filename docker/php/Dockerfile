@@ -16,11 +16,13 @@ RUN apk add --no-cache \
     libjpeg-turbo-dev \
     libpng-dev \
     oniguruma-dev \
-    linux-headers
+    linux-headers \
+    libwebp-dev
 
 RUN docker-php-ext-configure gd \
     --with-freetype \
-    --with-jpeg
+    --with-jpeg \
+    --with-webp
 
 RUN apk add --no-cache --virtual .build-deps $PHPIZE_DEPS
 
