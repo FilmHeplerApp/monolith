@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Application\Media\Jobs;
 
+use App\Application\Media\Exceptions\ImageDownloadException;
 use App\Application\Media\UseCases\IngestTitleImagesHandler;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 
 class IngestTitleImagesJob implements ShouldQueue
 {
@@ -26,10 +28,27 @@ class IngestTitleImagesJob implements ShouldQueue
 
     public function handle(IngestTitleImagesHandler $ingestTitleImagesHandler): void
     {
-        $ingestTitleImagesHandler->handle(
-            canonicalKey: $this->canonicalKey,
-            posterUrl: $this->posterUrl,
-            bannerUrl: $this->bannerUrl,
-        );
+        try {
+            $ingestTitleImagesHandler->handle(
+                canonicalKey: $this->canonicalKey,
+                posterUrl: $this->posterUrl,
+                bannerUrl: $this->bannerUrl,
+            );
+        } catch (ImageDownloadException $exception) {
+            if ($exception->retryAfterSeconds !== null and $this->attempts() < $this->tries) {
+                $this->release($exception->retryAfterSeconds);
+                return;
+            }
+            throw $exception;
+        }
+    }
+
+    public function middleware(): array
+    {
+        return [
+            new WithoutOverlapping($this->canonicalKey)
+                ->releaseAfter($this->timeout)
+                ->expireAfter($this->timeout),
+        ];
     }
 }

@@ -52,6 +52,13 @@ final class EloquentTitleRepository implements TitleRepositoryContract
         ]);
     }
 
+    public function setIsTitleIncompleteFlag(string $canonicalKey, bool $flag): void
+    {
+        $this->update($canonicalKey, [
+            Title::FIELD_IS_INCOMPLETE => $flag,
+        ]);
+    }
+
 
     private function find(string $canonicalKey): ?Title
     {

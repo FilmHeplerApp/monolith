@@ -14,6 +14,8 @@ use App\Application\Media\Exceptions\ImageDownloadException;
 use App\Application\Media\Jobs\IngestTitleImagesJob;
 use App\Application\Media\UseCases\IngestTitleImagesHandler;
 use App\Application\Media\UseCases\StoreRemoteImageHandler;
+use Illuminate\Pipeline\Pipeline;
+use Illuminate\Queue\Jobs\FakeJob;
 use Illuminate\Support\Facades\Queue;
 use Mockery;
 use Mockery\MockInterface;
@@ -124,6 +126,88 @@ final class IngestTitleImagesJobTest extends TestCase
     }
 
     #[Test]
+    public function it_releases_the_job_for_the_retry_after_delay(): void
+    {
+        $this->titleRepository->shouldReceive('findImageData')
+            ->once()
+            ->with(self::CANONICAL_KEY)
+            ->andReturn(new TitleImageData(null, null, null, null, null));
+        $this->imageDownloader->shouldReceive('download')
+            ->once()
+            ->with(self::POSTER_URL)
+            ->andThrow(ImageDownloadException::retryAfter(429, 120));
+
+        $queueJob = new FakeJob;
+        $job = new IngestTitleImagesJob(self::CANONICAL_KEY, self::POSTER_URL, null);
+        $job->setJob($queueJob);
+
+        $job->handle($this->handler());
+
+        self::assertTrue($queueJob->isReleased());
+        self::assertSame(120, $queueJob->releaseDelay);
+    }
+
+    #[Test]
+    public function it_fails_a_rate_limit_on_the_last_attempt(): void
+    {
+        $downloadException = ImageDownloadException::retryAfter(429, 120);
+
+        $this->titleRepository->shouldReceive('findImageData')
+            ->once()
+            ->with(self::CANONICAL_KEY)
+            ->andReturn(new TitleImageData(null, null, null, null, null));
+        $this->imageDownloader->shouldReceive('download')
+            ->once()
+            ->with(self::POSTER_URL)
+            ->andThrow($downloadException);
+
+        $queueJob = new FakeJob;
+        $queueJob->attempts = 3;
+        $job = new IngestTitleImagesJob(self::CANONICAL_KEY, self::POSTER_URL, null);
+        $job->setJob($queueJob);
+
+        try {
+            $job->handle($this->handler());
+            self::fail('The last attempt must keep the download failure.');
+        } catch (ImageDownloadException $exception) {
+            self::assertSame($downloadException, $exception);
+            self::assertFalse($queueJob->isReleased());
+        }
+    }
+
+    #[Test]
+    public function it_releases_a_second_job_while_the_same_title_is_in_progress(): void
+    {
+        $secondQueueJob = new FakeJob;
+        $secondJob = new IngestTitleImagesJob(self::CANONICAL_KEY, 'https://cdn.example/poster-new.jpg', null);
+        $secondJob->setJob($secondQueueJob);
+
+        $this->titleRepository->shouldReceive('findImageData')
+            ->once()
+            ->with(self::CANONICAL_KEY)
+            ->andReturn(new TitleImageData(null, null, null, null, null));
+        $this->imageDownloader->shouldReceive('download')
+            ->once()
+            ->with(self::POSTER_URL)
+            ->andReturnUsing(function () use ($secondJob): void {
+                $this->runThroughMiddleware($secondJob);
+
+                throw new ImageDownloadException('still downloading');
+            });
+
+        $firstJob = new IngestTitleImagesJob(self::CANONICAL_KEY, self::POSTER_URL, null);
+
+        try {
+            $this->runThroughMiddleware($firstJob);
+            self::fail('The first download is still in progress.');
+        } catch (ImageDownloadException $exception) {
+            self::assertSame('still downloading', $exception->getMessage());
+            self::assertTrue($secondQueueJob->isReleased());
+            self::assertSame(180, $secondQueueJob->releaseDelay);
+        }
+    }
+
+    #[Test]
     public function it_lets_a_missing_title_escape(): void
     {
         $this->titleRepository->shouldReceive('findImageData')
@@ -138,6 +222,16 @@ final class IngestTitleImagesJobTest extends TestCase
         $this->expectExceptionMessage('Title was not found for canonical key "naruto|anime".');
 
         $job->handle($this->handler());
+    }
+
+    private function runThroughMiddleware(IngestTitleImagesJob $job): void
+    {
+        (new Pipeline($this->app))
+            ->send($job)
+            ->through($job->middleware())
+            ->then(function (IngestTitleImagesJob $job): void {
+                $job->handle($this->handler());
+            });
     }
 
     private function handler(): IngestTitleImagesHandler

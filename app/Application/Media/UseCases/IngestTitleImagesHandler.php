@@ -104,6 +104,9 @@ readonly class IngestTitleImagesHandler
             return $exception;
         } catch (UnsupportedImageException $exception) {
             $this->logFailure($exception, $canonicalKey, 'poster', $posterUrl);
+            if (!$titleImageData->posterKey) {
+                $this->titleRepository->setIsTitleIncompleteFlag($canonicalKey, true);
+            }
         } catch (ImageStorageException $exception) {
             $this->deleteObjectPrefixSafely(
                 objectKey: $posterFull?->key,
@@ -121,6 +124,9 @@ readonly class IngestTitleImagesHandler
                 variant: 'poster',
                 externalUrl: $posterUrl,
             );
+            if (!$titleImageData->posterKey) {
+                $this->titleRepository->setIsTitleIncompleteFlag($canonicalKey, true);
+            }
         }
 
         return null;

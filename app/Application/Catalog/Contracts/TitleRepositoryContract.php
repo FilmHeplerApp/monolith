@@ -29,4 +29,9 @@ interface TitleRepositoryContract
         string $bannerKey,
         string $bannerSourceHash,
     ): void;
+
+    /**
+     * @throws TitleNotFoundException When no title has this canonical key.
+     */
+    public function setIsTitleIncompleteFlag(string $canonicalKey, bool $flag): void;
 }

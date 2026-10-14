@@ -12,6 +12,8 @@ use App\Infrastructure\Media\Compression\GdImageCompressor;
 use App\Infrastructure\Media\Compression\ImageCompressor;
 use App\Infrastructure\Media\Compression\SpecImageCompressor;
 use App\Infrastructure\Media\Download\HttpImageDownloader;
+use App\Infrastructure\Media\Download\IpAddressClassifier;
+use App\Infrastructure\Media\Download\PublicHostResolver;
 use App\Infrastructure\Media\Storage\S3ImageStorage;
 use App\Infrastructure\Persistence\Eloquent\Bulk\Catalog\CatalogBulkWriter;
 use App\Infrastructure\Persistence\Eloquent\Repositories\Catalog\EloquentTitleRepository;
@@ -46,7 +48,7 @@ class AppServiceProvider extends ServiceProvider
         );
         $this->app->singleton(
             ImageManagerInterface::class,
-            static fn(): ImageManager => new ImageManager(new Driver()),
+            static fn(): ImageManager => new ImageManager(new Driver),
         );
         $this->app->bind(
             SpecImageCompressor::class,
@@ -58,7 +60,9 @@ class AppServiceProvider extends ServiceProvider
         );
         $this->app->bind(
             ImageDownloaderContract::class,
-            HttpImageDownloader::class,
+            static fn(): HttpImageDownloader => new HttpImageDownloader(
+                new PublicHostResolver(new IpAddressClassifier),
+            ),
         );
         $this->app->bind(
             ImageStorageContract::class,

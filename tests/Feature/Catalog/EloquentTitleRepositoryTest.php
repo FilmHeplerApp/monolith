@@ -114,6 +114,30 @@ final class EloquentTitleRepositoryTest extends TestCase
     }
 
     #[Test]
+    public function it_marks_a_title_incomplete_without_changing_image_keys(): void
+    {
+        $this->insertTitle();
+
+        $this->titleRepository->setIsTitleIncompleteFlag(self::CANONICAL_KEY, true);
+
+        $this->assertDatabaseHas(Title::TABLE_NAME, [
+            Title::FIELD_CANONICAL_KEY => self::CANONICAL_KEY,
+            Title::FIELD_IS_INCOMPLETE => true,
+            Title::FIELD_POSTER_KEY => self::OLD_POSTER_KEY,
+            Title::FIELD_POSTER_THUMB_KEY => self::OLD_POSTER_THUMB_KEY,
+            Title::FIELD_BANNER_KEY => self::OLD_BANNER_KEY,
+        ]);
+    }
+
+    #[Test]
+    public function it_rejects_an_incomplete_flag_update_for_an_unknown_title(): void
+    {
+        $this->expectException(TitleNotFoundException::class);
+
+        $this->titleRepository->setIsTitleIncompleteFlag(self::CANONICAL_KEY, true);
+    }
+
+    #[Test]
     public function it_rejects_a_poster_update_for_an_unknown_title(): void
     {
         $this->expectException(TitleNotFoundException::class);
@@ -157,6 +181,7 @@ final class EloquentTitleRepositoryTest extends TestCase
             $table->string(Title::FIELD_BANNER_KEY)->nullable();
             $table->char(Title::FIELD_POSTER_SOURCE_HASH, 64)->nullable();
             $table->char(Title::FIELD_BANNER_SOURCE_HASH, 64)->nullable();
+            $table->boolean(Title::FIELD_IS_INCOMPLETE)->default(true);
             $table->timestamps();
         });
     }
