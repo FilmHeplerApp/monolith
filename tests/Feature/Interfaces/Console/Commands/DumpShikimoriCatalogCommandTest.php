@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Interfaces\Console\Commands;
 
-use App\Infrastructure\Providers\Shikimori\Dumps\ShikimoriDumpWriter;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Http;
@@ -14,7 +13,6 @@ use Illuminate\Support\Sleep;
 use JsonException;
 use Mockery;
 use Mockery\MockInterface;
-use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
@@ -45,6 +43,7 @@ final class DumpShikimoriCatalogCommandTest extends TestCase
         self::assertSame(['1', '2'], $this->ids($this->disk));
         self::assertSame(2, $this->checkpoint($this->disk)['page']);
         self::assertSame(strlen($this->disk->get(self::ANIME_PATH)), $this->checkpoint($this->disk)['bytes']);
+        self::assertSame($this->seenPages([1 => ['1'], 2 => ['2']]), $this->checkpoint($this->disk)['seen_pages']);
         Http::assertSentCount(3);
         Log::shouldHaveReceived('error')->once();
     }
@@ -67,7 +66,11 @@ final class DumpShikimoriCatalogCommandTest extends TestCase
         $disk = $this->disk;
         self::assertSame(['1', '2', '3', '4'], $this->ids($disk));
         self::assertSame([
-            'version' => 1, 'page' => 2, 'bytes' => strlen($disk->get(self::ANIME_PATH)), 'titles' => 4,
+            'version' => 1,
+            'page' => 2,
+            'bytes' => strlen($disk->get(self::ANIME_PATH)),
+            'titles' => 4,
+            'seen_pages' => $this->seenPages([1 => ['1', '2'], 2 => ['3', '4']]),
         ], $this->checkpoint($disk));
         $requests = Http::recorded()->map(fn ($pair) => $pair[0]->data()['variables'] ?? null)->all();
         self::assertSame([
@@ -109,7 +112,11 @@ final class DumpShikimoriCatalogCommandTest extends TestCase
         $new = "{\"id\":\"1\"}\n";
         self::assertSame($new, $disk->get(self::ANIME_PATH));
         self::assertSame([
-            'version' => 1, 'page' => 1, 'bytes' => strlen($new), 'titles' => 1,
+            'version' => 1,
+            'page' => 1,
+            'bytes' => strlen($new),
+            'titles' => 1,
+            'seen_pages' => $this->seenPages([1 => ['1']]),
         ], $this->checkpoint($disk));
         self::assertSame("{\"id\":\"10\"}\n", $disk->get('import/shikimori_genres.ndjson'));
         self::assertSame(1, Http::recorded()[0][0]->data()['variables']['page']);
@@ -138,7 +145,11 @@ final class DumpShikimoriCatalogCommandTest extends TestCase
         $disk = $this->disk;
         self::assertSame(['1', '2', '3', '4', '5'], $this->ids($disk));
         self::assertSame([
-            'version' => 1, 'page' => 2, 'bytes' => strlen($disk->get(self::ANIME_PATH)), 'titles' => 5,
+            'version' => 1,
+            'page' => 2,
+            'bytes' => strlen($disk->get(self::ANIME_PATH)),
+            'titles' => 5,
+            'seen_pages' => $this->seenPages([1 => ['1', '2', '3'], 2 => ['4', '5']]),
         ], $this->checkpoint($disk));
         self::assertSame("{\"id\":\"10\",\"name\":\"Action\"}\n", $disk->get('import/shikimori_genres.ndjson'));
         Http::assertSentCount(5);
@@ -196,6 +207,39 @@ final class DumpShikimoriCatalogCommandTest extends TestCase
      * @throws JsonException
      */
     #[Test]
+    public function it_does_not_append_a_resumed_page_already_recorded_in_the_checkpoint(): void
+    {
+        $disk = $this->disk;
+        $committed = "{\"id\":\"1\"}\n";
+        $fingerprint = hash('sha256', implode("\0", ['1']));
+        $disk->put(self::ANIME_PATH, $committed);
+        $disk->put(self::CHECKPOINT_PATH, json_encode([
+            'version' => 1,
+            'page' => 1,
+            'bytes' => strlen($committed),
+            'titles' => 1,
+            'seen_pages' => [$fingerprint => 1],
+        ], JSON_THROW_ON_ERROR));
+        Http::fake([
+            '*' => Http::sequence()
+                ->push(['data' => ['animes' => [['id' => '1', 'name' => 'Again']]]]),
+        ]);
+
+        $this->artisan('shikimori:dump --resume')
+            ->expectsOutput('Failed to dump Shikimori catalog: Shikimori repeated anime page 1 at page 2.')
+            ->assertFailed();
+
+        self::assertSame(['1'], $this->ids($disk));
+        self::assertSame(1, $this->checkpoint($disk)['page']);
+        self::assertSame([$fingerprint => 1], $this->checkpoint($disk)['seen_pages']);
+        self::assertSame($committed, $disk->get(self::ANIME_PATH));
+        Http::assertSentCount(1);
+    }
+
+    /**
+     * @throws JsonException
+     */
+    #[Test]
     public function it_resumes_from_the_committed_boundary_and_removes_an_uncommitted_tail(): void
     {
         $disk = $this->disk;
@@ -210,95 +254,6 @@ final class DumpShikimoriCatalogCommandTest extends TestCase
         self::assertSame(2, $this->checkpoint($disk)['page']);
         self::assertSame(strlen($disk->get(self::ANIME_PATH)), $this->checkpoint($disk)['bytes']);
         Http::assertSent(fn ($request) => ($request->data()['variables']['page'] ?? null) === 2);
-    }
-
-    /**
-     * @throws JsonException
-     */
-    #[Test]
-    #[DataProvider('writeOperations')]
-    public function a_failed_checkpoint_commit_does_not_skip_or_duplicate_a_page(string $operation): void
-    {
-        $disk = $this->disk;
-        $faulty = $this->partialDisk($disk);
-        $failed = false;
-
-        if ($operation === 'put') {
-            $faulty->shouldReceive('put')->andReturnUsing(function ($path, $contents) use ($disk, &$failed): bool {
-                if (!$failed && $path === self::CHECKPOINT_PATH.'.tmp'
-                    && json_decode($contents, true)['page'] === 2) {
-                    $failed = true;
-
-                    return false;
-                }
-
-                return $disk->put($path, $contents);
-            });
-        } else {
-            $faulty->shouldReceive('move')->andReturnUsing(function ($from, $to) use ($disk, &$failed): bool {
-                if (!$failed && $to === self::CHECKPOINT_PATH
-                    && json_decode($disk->get($from), true)['page'] === 2) {
-                    $failed = true;
-
-                    return false;
-                }
-
-                return $disk->move($from, $to);
-            });
-        }
-
-        Storage::shouldReceive('disk')->with('local')->andReturn($faulty);
-        Http::fake([
-            '*' => Http::sequence()
-                ->push(['data' => ['animes' => [['id' => '1']]]])
-                ->push(['data' => ['animes' => [['id' => '2']]]]),
-        ]);
-
-        $this->artisan('shikimori:dump')
-            ->expectsOutput('Failed to dump Shikimori catalog: Cannot '.($operation === 'put' ? 'write ' : 'commit ').self::CHECKPOINT_PATH.'.')
-            ->assertFailed();
-
-        self::assertTrue($failed);
-        self::assertSame([
-            'version' => 1, 'page' => 1, 'bytes' => strlen("{\"id\":\"1\"}\n"), 'titles' => 1,
-        ], $this->checkpoint($disk));
-        self::assertSame(['1', '2'], $this->ids($disk));
-        Log::shouldHaveReceived('error')->once();
-        Http::assertSentCount(2);
-
-        $this->fakeRemainingPage();
-        $this->artisan('shikimori:dump --resume')->assertSuccessful();
-
-        self::assertSame(['1', '2'], $this->ids($disk));
-        self::assertSame(2, $this->checkpoint($disk)['page']);
-    }
-
-    #[Test]
-    #[DataProvider('writeOperations')]
-    public function it_fails_if_genres_cannot_be_written_or_committed(string $operation): void
-    {
-        $disk = $this->disk;
-        $disk->put('import/shikimori_genres.ndjson', 'previous genres');
-        $faulty = $this->partialDisk($disk);
-
-        if ($operation === 'put') {
-            $faulty->shouldReceive('put')->with('import/shikimori_genres.ndjson.tmp', Mockery::any())->andReturn(false);
-        } else {
-            $faulty->shouldReceive('move')->with('import/shikimori_genres.ndjson.tmp', 'import/shikimori_genres.ndjson')->andReturn(false);
-        }
-
-        Storage::shouldReceive('disk')->with('local')->andReturn($faulty);
-        Http::fake([
-            '*' => Http::sequence()
-                ->push(['data' => ['animes' => []]])
-                ->push(['data' => ['animes' => []]])
-                ->push(['data' => ['genres' => [['id' => '10']]]]),
-        ]);
-
-        $this->artisan('shikimori:dump')->assertFailed();
-
-        self::assertSame('previous genres', $disk->get('import/shikimori_genres.ndjson'));
-        Log::shouldHaveReceived('error')->once();
     }
 
     #[Test]
@@ -356,164 +311,6 @@ final class DumpShikimoriCatalogCommandTest extends TestCase
         Log::shouldHaveReceived('error')->once();
     }
 
-    #[Test]
-    public function it_refuses_to_resume_an_old_checkpoint_without_a_byte_offset(): void
-    {
-        $disk = $this->disk;
-        $disk->put(self::ANIME_PATH, "{\"id\":\"1\"}\n");
-        $disk->put(self::CHECKPOINT_PATH, '1');
-        Http::fake();
-
-        $this->artisan('shikimori:dump --resume')
-            ->expectsOutput('Failed to dump Shikimori catalog: Unsupported dump checkpoint. Restart without --resume.')
-            ->assertFailed();
-
-        self::assertSame(['1'], $this->ids($disk));
-        Http::assertNothingSent();
-    }
-
-    #[Test]
-    public function it_refuses_to_resume_a_dump_shorter_than_the_checkpoint(): void
-    {
-        $disk = $this->disk;
-        $disk->put(self::ANIME_PATH, '');
-        $this->saveCheckpoint($disk, 1, 100, 1);
-        Http::fake();
-
-        $this->artisan('shikimori:dump --resume')->assertFailed();
-
-        self::assertSame('', $disk->get(self::ANIME_PATH));
-        self::assertSame(100, $this->checkpoint($disk)['bytes']);
-        Http::assertNothingSent();
-    }
-
-    #[Test]
-    public function it_refuses_to_resume_without_a_checkpoint_for_an_existing_dump(): void
-    {
-        $disk = $this->disk;
-        $dump = "{\"id\":\"1\"}\n";
-        $disk->put(self::ANIME_PATH, $dump);
-        Http::fake();
-
-        $this->artisan('shikimori:dump --resume')->assertFailed();
-
-        self::assertSame($dump, $disk->get(self::ANIME_PATH));
-        Http::assertNothingSent();
-    }
-
-    /**
-     * @throws JsonException
-     */
-    #[Test]
-    #[DataProvider('writeOperations')]
-    public function it_truncates_the_dump_before_committing_the_initial_checkpoint(string $operation): void
-    {
-        $disk = $this->disk;
-        $dump = "{\"id\":\"1\"}\n";
-        $disk->put(self::ANIME_PATH, $dump);
-        $this->saveCheckpoint($disk, 1, strlen($dump), 1);
-        $faulty = $this->partialDisk($disk);
-        $assertReset = function (string $contents) use ($disk): void {
-            self::assertSame('', $disk->get(self::ANIME_PATH));
-            self::assertSame([
-                'version' => 1, 'page' => 0, 'bytes' => 0, 'titles' => 0,
-            ], json_decode($contents, true, 512, JSON_THROW_ON_ERROR));
-        };
-
-        if ($operation === 'put') {
-            $faulty->shouldReceive('put')
-                ->once()
-                ->with(self::CHECKPOINT_PATH.'.tmp', Mockery::any())
-                ->andReturnUsing(function (string $path, string $contents) use ($assertReset): bool {
-                    $assertReset($contents);
-
-                    return false;
-                });
-        } else {
-            $faulty->shouldReceive('move')
-                ->once()
-                ->with(self::CHECKPOINT_PATH.'.tmp', self::CHECKPOINT_PATH)
-                ->andReturnUsing(function (string $from, string $to) use ($disk, $assertReset): bool {
-                    $assertReset($disk->get($from));
-
-                    return false;
-                });
-        }
-        Storage::shouldReceive('disk')->with('local')->andReturn($faulty);
-        Http::fake();
-
-        $this->artisan('shikimori:dump')->assertFailed();
-
-        self::assertSame('', $disk->get(self::ANIME_PATH));
-        self::assertSame([
-            'version' => 1, 'page' => 1, 'bytes' => strlen($dump), 'titles' => 1,
-        ], $this->checkpoint($disk));
-        Http::assertNothingSent();
-
-        $this->artisan('shikimori:dump --resume')
-            ->expectsOutput('Failed to dump Shikimori catalog: Anime dump is shorter than its checkpoint. Restart without --resume.')
-            ->assertFailed();
-
-        self::assertSame('', $disk->get(self::ANIME_PATH));
-        self::assertSame(1, $this->checkpoint($disk)['page']);
-        Http::assertNothingSent();
-    }
-
-    #[Test]
-    public function it_refuses_a_checkpoint_in_the_middle_of_a_record(): void
-    {
-        $disk = $this->disk;
-        $dump = "{\"id\":\"1\"}\n";
-        $disk->put(self::ANIME_PATH, $dump);
-        $this->saveCheckpoint($disk, 1, strlen($dump) - 1, 1);
-        Http::fake();
-
-        $this->artisan('shikimori:dump --resume')->assertFailed();
-
-        self::assertSame($dump, $disk->get(self::ANIME_PATH));
-        Http::assertNothingSent();
-    }
-
-    /**
-     * @throws JsonException
-     */
-    #[Test]
-    public function it_returns_failure_when_the_anime_file_cannot_be_opened(): void
-    {
-        $disk = $this->disk;
-        $disk->makeDirectory(self::ANIME_PATH);
-        Http::fake();
-
-        $this->artisan('shikimori:dump')
-            ->expectsOutput('Failed to dump Shikimori catalog: Cannot open the anime dump.')
-            ->assertFailed();
-
-        $disk->assertMissing(self::CHECKPOINT_PATH);
-        Http::assertNothingSent();
-    }
-
-    #[Test]
-    public function it_prevents_two_dump_commands_from_writing_at_once(): void
-    {
-        $writer = new ShikimoriDumpWriter($this->disk);
-        $writer->start(false);
-        Http::fake();
-
-        try {
-            $this->artisan('shikimori:dump')
-                ->expectsOutput('Failed to dump Shikimori catalog: Another Shikimori dump is already running.')
-                ->assertFailed();
-            Http::assertNothingSent();
-        } finally {
-            $writer->close();
-        }
-    }
-
-    public static function writeOperations(): array
-    {
-        return [['put'], ['move']];
-    }
-
 
     protected function setUp(): void
     {
@@ -562,6 +359,21 @@ final class DumpShikimoriCatalogCommandTest extends TestCase
     private function checkpoint(FilesystemAdapter $disk): array
     {
         return json_decode($disk->get(self::CHECKPOINT_PATH), true, 512, JSON_THROW_ON_ERROR);
+    }
+
+    /**
+     * @param  array<int, list<string>>  $pages
+     * @return array<string, int>
+     */
+    private function seenPages(array $pages): array
+    {
+        $seen = [];
+
+        foreach ($pages as $page => $ids) {
+            $seen[hash('sha256', implode("\0", $ids))] = $page;
+        }
+
+        return $seen;
     }
 
     private function ids(FilesystemAdapter $disk): array

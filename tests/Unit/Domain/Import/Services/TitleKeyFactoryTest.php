@@ -6,8 +6,7 @@ namespace Tests\Unit\Domain\Import\Services;
 
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\Enums\Title\TitleFormat;
-use App\Domain\Catalog\ValueObjects\Title\TitleCanonicalKey;
-use App\Domain\Import\Services\TitleKeyFactory;
+use App\Domain\Import\Services\TitleCanonicalKeyFactory;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -18,7 +17,7 @@ final class TitleKeyFactoryTest extends TestCase
     #[Test]
     public function it_separates_content_types_with_the_same_title_year_and_format(): void
     {
-        $factory = new TitleKeyFactory;
+        $factory = new TitleCanonicalKeyFactory;
         $keys = array_map(
             static fn (TitleContentType $type): string => $factory->create(TitleCandidateFactory::create(type: $type))->getValue(),
             TitleContentType::cases(),
@@ -30,16 +29,16 @@ final class TitleKeyFactoryTest extends TestCase
     #[Test]
     public function it_keeps_an_empty_normalized_title_explicit_in_the_natural_key(): void
     {
-        $key = new TitleKeyFactory()->create(TitleCandidateFactory::create(titleEn: '!!!'));
+        $key = new TitleCanonicalKeyFactory()->create(TitleCandidateFactory::create(titleEn: '!!!'));
 
         self::assertSame('anime|tv|2009|', $key->getNatural());
-        self::assertSame('v2:'.sha1('anime|tv|2009|'), $key->getValue());
+        self::assertSame(sha1('anime|tv|2009|'), $key->getValue());
     }
 
     #[Test]
     public function it_is_deterministic(): void
     {
-        $factory = new TitleKeyFactory;
+        $factory = new TitleCanonicalKeyFactory;
 
         self::assertSame(
             $factory->create(TitleCandidateFactory::create())->getValue(),
@@ -50,21 +49,20 @@ final class TitleKeyFactoryTest extends TestCase
     #[Test]
     public function it_builds_readable_natural_key_and_hash(): void
     {
-        $key = new TitleKeyFactory()->create(TitleCandidateFactory::create(
+        $key = new TitleCanonicalKeyFactory()->create(TitleCandidateFactory::create(
             titleEn: 'Fullmetal Alchemist',
             type: TitleContentType::ANIME,
             releaseYear: 2009,
         ));
 
         self::assertSame('anime|tv|2009|fullmetal alchemist', $key->getNatural());
-        self::assertSame('v2:'.sha1('anime|tv|2009|fullmetal alchemist'), $key->getValue());
-        self::assertSame(TitleKeyFactory::NORMALIZER_VERSION, $key->getNormalizerVersion());
+        self::assertSame(sha1('anime|tv|2009|fullmetal alchemist'), $key->getValue());
     }
 
     #[Test]
     public function it_normalizes_diacritics_punctuation_and_spaces(): void
     {
-        $key = new TitleKeyFactory()->create(TitleCandidateFactory::create(
+        $key = new TitleCanonicalKeyFactory()->create(TitleCandidateFactory::create(
             titleEn: '  Pokémon:  The First Movie!! ',
             releaseYear: 1998,
         ));
@@ -75,7 +73,7 @@ final class TitleKeyFactoryTest extends TestCase
     #[Test]
     public function it_prefers_english_over_russian(): void
     {
-        $key = new TitleKeyFactory()->create(TitleCandidateFactory::create(
+        $key = new TitleCanonicalKeyFactory()->create(TitleCandidateFactory::create(
             titleRu: 'Покемон',
             titleEn: 'Pokemon',
             releaseYear: 1997,
@@ -87,7 +85,7 @@ final class TitleKeyFactoryTest extends TestCase
     #[Test]
     public function it_falls_back_to_russian_when_no_english(): void
     {
-        $key = new TitleKeyFactory()->create(TitleCandidateFactory::create(
+        $key = new TitleCanonicalKeyFactory()->create(TitleCandidateFactory::create(
             titleRu: 'Наруто',
             titleEn: null,
             releaseYear: 2002,
@@ -99,7 +97,7 @@ final class TitleKeyFactoryTest extends TestCase
     #[Test]
     public function it_handles_missing_year(): void
     {
-        $key = new TitleKeyFactory()->create(TitleCandidateFactory::create(
+        $key = new TitleCanonicalKeyFactory()->create(TitleCandidateFactory::create(
             titleEn: 'Some Title',
             releaseYear: null,
         ));
@@ -110,7 +108,7 @@ final class TitleKeyFactoryTest extends TestCase
     #[Test]
     public function score_and_status_do_not_affect_the_key(): void
     {
-        $factory = new TitleKeyFactory;
+        $factory = new TitleCanonicalKeyFactory;
 
         self::assertSame(
             $factory->create(TitleCandidateFactory::create(providerScore: 9.0))->getValue(),
@@ -121,7 +119,7 @@ final class TitleKeyFactoryTest extends TestCase
     #[Test]
     public function it_separates_formats_with_the_same_title_and_year(): void
     {
-        $factory = new TitleKeyFactory;
+        $factory = new TitleCanonicalKeyFactory;
         $keys = array_map(
             static fn (TitleFormat $format): string => $factory->create(TitleCandidateFactory::create(format: $format))->getValue(),
             [TitleFormat::TV, TitleFormat::MOVIE, TitleFormat::TV_SHORT, TitleFormat::TV_SPECIAL],
@@ -133,7 +131,7 @@ final class TitleKeyFactoryTest extends TestCase
     #[Test]
     public function it_keeps_unknown_format_distinct_from_tv(): void
     {
-        $factory = new TitleKeyFactory;
+        $factory = new TitleCanonicalKeyFactory;
         $unknown = $factory->create(TitleCandidateFactory::create(format: null));
 
         self::assertSame('anime|unknown|2009|fullmetal alchemist', $unknown->getNatural());
@@ -141,22 +139,10 @@ final class TitleKeyFactoryTest extends TestCase
     }
 
     #[Test]
-    public function the_version_is_part_of_the_persistable_key(): void
-    {
-        $natural = 'anime|tv|2009|fullmetal alchemist';
-        $old = TitleCanonicalKey::createFromNatural($natural, 1);
-        $current = TitleCanonicalKey::createFromNatural($natural, TitleKeyFactory::NORMALIZER_VERSION);
-
-        self::assertNotSame($old->getValue(), $current->getValue());
-        self::assertStringStartsWith('v1:', $old->getValue());
-        self::assertStringStartsWith('v2:', $current->getValue());
-    }
-
-    #[Test]
     #[DataProvider('equivalentTitles')]
     public function it_normalizes_equivalent_unicode_titles(string $first, string $second): void
     {
-        $factory = new TitleKeyFactory;
+        $factory = new TitleCanonicalKeyFactory;
 
         self::assertSame(
             $factory->create(TitleCandidateFactory::create(titleEn: $first))->getValue(),

@@ -8,11 +8,8 @@ use App\Domain\Catalog\ValueObjects\Title\TitleCanonicalKey;
 use App\Domain\Import\DTOs\TitleCandidate;
 use Normalizer as IntlNormalizer;
 
-final class TitleKeyFactory
+final class TitleCanonicalKeyFactory
 {
-    public const int NORMALIZER_VERSION = 2;
-
-
     public function create(TitleCandidate $candidate): TitleCanonicalKey
     {
         $rawTitle = $candidate->title?->getEn() ?? $candidate->title?->getRu() ?? '';
@@ -25,7 +22,7 @@ final class TitleKeyFactory
             $this->normalize($rawTitle),
         );
 
-        return TitleCanonicalKey::createFromNatural($natural, self::NORMALIZER_VERSION);
+        return TitleCanonicalKey::createFromNatural($natural);
     }
 
 

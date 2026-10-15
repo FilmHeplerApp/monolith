@@ -23,7 +23,7 @@ final class ShikimoriDumpWriter
     /** @var resource|null */
     private $stream = null;
 
-    /** @var array{version: int, page: int, bytes: int, titles: int} */
+    /** @var array{version: int, page: int, bytes: int, titles: int, seen_pages?: array<string, int>} */
     private array $checkpoint = ['version' => 1, 'page' => 0, 'bytes' => 0, 'titles' => 0];
 
 
@@ -87,10 +87,21 @@ final class ShikimoriDumpWriter
         return $this->checkpoint['page'] + 1;
     }
 
-    /** @param list<array<string, mixed>> $rows
+    /**
+     * @return array<string, int>
+     */
+    public function seenPages(): array
+    {
+        return $this->checkpoint['seen_pages'] ?? [];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $rows
+     * @param  array<string, int>  $seenPages
+     *
      * @throws JsonException
      */
-    public function appendPage(int $page, array $rows): void
+    public function appendPage(int $page, array $rows, array $seenPages): void
     {
         if ($page !== $this->checkpoint['page'] + 1 || $rows === []) {
             throw new RuntimeException('Only the next non-empty anime page can be committed.');
@@ -117,6 +128,11 @@ final class ShikimoriDumpWriter
             'bytes' => $this->checkpoint['bytes'] + $written,
             'titles' => $this->checkpoint['titles'] + count($rows),
         ];
+
+        if ($seenPages !== []) {
+            $checkpoint['seen_pages'] = $seenPages;
+        }
+
         $this->atomicPut(self::CHECKPOINT_PATH, json_encode($checkpoint, JSON_THROW_ON_ERROR));
         $this->checkpoint = $checkpoint;
     }
@@ -177,6 +193,10 @@ final class ShikimoriDumpWriter
             if (!isset($checkpoint[$field]) || !is_int($checkpoint[$field]) || $checkpoint[$field] < 0) {
                 throw new RuntimeException('Invalid dump checkpoint. Restart without --resume.');
             }
+        }
+
+        if (array_key_exists('seen_pages', $checkpoint) && !is_array($checkpoint['seen_pages'])) {
+            throw new RuntimeException('Invalid dump checkpoint. Restart without --resume.');
         }
 
         $this->checkpoint = $checkpoint;

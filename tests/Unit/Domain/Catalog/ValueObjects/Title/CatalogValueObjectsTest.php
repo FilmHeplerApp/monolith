@@ -41,7 +41,6 @@ final class CatalogValueObjectsTest extends TestCase
         $this->assertSame('naruto|anime|2002', $key->getValue());
         $this->assertSame('naruto|anime|2002', (string) $key);
         $this->assertNull($key->getNatural());
-        $this->assertNull($key->getNormalizerVersion());
     }
 
     #[Test]
@@ -49,11 +48,10 @@ final class CatalogValueObjectsTest extends TestCase
     {
         $natural = 'anime|2009|fullmetal alchemist';
         $value = sha1($natural);
-        $key = TitleCanonicalKey::createFromString($value, natural: $natural, normalizerVersion: 1);
+        $key = TitleCanonicalKey::createFromString($value, natural: $natural);
 
         self::assertSame($value, $key->getValue());
         self::assertSame($natural, $key->getNatural());
-        self::assertSame(1, $key->getNormalizerVersion());
     }
 
     #[Test]

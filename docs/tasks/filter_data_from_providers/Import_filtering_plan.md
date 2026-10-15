@@ -5,8 +5,8 @@
 
 Связанные документы:
 
-- [docs/TZ.md](../docs/TZ.md) — разделы 6.3.1–6.3.3, 7.1.2–7.1.8
-- [docs/How_infrastructure_works.md](../docs/How_infrastructure_works.md) — слои и правило зависимостей
+- [docs/TZ.md](../../TZ.md) — разделы 6.3.1–6.3.3, 7.1.2–7.1.8
+- [docs/How_infrastructure_works.md](../../How_infrastructure_works.md) — слои и правило зависимостей
 - `docs/Development_conventions.md` — оформление кода и git flow (в ветке `abstract_provider_clients`)
 
 ---
@@ -132,14 +132,14 @@ API (`released`, `tv`). Плюс отдельный Python-процесс в PHP
 | Ключ | Роль | Где живёт |
 | --- | --- | --- |
 | `(source, external_id)` | **Авторитетная идентичность.** «Это тот же самый тайтл?» | таблица `external_ids`, UNIQUE |
-| `dedup_key` | **Технический ключ сопоставления.** Цель UNIQUE-индекса; совпадение разных идентичностей требует разбора | колонка `titles`, UNIQUE |
+| `canonical_key` | **Технический ключ сопоставления.** Цель UNIQUE-индекса; совпадение разных идентичностей требует разбора | колонка `titles.canonical_key`, UNIQUE |
 
 Формула натурального ключа:
 
 ```text
-natural   = type | format_or_unknown | release_year | normalize(title_en ?? title_ru)
-normalize = NFKD -> удалить combining marks (Mn) -> lower -> заменить пунктуацию пробелами -> схлопнуть пробелы -> trim
-dedup_key = "v" + NORMALIZER_VERSION + ":" + sha1(natural)
+natural        = type | format_or_unknown | release_year | normalize(title_en ?? title_ru)
+normalize      = NFKD -> удалить combining marks (Mn) -> lower -> заменить пунктуацию пробелами -> схлопнуть пробелы -> trim
+canonical_key  = sha1(natural)
 ```
 
 `TitleFormat` отделён от `TitleContentType`: `ANIME` описывает вид контента,
@@ -159,15 +159,14 @@ NFKD нужен перед удалением диакритики: `Pokémon` -
 лигатура `ﬁ` -> `fi`. Эти совпадения не доказывают идентичность тайтлов.
 Описание форм нормализации: [Unicode UAX #15](https://www.unicode.org/reports/tr15/).
 
-Текущая версия фабрики — `NORMALIZER_VERSION = 2` (добавлен формат и префикс).
-`TitleCanonicalKey` — общий VO каталога и импорта: `getValue()`, `getNatural()`, `getNormalizerVersion()`; версия включена в
-сохраняемый ключ (`v2:<sha1>`), поэтому не теряется даже при передаче только строки.
-При изменении формулы или нормализации версию нужно увеличивать. Старые ключи
-восстанавливаются через `TitleCanonicalKey::createFromString(value, natural, normalizerVersion)` без пересчёта, включая прежние
-SHA-1 без префикса (версия 1). Обновление известного `(source, external_id)`
-сохраняет уже присвоенный ключ и его версию. Перед переходом на новую версию
-в действующем каталоге нужен отдельный контролируемый бэкфилл с разбором коллизий:
-версии нельзя просто смешать и ожидать склейки между ними.
+`TitleCanonicalKey` — общий VO каталога и импорта: `getValue()` и `getNatural()`.
+В ключ версия нормализатора не входит: префикс `vN:` сделал бы ключ нового
+поставщика другим у того же аниме и посадил бы его на вторую строку.
+Известная пара `(source, external_id)` сохраняет уже присвоенный ключ
+(`TitleCanonicalKey::createFromString` без пересчёта). Смена формулы — отдельный
+бэкфилл существующих `titles.canonical_key` на месте, `id` строк не меняется;
+где два тайтла сошлись в один новый ключ, строки не трогаются и идут в отчёт.
+Ночной импорт до этого бэкфилла новую формулу на известные идентичности не считает.
 
 ### 4.2. Резолв ключа на пачку — 2 запроса, не N
 
@@ -238,7 +237,7 @@ snapshot с учётом сохранённых записей.
 в одну строку, и восстановить это будет нечем).
 
 Доменный отчёт — `TitleKeyResolution.collisions`, список `TitleKeyCollision`:
-каждый элемент содержит ключ (natural/hash/normalizerVersion) и все спорные
+каждый элемент содержит ключ (natural/hash) и все спорные
 `TitleIdentity` (source/externalId/key). Новые записи из спорной группы исключаются
 из `resolved` целиком: первый встреченный кандидат не получает приоритет.
 При конфликте с каталогом обновления известных идентичностей разрешены,
@@ -262,9 +261,8 @@ snapshot с учётом сохранённых записей.
 | Изменение | Зачем |
 | --- | --- |
 | Таблица `external_ids(id, title_id, source, external_id, last_synced_at)`, UNIQUE `(source, external_id)` | Прямое требование ТЗ 6.3.3; авторитетная идентичность |
-| `titles.dedup_key varchar(64)` UNIQUE | Без него upsert без дублей невозможен (4.3) |
+| `titles.canonical_key` UNIQUE | Уже в миграции; upsert без дублей (4.3). Значение — `sha1(natural)`, без версии нормализатора |
 | `titles.natural_key` (nullable, читаемый) | Отладка и админка; уникальность держит хэш |
-| `titles.normalizer_version` | Сохранять `TitleCanonicalKey.getNormalizerVersion()` рядом с ключом; legacy без префикса — версия 1 |
 | `titles.format` (nullable) | `TitleFormat` отдельно от вида контента; отсутствие формата не превращать в TV |
 | `titles.release_year smallint` | Год нужен в ключе, а колонки сейчас нет |
 | `titles.provider_score`, `titles.provider_score_count` | Решение 3.3 |
@@ -487,7 +485,7 @@ API не предоставляет здесь размер снимка: пов
 - [x] `TitleCandidate`, `FilterDecision`, `RejectionReason`, `CandidateOutcome`
 - [x] `ImportFilterRuleContract` + правила: `HasAnyTitleRule`, `AllowedContentTypeRule`, `ExcludedTitleFormatRule`, `MinReleaseYearRule`, `CompletenessRule`
 - [x] `TitleFormat` + nullable `TitleCandidate.format`
-- [x] `TitleKeyFactory` — версионированный `dedup_key`, включающий формат
+- [x] `TitleCanonicalKeyFactory` — `canonical_key = sha1(natural)`, формула включает формат, без версии нормализатора
 - [x] `TitleKeyResolver` — сохранение известных ключей, отчёт коллизий `TitleKeyResolution`
 - [ ] Application-резолв: загрузка полного snapshot из БД и подключение доменного резолвера
 - [x] `TitleCandidateEvaluator` — агрегация вердиктов правил (reject > flag > accept)
@@ -603,15 +601,15 @@ genres      100.0%
 
 Чек-лист для курированной фикстуры и тестов:
 
-- [ ] тайтл без `russian` -> отсев (ТЗ: нет ru и en -> отбрасываем)
+- [x] нет ни `russian`, ни `english` -> отсев; только один из двух проходит
 - [ ] тайтл без `english` -> fallback на `name` (ромадзи)
 - [ ] тайтл без `description` -> **флаг неполноты, не отсев**
 - [ ] тайтл без `poster` -> флаг неполноты
 - [x] Доменная оценка кандидата не зависит от рейтинга/числа оценок: только score, только count, низкие значения, null и 0 проходят при выполнении остальных правил
 - [ ] Маппер сохраняет различие null и 0 в provider_score/provider_score_count; отсутствие scoresStats не превращается в нулевую сумму
 - [ ] тайтл без `studios` -> связь не создаётся, пачка остаётся замкнутой
-- [ ] `kind = pv` и `kind = cm` -> отсев (промо-ролики и реклама)
-- [ ] `kind = tv_special`, `ona`, `special` -> решить политику
+- [x] `kind = pv`, `cm`, `music` -> отсев (промо-ролики, реклама и музыка); `null` не отсев
+- [x] форматы вне `pv`, `cm`, `music` проходят, включая `tv_special`, `ona`, `special`
 - [ ] описание с BBCode `[character=...]` -> очистка (117 из 250 в топе)
 - [ ] описание длиннее 1000 символов -> обрезка (макс. в выборке 2417)
 - [ ] тайтл с 2–3 студиями -> `value_array`
@@ -625,7 +623,7 @@ genres      100.0%
 | Вопрос | Варианты | Статус |
 | --- | --- | --- |
 | Политика для неизвестного значения опции | drop+report / auto-create / free text | Предложение: закрытые словари (`genres`) — drop+report, открытые (`tags`) — auto-create, решается конфигом |
-| Какие `kind` пускаем в каталог | только `tv`,`movie` / + `ona`,`ova`,`special` | Точно отсекаем `pv`, `cm` |
+| Какие `kind` пускаем в каталог | Все форматы `TitleFormat`, кроме исключений | Принято: отсекаем `pv`, `cm`, `music`; `null` и остальные `kind` проходят |
 | Допуск по популярности | Не ограничивать импорт по `provider_score` и `provider_score_count` | Принято по ревью: низкие значения, null и 0 не приводят к отказу или флагу; ранжирование рекомендаций — отдельная задача |
 | Минимальный год | ТЗ предлагает 1990 | Подтвердить |
 | Приоритет провайдеров при merge | порядок источников | Пока источник один, но правило должно быть детерминированным заранее |

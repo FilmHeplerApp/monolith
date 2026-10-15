@@ -7,7 +7,7 @@ namespace Tests\Unit\Domain\Import\Services;
 use App\Domain\Catalog\Enums\Title\TitleFormat;
 use App\Domain\Catalog\ValueObjects\Title\TitleCanonicalKey;
 use App\Domain\Import\DTOs\TitleIdentity;
-use App\Domain\Import\Services\TitleKeyFactory;
+use App\Domain\Import\Services\TitleCanonicalKeyFactory;
 use App\Domain\Import\Services\TitleKeyResolver;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -20,7 +20,7 @@ final class TitleKeyResolverTest extends TestCase
     {
         $known = TitleCandidateFactory::create();
         $new = TitleCandidateFactory::create(source: 'provider-2', externalId: '2');
-        $key = new TitleKeyFactory()->create($known);
+        $key = new TitleCanonicalKeyFactory()->create($known);
         $owner = new TitleIdentity($known->source, $known->externalId, $key);
 
         $result = $this->resolver()->resolve([$new], [$owner]);
@@ -31,13 +31,14 @@ final class TitleKeyResolverTest extends TestCase
         self::assertSame('provider-2', $result->collisions[0]->identities[1]->source);
     }
 
+    // Оставили на всякий случай, фактически из за constraint (unique) в бд на canonical_key кейс не осуществим
     #[Test]
     public function it_keeps_both_linked_updates_when_a_new_provider_claims_their_key(): void
     {
         $first = TitleCandidateFactory::create(source: 'shikimori', externalId: '1');
         $second = TitleCandidateFactory::create(source: 'provider-1', externalId: '2');
         $new = TitleCandidateFactory::create(source: 'provider-2', externalId: '3');
-        $key = new TitleKeyFactory()->create($first);
+        $key = new TitleCanonicalKeyFactory()->create($first);
         $owners = [new TitleIdentity($first->source, $first->externalId, $key), new TitleIdentity($second->source, $second->externalId, $key)];
 
         $result = $this->resolver()->resolve([$first, $second, $new], $owners);
@@ -65,23 +66,6 @@ final class TitleKeyResolverTest extends TestCase
         self::assertSame(['1', '2'], array_column($result->collisions[0]->identities, 'externalId'));
         self::assertSame(['3', '4'], array_column($result->collisions[1]->identities, 'externalId'));
         self::assertNotSame($result->collisions[0]->key->getValue(), $result->collisions[1]->key->getValue());
-    }
-
-    #[Test]
-    public function it_does_not_implicitly_compare_keys_across_normalizer_versions(): void
-    {
-        $known = TitleCandidateFactory::create(externalId: '1');
-        $new = TitleCandidateFactory::create(externalId: '2');
-        $natural = new TitleKeyFactory()->create($known)->getNatural();
-        $legacy = TitleCanonicalKey::createFromNatural($natural, 1);
-
-        $result = $this->resolver()->resolve([$known, $new], [new TitleIdentity($known->source, $known->externalId, $legacy)]);
-
-        self::assertCount(2, $result->resolved);
-        self::assertSame($legacy, $result->resolved[0]->key);
-        self::assertSame(2, $result->resolved[1]->key->getNormalizerVersion());
-        self::assertSame($natural, $result->resolved[1]->key->getNatural());
-        self::assertSame([], $result->collisions);
     }
 
     #[Test]
@@ -124,7 +108,7 @@ final class TitleKeyResolverTest extends TestCase
         self::assertSame($unrelated, $result->resolved[0]->candidate);
         self::assertCount(1, $result->collisions);
         self::assertCount(3, $result->collisions[0]->identities);
-        self::assertSame('v2:'.sha1('anime|tv|2009|fullmetal alchemist'), $result->collisions[0]->key->getValue());
+        self::assertSame(sha1('anime|tv|2009|fullmetal alchemist'), $result->collisions[0]->key->getValue());
         self::assertSame('another-provider', $result->collisions[0]->identities[2]->source);
     }
 
@@ -148,7 +132,7 @@ final class TitleKeyResolverTest extends TestCase
     {
         $known = TitleCandidateFactory::create(externalId: '1');
         $new = TitleCandidateFactory::create(externalId: '2');
-        $key = new TitleKeyFactory()->create($known);
+        $key = new TitleCanonicalKeyFactory()->create($known);
         $existing = new TitleIdentity($known->source, $known->externalId, $key);
 
         $result = $this->resolver()->resolve([$known, $new], [$existing]);
@@ -162,10 +146,10 @@ final class TitleKeyResolverTest extends TestCase
     }
 
     #[Test]
-    public function it_preserves_the_stored_key_after_a_rename_and_version_change(): void
+    public function it_preserves_the_stored_key_after_a_rename(): void
     {
         $natural = 'anime|2009|fullmetal alchemist';
-        $legacyKey = TitleCanonicalKey::createFromString(sha1($natural), natural: $natural, normalizerVersion: 1);
+        $legacyKey = TitleCanonicalKey::createFromString(sha1($natural), natural: $natural);
         $renamed = TitleCandidateFactory::create(titleEn: 'Renamed title', releaseYear: 2010, format: TitleFormat::MOVIE);
         $existing = new TitleIdentity($renamed->source, $renamed->externalId, $legacyKey);
 
@@ -174,7 +158,6 @@ final class TitleKeyResolverTest extends TestCase
         self::assertCount(1, $result->resolved);
         self::assertSame($legacyKey, $result->resolved[0]->key);
         self::assertSame(sha1($natural), $result->resolved[0]->key->getValue());
-        self::assertSame(1, $result->resolved[0]->key->getNormalizerVersion());
         self::assertSame([], $result->collisions);
     }
 
@@ -196,7 +179,7 @@ final class TitleKeyResolverTest extends TestCase
     {
         $first = TitleCandidateFactory::create(source: 'shikimori', externalId: '1');
         $second = TitleCandidateFactory::create(source: 'another-provider', externalId: '2');
-        $key = new TitleKeyFactory()->create($first);
+        $key = new TitleCanonicalKeyFactory()->create($first);
 
         $result = $this->resolver()->resolve([$first, $second], [
             new TitleIdentity($first->source, $first->externalId, $key),
@@ -260,6 +243,6 @@ final class TitleKeyResolverTest extends TestCase
 
     private function resolver(): TitleKeyResolver
     {
-        return new TitleKeyResolver(new TitleKeyFactory);
+        return new TitleKeyResolver(new TitleCanonicalKeyFactory);
     }
 }

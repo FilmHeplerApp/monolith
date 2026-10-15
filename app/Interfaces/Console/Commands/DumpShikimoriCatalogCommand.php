@@ -37,7 +37,7 @@ final class DumpShikimoriCatalogCommand extends Command
             $writer = new ShikimoriDumpWriter(Storage::disk(self::DISK));
             $page = $writer->start((bool) $this->option('resume'));
             $this->info("Starting from page {$page}.");
-            $seenPages = [];
+            $seenPages = $writer->seenPages();
 
             while (true) {
                 $animes = $this->fetchAnimes($client, $page, $limit);
@@ -51,7 +51,7 @@ final class DumpShikimoriCatalogCommand extends Command
                     }
                 }
 
-                $fingerprint = hash('sha256', implode('\0', array_map(
+                $fingerprint = hash('sha256', implode("\0", array_map(
                     static fn (array $anime): string => (string) $anime['id'],
                     $animes,
                 )));
@@ -60,8 +60,8 @@ final class DumpShikimoriCatalogCommand extends Command
                     throw new RuntimeException("Shikimori repeated anime page {$seenPages[$fingerprint]} at page {$page}.");
                 }
 
-                $writer->appendPage($page, $animes);
                 $seenPages[$fingerprint] = $page;
+                $writer->appendPage($page, $animes, $seenPages);
                 $this->line("page {$page}: +".count($animes)." (total {$writer->titleCount()})");
                 $page++;
             }

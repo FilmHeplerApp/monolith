@@ -11,7 +11,6 @@ final readonly class TitleCanonicalKey
     public static function createFromString(
         string  $value,
         ?string $natural = null,
-        ?int    $normalizerVersion = null,
     ): self {
         $normalized = trim($value);
 
@@ -19,12 +18,12 @@ final readonly class TitleCanonicalKey
             throw InvalidCatalogValueException::emptyCanonicalKey();
         }
 
-        return new self($normalized, $natural, $normalizerVersion);
+        return new self($normalized, $natural);
     }
 
-    public static function createFromNatural(string $natural, int $normalizerVersion): self
+    public static function createFromNatural(string $natural): self
     {
-        return self::createFromString('v'.$normalizerVersion.':'.sha1($natural), $natural, $normalizerVersion);
+        return self::createFromString(sha1($natural), $natural);
     }
 
     public function getValue(): string
@@ -37,11 +36,6 @@ final readonly class TitleCanonicalKey
         return $this->natural;
     }
 
-    public function getNormalizerVersion(): ?int
-    {
-        return $this->normalizerVersion;
-    }
-
     public function __toString(): string
     {
         return $this->value;
@@ -51,6 +45,5 @@ final readonly class TitleCanonicalKey
     private function __construct(
         private string  $value,
         private ?string $natural,
-        private ?int    $normalizerVersion,
     ) {}
 }

@@ -12,7 +12,7 @@ use App\Domain\Import\DTOs\TitleKeyResolution;
 
 final readonly class TitleKeyResolver
 {
-    public function __construct(private TitleKeyFactory $factory) {}
+    public function __construct(private TitleCanonicalKeyFactory $factory) {}
 
     /**
      * Persist every entry in resolved, including updates whose key also appears in collisions.
