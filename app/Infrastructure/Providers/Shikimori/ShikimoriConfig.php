@@ -6,8 +6,6 @@ namespace App\Infrastructure\Providers\Shikimori;
 
 final class ShikimoriConfig
 {
-    private function __construct() {}
-
     public static function endpoint(): string
     {
         return config('shikimori.endpoint');
@@ -42,4 +40,7 @@ final class ShikimoriConfig
     {
         return config('shikimori.retry_backoff_ms');
     }
+
+
+    private function __construct() {}
 }

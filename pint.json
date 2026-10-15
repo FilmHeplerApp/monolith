@@ -3,6 +3,25 @@
     "rules": {
         "class_attributes_separation": false,
         "no_extra_blank_lines": false,
-        "type_declaration_spaces": false
+        "type_declaration_spaces": false,
+        "not_operator_with_successor_space": false,
+        "not_operator_with_space": false,
+        "unary_operator_spaces": true,
+        "ordered_class_elements": {
+            "order": [
+                "use_trait",
+                "case",
+                "constant_public",
+                "constant_protected",
+                "constant_private",
+                "property_public",
+                "property_protected",
+                "property_private",
+                "method_public",
+                "method_protected",
+                "method_private"
+            ],
+            "sort_algorithm": "none"
+        }
     }
 }

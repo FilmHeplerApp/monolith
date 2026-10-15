@@ -7,6 +7,8 @@ namespace App\Domain\Import\Enums;
 enum CandidateOutcome: string
 {
     case ACCEPTED = 'accepted';
+
     case FLAGGED = 'flagged';
+
     case REJECTED = 'rejected';
 }

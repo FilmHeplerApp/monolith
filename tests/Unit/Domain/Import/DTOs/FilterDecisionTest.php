@@ -14,7 +14,7 @@ final class FilterDecisionTest extends TestCase
 {
     private const array FLAG_CONTEXT = ['missing' => ['description', 'poster']];
 
-    private const array REJECTION_CONTEXT = ['score' => 3.2, 'count' => 5];
+    private const array REJECTION_CONTEXT = ['format' => 'pv'];
 
 
     #[Test]
@@ -65,9 +65,9 @@ final class FilterDecisionTest extends TestCase
     #[Test]
     public function reject_carries_context(): void
     {
-        $decision = FilterDecision::reject(RejectionReason::LOW_POPULARITY, self::REJECTION_CONTEXT);
+        $decision = FilterDecision::reject(RejectionReason::UNSUPPORTED_FORMAT, self::REJECTION_CONTEXT);
 
-        self::assertSame(RejectionReason::LOW_POPULARITY, $decision->reason);
+        self::assertSame(RejectionReason::UNSUPPORTED_FORMAT, $decision->reason);
         self::assertSame(self::REJECTION_CONTEXT, $decision->context);
     }
 }

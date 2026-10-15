@@ -148,6 +148,12 @@ dedup_key = "v" + NORMALIZER_VERSION + ":" + sha1(natural)
 даёт `unknown`, а не догадку `TV`. `TV_SHORT` и `TV_SPECIAL` не взаимозаменяемы;
 адаптер задаёт формат по явным данным провайдера, без эвристики по длительности.
 
+Для текущего каталога `ExcludedTitleFormatRule` отклоняет `PV`, `CM` и `MUSIC`
+с причиной `UNSUPPORTED_FORMAT` (`unsupported_format`) и контекстом `format`.
+Значения остаются в `TitleFormat`: это политика импорта, а не ограничение модели.
+Список исключений передаётся в правило; по умолчанию исключены эти три формата.
+`null` не отклоняется этим правилом: неизвестный формат нельзя считать промо или рекламой.
+
 NFKD нужен перед удалением диакритики: `Pokémon` -> `pokemon`, `Ёлка` -> `елка`.
 Совместимые символы тоже сводятся: полноширинная латиница -> обычная,
 лигатура `ﬁ` -> `fi`. Эти совпадения не доказывают идентичность тайтлов.
@@ -172,6 +178,13 @@ SHA-1 без префикса (версия 1). Обновление извес�
 4. TitleKeyResolver.resolve(candidates, existing) -> resolved + collisions
 5. сохраняем только resolved, collisions отправляем на ручной разбор
 ```
+
+Сохраняются **все** записи из `resolved`: ключ может одновременно присутствовать
+в `collisions`, если обновляется уже известная пара `(source, externalId)`.
+В отчёте коллизии она указана как существующий владелец рядом с новыми претендентами;
+из `resolved` исключаются только новые конфликтующие идентичности.
+Сейвер не должен использовать ключи из `collisions` как чёрный список — иначе потеряется
+легальное обновление существующей записи.
 
 Шаг 1 реализует решение 3.8 и чинит проблему переименований.
 Шаг 3 — это «поиск возможного дубля по названию, году, типу и формату» из ТЗ 6.3.3,
@@ -284,10 +297,10 @@ snapshot с учётом сохранённых записей.
 | `russian` | `titles.title_ru` | В хвосте каталога заполнено на 82% |
 | `english` ?? `name` | `titles.title_en` | `english` заполнен на 51%, fallback на ромадзи |
 | `description` | `titles.description_ru` | **117/250 содержат BBCode** `[character=...]` — чистить; обрезка до 700–1000 по ТЗ |
-| `kind` | `TitleCandidate.format` -> `titles.format`, фильтр + атрибут | `TitleFormat::tryFrom(kind)`, неизвестный формат -> null; `pv`, `cm` — отсеивать (промо и реклама); `tv_special` не превращать в `tv_short` |
+| `kind` | `TitleCandidate.format` -> `titles.format`, фильтр + атрибут | `TitleFormat::tryFrom(kind)`, неизвестный формат -> null; `pv`, `cm`, `music` — отсеивать через `ExcludedTitleFormatRule`; `tv_special` не превращать в `tv_short` |
 | `status` | `titles.status` | `anons -> announced`, `ongoing`, `released` — почти 1:1 |
 | `score` | `titles.provider_score` | **Не** в `rating_avg` (решение 3.3) |
-| `scoresStats[].count` сумма | `titles.provider_score_count` | Нужен для фильтра по популярности (ТЗ 6.3.2) |
+| `scoresStats[].count` сумма | `titles.provider_score_count` | Метаданные поставщика для ранжирования; не ограничивает импорт. Отсутствие статистики -> null, явно переданный ноль -> 0 |
 | `duration` | `titles.duration` | Уже в минутах |
 | `airedOn.year` | `titles.release_year` | Для `dedup_key` |
 | `poster.originalUrl` | `titles.poster_url` | Абсолютный URL |
@@ -322,8 +335,8 @@ app/
 │  ├─ DTOs/         TitleCandidate, CandidateAttribute, FilterDecision, TitleIdentity, KeyedTitleCandidate, TitleKeyCollision, TitleKeyResolution
 │  ├─ Contracts/     ImportFilterRuleContract, CatalogReferenceProvider
 │  ├─ Services/      TitleKeyFactory (идентичность), TitleCandidateEvaluator (агрегация вердиктов правил)
-│  ├─ Rules/         HasAnyTitleRule, AllowedContentTypeRule, MinReleaseYearRule,
-│  │                 MinProviderScoreRule, CompletenessRule   (работают на TitleCandidate)
+│  ├─ Rules/         HasAnyTitleRule, AllowedContentTypeRule, ExcludedTitleFormatRule, MinReleaseYearRule,
+│  │                 CompletenessRule   (работают на TitleCandidate)
 │  └─ Enums/         RejectionReason, CandidateOutcome
 │
 ├─ Application/Import/                      [сценарий импорта; ЗНАЕТ про ProviderTitle]
@@ -417,6 +430,7 @@ iterable<ProviderTitle>
 - [x] JSON-чекпоинт `{version, page, bytes, titles}`; сначала полная запись и flush страницы, затем проверенные `put(tmp)` + атомарный `move(tmp, checkpoint)` на local
 - [x] `--resume` обрезает неподтверждённый хвост до `bytes`; старый числовой чекпоинт требует перезапуска без `--resume`
 - [x] Блокировка параллельного дампа, обработка ошибок с выводом в консоль, логом и FAILURE
+- [x] Повтор уже полученной непустой страницы в одном запуске обнаруживается по списку ID: FAILURE до записи страницы, дамп и чекпоинт остаются на последней успешно зафиксированной странице
 - [ ] Отдельный дамп таксономии `genres` (80 записей)
 - [ ] Поля: `id malId name russian english japanese synonyms kind status score duration episodes rating franchise airedOn releasedOn description poster genres studios updatedAt scoresStats`
 
@@ -436,6 +450,16 @@ API не предоставляет здесь размер снимка: пов
 
 - [ ] Отобрать 300–500 записей из полного дампа в `Static/Fixtures/Shikimori/`
 - [ ] Покрыть все краевые случаи из раздела 11
+
+Сборщик берёт `LOCK_SH | LOCK_NB` на `import/shikimori_dump.lock` и держит его
+при чтении аниме, жанров и записи фикстуры. Активный дамп с `LOCK_EX` приводит
+к немедленному отказу сборки. Аниме читаются только до `bytes` из version 1
+чекпоинта; размер файла, граница строки и число записей сверяются с чекпоинтом.
+Незакоммиченный хвост после сбоя не попадает в фикстуру.
+До записи выходных файлов проверяются минимум 250 выбранных тайтлов,
+наличие хотя бы одного примера для каждой корзины и непустые валидные жанры.
+Недостаток данных приводит к FAILURE с перечнем недостающих сценариев;
+готовая фикстура при этом не перезаписывается.
 
 **Зачем:** тесты в CI без сети и без 26 МБ в репозитории.
 
@@ -461,7 +485,7 @@ API не предоставляет здесь размер снимка: пов
 **Domain/Import — чистые правила и сервисы на `TitleCandidate`:**
 
 - [x] `TitleCandidate`, `FilterDecision`, `RejectionReason`, `CandidateOutcome`
-- [x] `ImportFilterRuleContract` + правила: `HasAnyTitleRule`, `AllowedContentTypeRule`, `MinReleaseYearRule`, `MinProviderScoreRule`, `CompletenessRule`
+- [x] `ImportFilterRuleContract` + правила: `HasAnyTitleRule`, `AllowedContentTypeRule`, `ExcludedTitleFormatRule`, `MinReleaseYearRule`, `CompletenessRule`
 - [x] `TitleFormat` + nullable `TitleCandidate.format`
 - [x] `TitleKeyFactory` — версионированный `dedup_key`, включающий формат
 - [x] `TitleKeyResolver` — сохранение известных ключей, отчёт коллизий `TitleKeyResolution`
@@ -472,6 +496,7 @@ API не предоставляет здесь размер снимка: пов
 
 - [ ] `ProviderTitleNormalizer` — BBCode, HTML, обрезка, пробелы
 - [ ] `ProviderTitleMapper` — `ProviderTitle` -> `TitleCandidate` (non-throwing)
+- [ ] При сборке `TitleCandidateEvaluator` подключить `ExcludedTitleFormatRule` после проверки вида контента; кандидаты с `UNSUPPORTED_FORMAT` попадают в отчёт отказов, а не в пачку сохранения
 - [ ] `ProviderTitleMerger` — приоритет провайдеров
 - [ ] `AttributeRegistry` — реестр справочников в памяти
 
@@ -582,7 +607,8 @@ genres      100.0%
 - [ ] тайтл без `english` -> fallback на `name` (ромадзи)
 - [ ] тайтл без `description` -> **флаг неполноты, не отсев**
 - [ ] тайтл без `poster` -> флаг неполноты
-- [ ] тайтл без `score` -> поведение фильтра по популярности
+- [x] Доменная оценка кандидата не зависит от рейтинга/числа оценок: только score, только count, низкие значения, null и 0 проходят при выполнении остальных правил
+- [ ] Маппер сохраняет различие null и 0 в provider_score/provider_score_count; отсутствие scoresStats не превращается в нулевую сумму
 - [ ] тайтл без `studios` -> связь не создаётся, пачка остаётся замкнутой
 - [ ] `kind = pv` и `kind = cm` -> отсев (промо-ролики и реклама)
 - [ ] `kind = tv_special`, `ona`, `special` -> решить политику
@@ -600,7 +626,7 @@ genres      100.0%
 | --- | --- | --- |
 | Политика для неизвестного значения опции | drop+report / auto-create / free text | Предложение: закрытые словари (`genres`) — drop+report, открытые (`tags`) — auto-create, решается конфигом |
 | Какие `kind` пускаем в каталог | только `tv`,`movie` / + `ona`,`ova`,`special` | Точно отсекаем `pv`, `cm` |
-| Порог по популярности | значение `provider_score` и `provider_score_count` | Нужно бизнес-решение |
+| Допуск по популярности | Не ограничивать импорт по `provider_score` и `provider_score_count` | Принято по ревью: низкие значения, null и 0 не приводят к отказу или флагу; ранжирование рекомендаций — отдельная задача |
 | Минимальный год | ТЗ предлагает 1990 | Подтвердить |
 | Приоритет провайдеров при merge | порядок источников | Пока источник один, но правило должно быть детерминированным заранее |
 | **Баг в коде:** `ValueObjects/AttributeDefinition/AttributeValueType` сломан | копипаста VO кода атрибута: валидирует регэкспом кода + зовёт `self::tryFrom()` на не-enum (фатал) | **Fix:** в `AttributeDefinitionDto.type` брать enum `Enums/AttributeDefinition/AttributeValueType`, битый VO удалить |

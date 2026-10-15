@@ -16,6 +16,88 @@ use Tests\Unit\Domain\Import\Support\TitleCandidateFactory;
 final class TitleKeyResolverTest extends TestCase
 {
     #[Test]
+    public function it_reports_an_existing_owner_even_when_it_is_absent_from_the_batch(): void
+    {
+        $known = TitleCandidateFactory::create();
+        $new = TitleCandidateFactory::create(source: 'provider-2', externalId: '2');
+        $key = new TitleKeyFactory()->create($known);
+        $owner = new TitleIdentity($known->source, $known->externalId, $key);
+
+        $result = $this->resolver()->resolve([$new], [$owner]);
+
+        self::assertSame([], $result->resolved);
+        self::assertCount(1, $result->collisions);
+        self::assertSame($owner, $result->collisions[0]->identities[0]);
+        self::assertSame('provider-2', $result->collisions[0]->identities[1]->source);
+    }
+
+    #[Test]
+    public function it_keeps_both_linked_updates_when_a_new_provider_claims_their_key(): void
+    {
+        $first = TitleCandidateFactory::create(source: 'shikimori', externalId: '1');
+        $second = TitleCandidateFactory::create(source: 'provider-1', externalId: '2');
+        $new = TitleCandidateFactory::create(source: 'provider-2', externalId: '3');
+        $key = new TitleKeyFactory()->create($first);
+        $owners = [new TitleIdentity($first->source, $first->externalId, $key), new TitleIdentity($second->source, $second->externalId, $key)];
+
+        $result = $this->resolver()->resolve([$first, $second, $new], $owners);
+
+        self::assertSame([$first, $second], array_column($result->resolved, 'candidate'));
+        self::assertSame([$key, $key], array_column($result->resolved, 'key'));
+        self::assertCount(1, $result->collisions);
+        self::assertSame($key->getValue(), $result->collisions[0]->key->getValue());
+        self::assertSame(['shikimori', 'provider-1', 'provider-2'], array_column($result->collisions[0]->identities, 'source'));
+    }
+
+    #[Test]
+    public function it_reports_two_independent_collisions_without_blocking_an_unrelated_title(): void
+    {
+        $a = TitleCandidateFactory::create(titleEn: 'First', externalId: '1');
+        $b = TitleCandidateFactory::create(titleEn: 'First', externalId: '2');
+        $c = TitleCandidateFactory::create(titleEn: 'Second', externalId: '3');
+        $d = TitleCandidateFactory::create(titleEn: 'Second', externalId: '4');
+        $unrelated = TitleCandidateFactory::create(titleEn: 'Third', externalId: '5');
+
+        $result = $this->resolver()->resolve([$a, $b, $c, $d, $unrelated]);
+
+        self::assertSame([$unrelated], array_column($result->resolved, 'candidate'));
+        self::assertCount(2, $result->collisions);
+        self::assertSame(['1', '2'], array_column($result->collisions[0]->identities, 'externalId'));
+        self::assertSame(['3', '4'], array_column($result->collisions[1]->identities, 'externalId'));
+        self::assertNotSame($result->collisions[0]->key->getValue(), $result->collisions[1]->key->getValue());
+    }
+
+    #[Test]
+    public function it_does_not_implicitly_compare_keys_across_normalizer_versions(): void
+    {
+        $known = TitleCandidateFactory::create(externalId: '1');
+        $new = TitleCandidateFactory::create(externalId: '2');
+        $natural = new TitleKeyFactory()->create($known)->getNatural();
+        $legacy = TitleCanonicalKey::createFromNatural($natural, 1);
+
+        $result = $this->resolver()->resolve([$known, $new], [new TitleIdentity($known->source, $known->externalId, $legacy)]);
+
+        self::assertCount(2, $result->resolved);
+        self::assertSame($legacy, $result->resolved[0]->key);
+        self::assertSame(2, $result->resolved[1]->key->getNormalizerVersion());
+        self::assertSame($natural, $result->resolved[1]->key->getNatural());
+        self::assertSame([], $result->collisions);
+    }
+
+    #[Test]
+    public function it_reports_collisions_when_distinct_titles_normalize_to_empty_strings(): void
+    {
+        $result = $this->resolver()->resolve([
+            TitleCandidateFactory::create(titleEn: '!!!', externalId: '1'),
+            TitleCandidateFactory::create(titleEn: '???', externalId: '2'),
+        ]);
+
+        self::assertSame([], $result->resolved);
+        self::assertCount(1, $result->collisions);
+        self::assertSame('anime|tv|2009|', $result->collisions[0]->key->getNatural());
+    }
+
+    #[Test]
     public function it_resolves_distinct_formats_without_merging_them(): void
     {
         $tv = TitleCandidateFactory::create(externalId: '1', format: TitleFormat::TV);

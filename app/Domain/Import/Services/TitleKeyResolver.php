@@ -15,6 +15,11 @@ final readonly class TitleKeyResolver
     public function __construct(private TitleKeyFactory $factory) {}
 
     /**
+     * Persist every entry in resolved, including updates whose key also appears in collisions.
+     * Collisions are a report for manual review, not a blacklist of keys to exclude from saving.
+     * Existing identities retain their stored key and remain resolved; only new conflicting
+     * identities are excluded. A collision lists existing owners alongside new claimants.
+     *
      * @param  list<TitleCandidate>  $candidates
      * @param  list<TitleIdentity>  $existing
      */
@@ -45,7 +50,7 @@ final readonly class TitleKeyResolver
 
             $entries[$id] = new KeyedTitleCandidate($candidate, $key);
 
-            if (! isset($existingByIdentity[$id])) {
+            if (!isset($existingByIdentity[$id])) {
                 $newByKey[$key->getValue()][$id] = new TitleIdentity($candidate->source, $candidate->externalId, $key);
             }
         }
@@ -73,7 +78,7 @@ final readonly class TitleKeyResolver
         $resolved = [];
 
         foreach ($entries as $id => $entry) {
-            if (! isset($blocked[$id])) {
+            if (!isset($blocked[$id])) {
                 $resolved[] = $entry;
             }
         }

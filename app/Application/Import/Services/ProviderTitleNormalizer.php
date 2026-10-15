@@ -8,7 +8,8 @@ final readonly class ProviderTitleNormalizer
 {
     public function __construct(
         private int $maxDescriptionLength = 1000,
-    ) {}
+    ) {
+    }
 
     public function normalizeDescription(?string $raw): ?string
     {
@@ -16,8 +17,8 @@ final readonly class ProviderTitleNormalizer
             return null;
         }
 
-        $text = preg_replace('/\[\/?[a-zA-Z][^\]]*]/u', '', $raw) ?? $raw;
-        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = preg_replace('/\[\/?[a-zA-Z][^\]]*]/u', '', $text) ?? $text;
         $text = strip_tags($text);
         $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
         $text = trim($text);
@@ -28,6 +29,7 @@ final readonly class ProviderTitleNormalizer
 
         return $this->truncate($text);
     }
+
 
     private function truncate(string $text): string
     {

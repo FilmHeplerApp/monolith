@@ -13,6 +13,12 @@ use Tests\Unit\Domain\Import\Support\TitleCandidateFactory;
 final class MinReleaseYearRuleTest extends TestCase
 {
     #[Test]
+    public function accepts_the_exact_minimum_year(): void
+    {
+        self::assertTrue(new MinReleaseYearRule(1990)->evaluate(TitleCandidateFactory::create(releaseYear: 1990))->isAccepted());
+    }
+
+    #[Test]
     public function accepts_recent_year(): void
     {
         self::assertTrue(new MinReleaseYearRule(1990)->evaluate(TitleCandidateFactory::create(releaseYear: 2009))->isAccepted());

@@ -34,7 +34,7 @@ final class ShikimoriDumpWriter
      */
     public function start(bool $resume): int
     {
-        if (! is_dir($this->disk->path('import')) && ! $this->disk->makeDirectory('import')) {
+        if (!is_dir($this->disk->path('import')) && !$this->disk->makeDirectory('import')) {
             throw new RuntimeException('Cannot create the dump directory.');
         }
 
@@ -45,7 +45,7 @@ final class ShikimoriDumpWriter
             throw new RuntimeException('Cannot open the dump lock.');
         }
 
-        if (! flock($this->lock, LOCK_EX | LOCK_NB)) {
+        if (!flock($this->lock, LOCK_EX | LOCK_NB)) {
             throw new RuntimeException('Another Shikimori dump is already running.');
         }
 
@@ -53,8 +53,6 @@ final class ShikimoriDumpWriter
 
         if ($resume) {
             $this->restoreCheckpoint();
-        } else {
-            $this->atomicPut(self::CHECKPOINT_PATH, json_encode($this->checkpoint, JSON_THROW_ON_ERROR));
         }
 
         $this->stream = @fopen($this->disk->path(self::ANIME_PATH), 'c+b');
@@ -75,12 +73,16 @@ final class ShikimoriDumpWriter
             throw new RuntimeException('Checkpoint is not at an NDJSON record boundary. Restart without --resume.');
         }
 
-        if (! ftruncate($this->stream, $this->checkpoint['bytes'])
+        if (!ftruncate($this->stream, $this->checkpoint['bytes'])
             || fseek($this->stream, $this->checkpoint['bytes']) !== 0) {
             throw new RuntimeException('Cannot restore the committed anime dump boundary.');
         }
 
         $this->flush();
+
+        if (!$resume) {
+            $this->atomicPut(self::CHECKPOINT_PATH, json_encode($this->checkpoint, JSON_THROW_ON_ERROR));
+        }
 
         return $this->checkpoint['page'] + 1;
     }
@@ -124,6 +126,10 @@ final class ShikimoriDumpWriter
      */
     public function writeGenres(array $rows): void
     {
+        if ($rows === []) {
+            return;
+        }
+
         $this->atomicPut(self::GENRES_PATH, $this->toNdjson($rows));
     }
 
@@ -151,7 +157,7 @@ final class ShikimoriDumpWriter
      */
     private function restoreCheckpoint(): void
     {
-        if (! $this->disk->exists(self::CHECKPOINT_PATH)) {
+        if (!$this->disk->exists(self::CHECKPOINT_PATH)) {
             if ($this->disk->exists(self::ANIME_PATH) && $this->disk->size(self::ANIME_PATH) > 0) {
                 throw new RuntimeException('Non-empty anime dump has no checkpoint. Restart without --resume.');
             }
@@ -163,12 +169,12 @@ final class ShikimoriDumpWriter
 
         $checkpoint = json_decode($this->disk->get(self::CHECKPOINT_PATH) ?? '', true, 512, JSON_THROW_ON_ERROR);
 
-        if (! is_array($checkpoint) || ($checkpoint['version'] ?? null) !== 1) {
+        if (!is_array($checkpoint) || ($checkpoint['version'] ?? null) !== 1) {
             throw new RuntimeException('Unsupported dump checkpoint. Restart without --resume.');
         }
 
         foreach (['page', 'bytes', 'titles'] as $field) {
-            if (! isset($checkpoint[$field]) || ! is_int($checkpoint[$field]) || $checkpoint[$field] < 0) {
+            if (!isset($checkpoint[$field]) || !is_int($checkpoint[$field]) || $checkpoint[$field] < 0) {
                 throw new RuntimeException('Invalid dump checkpoint. Restart without --resume.');
             }
         }
@@ -180,23 +186,25 @@ final class ShikimoriDumpWriter
     {
         $temporary = $path.'.tmp';
 
-        if (! $this->disk->put($temporary, $contents)) {
+        if (!$this->disk->put($temporary, $contents)) {
             throw new RuntimeException("Cannot write {$path}.");
         }
 
-        if (! $this->disk->move($temporary, $path)) {
+        if (!$this->disk->move($temporary, $path)) {
             throw new RuntimeException("Cannot commit {$path}.");
         }
     }
 
     private function flush(): void
     {
-        if (! fflush($this->stream) || ! fsync($this->stream)) {
+        if (!fflush($this->stream) || !fsync($this->stream)) {
             throw new RuntimeException('Cannot flush the anime dump.');
         }
     }
 
-    /** @param list<array<string, mixed>> $rows */
+    /** @param list<array<string, mixed>> $rows
+     * @throws JsonException
+     */
     private function toNdjson(array $rows): string
     {
         return $rows === [] ? '' : implode("\n", array_map(

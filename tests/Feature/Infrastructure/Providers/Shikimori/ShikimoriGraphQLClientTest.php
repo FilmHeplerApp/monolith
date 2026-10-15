@@ -14,26 +14,6 @@ use Tests\TestCase;
 
 final class ShikimoriGraphQLClientTest extends TestCase
 {
-    protected function setUp(): void
-    {
-        parent::setUp();
-        Sleep::fake();
-    }
-
-
-    private function client(): ShikimoriGraphQLClient
-    {
-        return new ShikimoriGraphQLClient(
-            endpoint: 'https://shikimori.test/api/graphql',
-            userAgent: 'FilmHelperApp-Test',
-            timeout: 5,
-            throttleMs: 700,
-            retries: 3,
-            retryBackoffMs: 10,
-        );
-    }
-
-
     #[Test]
     public function it_returns_data_and_sends_user_agent(): void
     {
@@ -152,7 +132,7 @@ final class ShikimoriGraphQLClientTest extends TestCase
 
         $this->client()->query('query { genres { id } }');
 
-        Http::assertSent(fn ($request) => ! array_key_exists('variables', $request->data()));
+        Http::assertSent(fn ($request) => !array_key_exists('variables', $request->data()));
     }
 
     #[Test]
@@ -163,5 +143,25 @@ final class ShikimoriGraphQLClientTest extends TestCase
         $this->client()->query('query ($p: PositiveInt!) { x }', ['p' => 1]);
 
         Http::assertSent(fn ($request) => $request->data()['variables'] === ['p' => 1]);
+    }
+
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Sleep::fake();
+    }
+
+
+    private function client(): ShikimoriGraphQLClient
+    {
+        return new ShikimoriGraphQLClient(
+            endpoint: 'https://shikimori.test/api/graphql',
+            userAgent: 'FilmHelperApp-Test',
+            timeout: 5,
+            throttleMs: 700,
+            retries: 3,
+            retryBackoffMs: 10,
+        );
     }
 }

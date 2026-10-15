@@ -16,6 +16,27 @@ use Tests\Unit\Domain\Import\Support\TitleCandidateFactory;
 final class TitleKeyFactoryTest extends TestCase
 {
     #[Test]
+    public function it_separates_content_types_with_the_same_title_year_and_format(): void
+    {
+        $factory = new TitleKeyFactory;
+        $keys = array_map(
+            static fn (TitleContentType $type): string => $factory->create(TitleCandidateFactory::create(type: $type))->getValue(),
+            TitleContentType::cases(),
+        );
+
+        self::assertCount(count(TitleContentType::cases()), array_unique($keys));
+    }
+
+    #[Test]
+    public function it_keeps_an_empty_normalized_title_explicit_in_the_natural_key(): void
+    {
+        $key = new TitleKeyFactory()->create(TitleCandidateFactory::create(titleEn: '!!!'));
+
+        self::assertSame('anime|tv|2009|', $key->getNatural());
+        self::assertSame('v2:'.sha1('anime|tv|2009|'), $key->getValue());
+    }
+
+    #[Test]
     public function it_is_deterministic(): void
     {
         $factory = new TitleKeyFactory;

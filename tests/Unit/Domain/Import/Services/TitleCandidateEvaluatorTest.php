@@ -4,10 +4,17 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Domain\Import\Services;
 
+use App\Domain\Catalog\Enums\Title\TitleContentType;
+use App\Domain\Catalog\Enums\Title\TitleFormat;
 use App\Domain\Import\Contracts\ImportFilterRuleContract;
 use App\Domain\Import\DTOs\FilterDecision;
 use App\Domain\Import\DTOs\TitleCandidate;
 use App\Domain\Import\Enums\RejectionReason;
+use App\Domain\Import\Rules\AllowedContentTypeRule;
+use App\Domain\Import\Rules\CompletenessRule;
+use App\Domain\Import\Rules\ExcludedTitleFormatRule;
+use App\Domain\Import\Rules\HasAnyTitleRule;
+use App\Domain\Import\Rules\MinReleaseYearRule;
 use App\Domain\Import\Services\TitleCandidateEvaluator;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -16,6 +23,59 @@ use Tests\Unit\Domain\Import\Support\TitleCandidateFactory;
 
 final class TitleCandidateEvaluatorTest extends TestCase
 {
+    #[Test]
+    #[DataProvider('providerRatingData')]
+    public function provider_rating_does_not_reject_or_flag_an_otherwise_complete_candidate(
+        ?float $score,
+        ?int   $count,
+    ): void {
+        $evaluator = new TitleCandidateEvaluator([
+            new HasAnyTitleRule,
+            new AllowedContentTypeRule([TitleContentType::ANIME]),
+            new ExcludedTitleFormatRule,
+            new MinReleaseYearRule(1990),
+            new CompletenessRule,
+        ]);
+
+        $decision = $evaluator->decide(TitleCandidateFactory::create(providerScore: $score, providerScoreCount: $count));
+
+        self::assertTrue($decision->isAccepted());
+        self::assertNull($decision->reason);
+    }
+
+    public static function providerRatingData(): array
+    {
+        return [
+            'unknown score and count' => [null, null],
+            'only high score' => [9.1, null],
+            'only low score' => [3.0, null],
+            'only high count' => [null, 50000],
+            'only low count' => [null, 10],
+            'zero score without count' => [0.0, null],
+            'zero count without score' => [null, 0],
+            'both zero' => [0.0, 0],
+            'low score and low count' => [3.0, 10],
+            'low score and high count' => [3.0, 50000],
+            'high score and zero count' => [9.1, 0],
+            'high score and high count' => [9.1, 50000],
+        ];
+    }
+
+    #[Test]
+    public function excluded_format_is_rejected_even_when_the_candidate_is_incomplete(): void
+    {
+        $evaluator = new TitleCandidateEvaluator([
+            new CompletenessRule,
+            new ExcludedTitleFormatRule,
+        ]);
+
+        $decision = $evaluator->decide(TitleCandidateFactory::create(format: TitleFormat::PV, posterUrl: null));
+
+        self::assertTrue($decision->isRejected());
+        self::assertSame(RejectionReason::UNSUPPORTED_FORMAT, $decision->reason);
+        self::assertSame(['format' => 'pv'], $decision->context);
+    }
+
     #[Test]
     public function accepts_when_all_rules_accept(): void
     {
@@ -57,7 +117,7 @@ final class TitleCandidateEvaluatorTest extends TestCase
     {
         $evaluator = new TitleCandidateEvaluator([
             self::ruleReturning(FilterDecision::flag(['missing' => ['poster']])),
-            self::ruleReturning(FilterDecision::reject(RejectionReason::LOW_POPULARITY)),
+            self::ruleReturning(FilterDecision::reject(RejectionReason::UNSUPPORTED_FORMAT)),
         ]);
 
         self::assertTrue($evaluator->decide(TitleCandidateFactory::create())->isRejected());
@@ -97,7 +157,7 @@ final class TitleCandidateEvaluatorTest extends TestCase
     {
         $evaluator = new TitleCandidateEvaluator([
             self::ruleReturning(FilterDecision::flag()),
-            self::ruleReturning(FilterDecision::reject(RejectionReason::LOW_POPULARITY)),
+            self::ruleReturning(FilterDecision::reject(RejectionReason::UNSUPPORTED_FORMAT)),
         ]);
 
         self::assertTrue($evaluator->decide(TitleCandidateFactory::create())->isRejected());
@@ -124,6 +184,7 @@ final class TitleCandidateEvaluatorTest extends TestCase
         self::assertTrue($decision->isFlagged());
         self::assertSame(['missing' => ['description', 'poster']], $decision->context);
     }
+
 
     private static function ruleReturning(FilterDecision $decision): ImportFilterRuleContract
     {

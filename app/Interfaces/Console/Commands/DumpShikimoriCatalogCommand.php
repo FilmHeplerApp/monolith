@@ -37,6 +37,7 @@ final class DumpShikimoriCatalogCommand extends Command
             $writer = new ShikimoriDumpWriter(Storage::disk(self::DISK));
             $page = $writer->start((bool) $this->option('resume'));
             $this->info("Starting from page {$page}.");
+            $seenPages = [];
 
             while (true) {
                 $animes = $this->fetchAnimes($client, $page, $limit);
@@ -50,14 +51,36 @@ final class DumpShikimoriCatalogCommand extends Command
                     }
                 }
 
+                $fingerprint = hash('sha256', implode('\0', array_map(
+                    static fn (array $anime): string => (string) $anime['id'],
+                    $animes,
+                )));
+
+                if (isset($seenPages[$fingerprint])) {
+                    throw new RuntimeException("Shikimori repeated anime page {$seenPages[$fingerprint]} at page {$page}.");
+                }
+
                 $writer->appendPage($page, $animes);
+                $seenPages[$fingerprint] = $page;
                 $this->line("page {$page}: +".count($animes)." (total {$writer->titleCount()})");
                 $page++;
             }
 
             $genres = $this->rows($client->query($this->genresQuery()), 'genres');
             $writer->writeGenres($genres);
-            $this->info("Done: titles {$writer->titleCount()}, genres ".count($genres).'.');
+
+            if ($genres === []) {
+                $message = 'Shikimori returned no genres; the existing genres dump was left unchanged.';
+                $this->warn($message);
+                Log::warning($message);
+            }
+
+            $message = "Done: titles {$writer->titleCount()}, genres ".count($genres).'.';
+            $this->info($message);
+            Log::info($message, [
+                'titles' => $writer->titleCount(),
+                'genres' => count($genres),
+            ]);
 
             return self::SUCCESS;
         } catch (Throwable $exception) {
@@ -85,13 +108,13 @@ final class DumpShikimoriCatalogCommand extends Command
     {
         $rows = $data[$field] ?? null;
 
-        if (! is_array($rows) || ! array_is_list($rows)) {
+        if (!is_array($rows) || !array_is_list($rows)) {
             throw new RuntimeException("Invalid Shikimori response: {$field} must be a list.");
         }
 
         foreach ($rows as $row) {
-            if (! is_array($row) || ! isset($row['id'])
-                || (! is_string($row['id']) && ! is_int($row['id'])) || (string) $row['id'] === '') {
+            if (!is_array($row) || !isset($row['id'])
+                || (!is_string($row['id']) && !is_int($row['id'])) || (string) $row['id'] === '') {
                 throw new RuntimeException("Invalid Shikimori response: {$field} contains a row without an id.");
             }
         }

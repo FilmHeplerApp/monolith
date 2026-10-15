@@ -27,7 +27,7 @@ final readonly class ShikimoriGraphQLClient
      * @param  array<string, mixed>  $variables
      * @return array<string, mixed>
      *
-     * @throws ShikimoriApiException
+     * @throws ShikimoriApiException|\JsonException
      */
     public function query(string $query, array $variables = []): array
     {
@@ -56,7 +56,7 @@ final readonly class ShikimoriGraphQLClient
 
         $body = $response->json();
 
-        if (! is_array($body)) {
+        if (!is_array($body)) {
             throw ShikimoriApiException::invalidResponse();
         }
 
@@ -64,7 +64,7 @@ final readonly class ShikimoriGraphQLClient
             throw ShikimoriApiException::graphqlErrors($body['errors']);
         }
 
-        if (! isset($body['data']) || ! is_array($body['data'])) {
+        if (!isset($body['data']) || !is_array($body['data'])) {
             throw ShikimoriApiException::invalidResponse();
         }
 

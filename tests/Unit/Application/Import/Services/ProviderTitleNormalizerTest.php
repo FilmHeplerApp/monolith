@@ -5,11 +5,35 @@ declare(strict_types=1);
 namespace Tests\Unit\Application\Import\Services;
 
 use App\Application\Import\Services\ProviderTitleNormalizer;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
 final class ProviderTitleNormalizerTest extends TestCase
 {
+    #[Test]
+    #[DataProvider('entityEncodedBbcode')]
+    public function it_decodes_entities_before_stripping_bbcode(string $raw): void
+    {
+        self::assertSame('Спайк — охотник.', $this->normalizer()->normalizeDescription($raw));
+    }
+
+    public static function entityEncodedBbcode(): array
+    {
+        return [
+            'decimal brackets' => ['&#91;character=42&#93;Спайк&#91;/character&#93; — охотник.'],
+            'hexadecimal brackets' => ['&#x5B;character=42&#x5D;Спайк&#x5B;/character&#x5D; — охотник.'],
+            'named brackets' => ['&lbrack;character=42&rbrack;Спайк&lbrack;/character&rbrack; — охотник.'],
+            'mixed HTML and BBCode' => ["&lt;b&gt;[character=42]Спайк&#91;/character&#93;&lt;/b&gt;  —\n охотник."],
+        ];
+    }
+
+    #[Test]
+    public function it_returns_null_when_entity_encoded_bbcode_has_no_content(): void
+    {
+        self::assertNull($this->normalizer()->normalizeDescription('&#91;character=42&#93;&#91;/character&#93;'));
+    }
+
     #[Test]
     public function it_strips_bbcode_but_keeps_inner_text(): void
     {
@@ -83,6 +107,7 @@ final class ProviderTitleNormalizerTest extends TestCase
     {
         self::assertNull($this->normalizer()->normalizeDescription('  [b][/b]  '));
     }
+
 
     private function normalizer(int $max = 1000): ProviderTitleNormalizer
     {
