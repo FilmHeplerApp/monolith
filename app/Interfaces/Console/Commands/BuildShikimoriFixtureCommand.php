@@ -33,7 +33,7 @@ final class BuildShikimoriFixtureCommand extends Command
 
     private const int MIN_TITLES = 250;
 
-    private const string FIXTURE_DIR = 'Static/Fixtures/Shikimori';
+    private const string FIXTURE_DIR = 'static/Fixtures/Shikimori';
 
 
     public function handle(): int

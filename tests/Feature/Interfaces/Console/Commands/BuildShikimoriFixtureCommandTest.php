@@ -82,7 +82,7 @@ final class BuildShikimoriFixtureCommandTest extends TestCase
         $committed = $this->saveCuratedDump();
         file_put_contents($this->disk->path(self::ANIME_PATH), $tail, FILE_APPEND);
         $written = [];
-        File::shouldReceive('ensureDirectoryExists')->once()->with(base_path('Static/Fixtures/Shikimori'));
+        File::shouldReceive('ensureDirectoryExists')->once()->with(base_path('static/Fixtures/Shikimori'));
         File::shouldReceive('put')->twice()->andReturnUsing(function (string $path, string $contents) use (&$written): int {
             $lock = fopen($this->disk->path(self::LOCK_PATH), 'c+b');
 
@@ -110,7 +110,7 @@ final class BuildShikimoriFixtureCommandTest extends TestCase
         $titleCount = count($ids($written['animes.ndjson']));
         Log::shouldHaveReceived('info')->once()->with(
             "Fixture assembled: {$titleCount} titles, 1 genres.",
-            ['titles' => $titleCount, 'genres' => 1, 'path' => 'Static/Fixtures/Shikimori'],
+            ['titles' => $titleCount, 'genres' => 1, 'path' => 'static/Fixtures/Shikimori'],
         );
         $this->assertLockReleased();
     }
@@ -251,7 +251,7 @@ final class BuildShikimoriFixtureCommandTest extends TestCase
 
     private function curatedAnime(): string
     {
-        return file_get_contents(base_path('Static/Fixtures/Shikimori/animes.ndjson'));
+        return file_get_contents(base_path('static/Fixtures/Shikimori/animes.ndjson'));
     }
 
     private function assertLockReleased(): void

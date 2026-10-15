@@ -56,7 +56,7 @@ API v2, название репозитория `MAL-Parsed`). Кириллиц�
 `episodeDuration` в секундах (у нас минуты), 35 дублей по `titleId` в файле
 постеров, 143 тайтла без постера, файлы не сджойнены.
 
-Файлы `Static/anime-list.json` и `Static/anime-posters.json` сейчас в git-индексе —
+Файлы `static/anime-list.json` и `static/anime-posters.json` сейчас в git-индексе —
 **убрать из индекса до коммита**, иначе 10 МБ навсегда останутся в истории.
 
 **`pip install anime-parsers-ru` — не нужна.** Это парсеры аниме-плееров
@@ -118,7 +118,7 @@ API (`released`, `tv`). Плюс отдельный Python-процесс в PHP
 | 3.8 | `dedup_key` присваивается **один раз** и далее неизменен | Переименование тайтла провайдером не должно порождать дубль |
 | 3.9 | Жанр **не входит** в `dedup_key` | Жанры меняются между прогонами -> ключ поехал бы -> дубль на upsert |
 | 3.10 | Граница с задачей 6.3.3 — интерфейс `CatalogBatchSaver` + DTO | Не сериализованный джоб: пачка не гоняется через Redis, переезд на джоб позже — замена реализации |
-| 3.11 | Полный дамп — на диске `local` в `storage/app/private/import/` под gitignore; в `Static/Fixtures/Shikimori/` — курированный срез 300–500 записей | 26 МБ в git означает новый блоб при каждой перевыгрузке |
+| 3.11 | Полный дамп — на диске `local` в `storage/app/private/import/` под gitignore; в `static/Fixtures/Shikimori/` — курированный срез 300–500 записей | 26 МБ в git означает новый блоб при каждой перевыгрузке |
 | 3.12 | Фундамент `Domain/Catalog` построен: `Title*` enum/VO, `LocalizedText`, `AttributeValue`, EAV-DTO. Фильтр целится в него | Реализация модели ТЗ 7.1.2–7.1.8 (наш разбор полей) |
 | 3.13 | Слои по ревью абстракций: `ProviderTitle` + нормализация/маппинг/мерджер — в `Application`; `Domain/Import` = правила над `TitleCandidate` + доменные сервисы `TitleCandidateEvaluator` и `TitleKeyFactory` (чистые, без `ProviderTitle`/I/O) | `Domain` не зависит от `Application`; движок и фабрика ключей не касаются `ProviderTitle`, значит их место в `Domain` |
 | 3.14 | Два семейства DTO: `Domain/Catalog/DTOs` (числовые id) — для сохранения/чтения (6.3.3); `Application/Import/DTOs/Prepared*` (натуральные ключи) — выход фильтра | До сохранения числовых id нет (см. 4.4); смешивать нельзя |
@@ -446,7 +446,7 @@ API не предоставляет здесь размер снимка: пов
 
 ### Этап 2. Курированная фикстура
 
-- [ ] Отобрать 300–500 записей из полного дампа в `Static/Fixtures/Shikimori/`
+- [ ] Отобрать 300–500 записей из полного дампа в `static/Fixtures/Shikimori/`
 - [ ] Покрыть все краевые случаи из раздела 11
 
 Сборщик берёт `LOCK_SH | LOCK_NB` на `import/shikimori_dump.lock` и держит его
