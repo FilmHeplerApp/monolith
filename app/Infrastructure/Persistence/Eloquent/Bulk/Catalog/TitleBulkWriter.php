@@ -48,7 +48,40 @@ class TitleBulkWriter
     }
 
     /**
-     * @param list<TitleData> $dtoChunk
+     * @param  list<string>  $canonicalKeys
+     * @return array<string, array{id: int, contentTypeCode: string}>
+     */
+    public function getStoredTitlesByCanonicalKeys(array $canonicalKeys): array
+    {
+        if ($canonicalKeys === []) {
+            return [];
+        }
+
+        $storedTitlesByCanonicalKey = [];
+
+        foreach (array_chunk(array_values(array_unique($canonicalKeys)), self::CHUNK_SIZE) as $chunk) {
+            $rows = DB::table(Title::TABLE_NAME)
+                ->whereIn(Title::FIELD_CANONICAL_KEY, $chunk)
+                ->get([
+                    Title::FIELD_ID,
+                    Title::FIELD_CANONICAL_KEY,
+                    Title::FIELD_TYPE,
+                ]);
+
+            foreach ($rows as $row) {
+                $storedTitlesByCanonicalKey[(string) $row->{Title::FIELD_CANONICAL_KEY}] = [
+                    'id' => (int) $row->{Title::FIELD_ID},
+                    'contentTypeCode' => (string) $row->{Title::FIELD_TYPE},
+                ];
+            }
+        }
+
+        return $storedTitlesByCanonicalKey;
+    }
+
+
+    /**
+     * @param  list<TitleData>  $dtoChunk
      * @return list<array<string, mixed>>
      */
     private function unpackTitleData(array $dtoChunk, DateTimeInterface $now): array
@@ -78,31 +111,5 @@ class TitleBulkWriter
         }
 
         return $rows;
-    }
-
-    /**
-     * @param list<string> $canonicalKeys
-     * @return array<string, int>
-     */
-    public function getTitleIdsByCanonicalKeys(array $canonicalKeys): array
-    {
-        if ($canonicalKeys === []) {
-            return [];
-        }
-
-        $map = [];
-
-        foreach (array_chunk(array_values(array_unique($canonicalKeys)), self::CHUNK_SIZE) as $chunk) {
-            $rows = DB::table(Title::TABLE_NAME)
-                ->whereIn(Title::FIELD_CANONICAL_KEY, $chunk)
-                ->pluck(Title::FIELD_ID, Title::FIELD_CANONICAL_KEY)
-                ->toArray();
-
-            foreach ($rows as $canonicalKey => $id) {
-                $map[(string)$canonicalKey] = (int)$id;
-            }
-        }
-
-        return $map;
     }
 }

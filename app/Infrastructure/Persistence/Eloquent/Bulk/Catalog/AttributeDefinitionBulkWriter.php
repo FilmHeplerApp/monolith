@@ -26,9 +26,11 @@ class AttributeDefinitionBulkWriter
         foreach (array_chunk($attributeDefinitions, self::CHUNK_SIZE) as $dtoChunk) {
             DB::table(AttributeDefinition::TABLE_NAME)->upsert(
                 $this->unpackAttributeDefinitionData($dtoChunk, $now),
-                [AttributeDefinition::FIELD_CODE],
                 [
                     AttributeDefinition::FIELD_CONTENT_TYPE_CODE,
+                    AttributeDefinition::FIELD_CODE,
+                ],
+                [
                     AttributeDefinition::FIELD_NAME_RU,
                     AttributeDefinition::FIELD_NAME_EN,
                     AttributeDefinition::FIELD_VALUE_TYPE,
@@ -42,24 +44,30 @@ class AttributeDefinitionBulkWriter
     }
 
     /**
-     * @return array<string, int>
+     * @param array<string, list<string>> $codesByContentType
+     * @return array<string, array<string, int>>
      */
-    public function getDefinitionIdsByCodes(array $codes): array
+    public function getDefinitionIdsByContentTypeAndCode(array $codesByContentType): array
     {
-        if (empty($codes)) {
+        if ($codesByContentType === []) {
             return [];
         }
 
-        $map = DB::table(AttributeDefinition::TABLE_NAME)
-            ->whereIn(AttributeDefinition::FIELD_CODE, $codes)
-            ->pluck(AttributeDefinition::FIELD_ID, AttributeDefinition::FIELD_CODE)
-            ->toArray();
+        $definitionIdsByContentTypeAndCode = [];
 
-        foreach ($map as $code => $id) {
-            $map[$code] = (int)$id;
+        foreach ($codesByContentType as $contentTypeCode => $attributeCodes) {
+            $idsByCode = DB::table(AttributeDefinition::TABLE_NAME)
+                ->where(AttributeDefinition::FIELD_CONTENT_TYPE_CODE, $contentTypeCode)
+                ->whereIn(AttributeDefinition::FIELD_CODE, $attributeCodes)
+                ->pluck(AttributeDefinition::FIELD_ID, AttributeDefinition::FIELD_CODE)
+                ->all();
+
+            foreach ($idsByCode as $code => $id) {
+                $definitionIdsByContentTypeAndCode[$contentTypeCode][$code] = (int)$id;
+            }
         }
 
-        return $map;
+        return $definitionIdsByContentTypeAndCode;
     }
 
 

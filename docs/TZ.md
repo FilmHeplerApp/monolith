@@ -1442,8 +1442,9 @@ Backend проверяет состояние user_embedding:
 ### 7.1.6. AttributeDefinition — Определение возможных параметров
 
 - id
-- content_type_id INT REFERENCES content_types(id)   -- null = для всех типов
-- code TEXT UNIQUE               -- 'genre', 'target_audience', 'release_format', 'theme'
+- content_type_code TEXT NOT NULL   -- 'anime', 'movie', 'series', 'k-drama', 'cartoon'
+- code TEXT                          -- 'genres', 'target_audience', 'release_format', 'theme'
+- UNIQUE (content_type_code, code)   -- один и тот же code допустим у разных типов контента
 - name_ru TEXT
 - name_en TEXT
 - type TEXT                      -- 'string', 'array', 'number', 'boolean', 'enum'
@@ -1487,12 +1488,14 @@ SQL
 
 `CREATE TABLE attribute_options (
     id SERIAL PRIMARY KEY,
-    attribute_code TEXT REFERENCES attribute_definitions(code),
+    attribute_id INT REFERENCES attribute_definitions(id),
     value_ru TEXT NOT NULL,
     value_en TEXT,
     sort_order INT DEFAULT 0,
     is_active BOOLEAN DEFAULT true
 );`
+
+`code` в `attribute_definitions` сам по себе не уникален, поэтому справочник значений ссылается на `id` определения, а не на `code`.
 
 ### Конкретные примеры
 
@@ -1527,14 +1530,17 @@ SQL
 
 ### Таблица attribute_definitions (Справочник)
 
-| id | code | name_ru | type | is_filterable | order |
-| --- | --- | --- | --- | --- | --- |
-| 1 | genres | Жанры | array | true | 1 |
-| 2 | moods | Настроение | array | true | 2 |
-| 3 | tags | Теги | array | true | 3 |
-| 4 | target_audience | Целевая аудитория | array | true | 4 |
-| 5 | studios | Студия | array | false | 5 |
-| 6 | pace | Темп | string | true | 6 |
+| id | content_type_code | code | name_ru | type | is_filterable | order |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | anime | genres | Жанры | array | true | 1 |
+| 2 | anime | moods | Настроение | array | true | 2 |
+| 3 | anime | tags | Теги | array | true | 3 |
+| 4 | anime | target_audience | Целевая аудитория | array | true | 4 |
+| 5 | anime | studios | Студия | array | false | 5 |
+| 6 | anime | pace | Темп | string | true | 6 |
+| 7 | movie | genres | Жанры | array | true | 1 |
+
+Одинаковый `code` у разных `content_type_code` — разные строки. Уникальна пара `(content_type_code, code)`.
 
 ---
 
