@@ -4,11 +4,20 @@ declare(strict_types=1);
 
 namespace App\Application\Media\Exceptions;
 
-class ImageStorageException extends \RuntimeException
+use RuntimeException;
+
+class ImageStorageException extends RuntimeException
 {
-    public static function storingFailed(string $key): self
+    public function __construct(
+        string               $message = '',
+        public readonly ?int $retryAfterSeconds = null,
+    ) {
+        parent::__construct($message);
+    }
+
+    public static function storingFailed(string $key, int $seconds): self
     {
-        return new self(sprintf('Storing image has been failed with key: "%s"', $key));
+        return new self(sprintf('Storing image has been failed with key: "%s"', $key), $seconds);
     }
 
     public static function deletingFailed(string $prefix): self

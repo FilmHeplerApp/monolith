@@ -61,19 +61,6 @@ final class IngestTitleImagesHandlerTest extends TestCase
     private MockInterface $imageStorage;
 
 
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        Str::createUuidsUsing(static fn() => Uuid::fromString(self::INGESTION_UUID));
-
-        $this->imageCompressor = Mockery::mock(ImageCompressorContract::class);
-        $this->titleRepository = Mockery::mock(TitleRepositoryContract::class);
-        $this->imageDownloader = Mockery::mock(ImageDownloaderContract::class);
-        $this->imageStorage = Mockery::mock(ImageStorageContract::class);
-    }
-
-
     #[Test]
     public function it_throws_when_the_title_is_missing(): void
     {
@@ -271,6 +258,89 @@ final class IngestTitleImagesHandlerTest extends TestCase
     }
 
     #[Test]
+    public function it_takes_the_banner_retry_after_when_the_poster_has_none(): void
+    {
+        $posterException = new ImageDownloadException('poster timeout');
+        $bannerException = ImageDownloadException::retryAfter(429, 120);
+
+        $this->givenTitle($this->staleImageData());
+        $this->imageDownloader->shouldReceive('download')
+            ->once()
+            ->with(self::POSTER_URL)
+            ->andThrow($posterException);
+        $this->imageDownloader->shouldReceive('download')
+            ->once()
+            ->with(self::BANNER_URL)
+            ->andThrow($bannerException);
+        $this->imageStorage->shouldReceive('deleteByPrefix')->never();
+        $this->expectWarning($bannerException, 'banner', self::BANNER_URL);
+
+        try {
+            $this->handler()->handle(self::CANONICAL_KEY, self::POSTER_URL, self::BANNER_URL);
+            self::fail('Expected ImageDownloadException.');
+        } catch (ImageDownloadException $exception) {
+            self::assertSame('poster timeout', $exception->getMessage());
+            self::assertSame(120, $exception->retryAfterSeconds);
+            self::assertSame($posterException, $exception->getPrevious());
+        }
+    }
+
+    #[Test]
+    public function it_keeps_the_longest_retry_after_when_both_downloads_fail(): void
+    {
+        $posterException = ImageDownloadException::defaultRetry('poster timeout', 45);
+        $bannerException = ImageDownloadException::retryAfter(429, 120);
+
+        $this->givenTitle($this->staleImageData());
+        $this->imageDownloader->shouldReceive('download')
+            ->once()
+            ->with(self::POSTER_URL)
+            ->andThrow($posterException);
+        $this->imageDownloader->shouldReceive('download')
+            ->once()
+            ->with(self::BANNER_URL)
+            ->andThrow($bannerException);
+        $this->imageStorage->shouldReceive('deleteByPrefix')->never();
+        $this->expectWarning($bannerException, 'banner', self::BANNER_URL);
+
+        try {
+            $this->handler()->handle(self::CANONICAL_KEY, self::POSTER_URL, self::BANNER_URL);
+            self::fail('Expected ImageDownloadException.');
+        } catch (ImageDownloadException $exception) {
+            self::assertSame('poster timeout', $exception->getMessage());
+            self::assertSame(120, $exception->retryAfterSeconds);
+            self::assertSame($posterException, $exception->getPrevious());
+        }
+    }
+
+    #[Test]
+    public function it_keeps_the_poster_retry_after_when_it_is_already_longer(): void
+    {
+        $posterException = ImageDownloadException::retryAfter(429, 120);
+        $bannerException = ImageDownloadException::defaultRetry('banner timeout', 45);
+
+        $this->givenTitle($this->staleImageData());
+        $this->imageDownloader->shouldReceive('download')
+            ->once()
+            ->with(self::POSTER_URL)
+            ->andThrow($posterException);
+        $this->imageDownloader->shouldReceive('download')
+            ->once()
+            ->with(self::BANNER_URL)
+            ->andThrow($bannerException);
+        $this->imageStorage->shouldReceive('deleteByPrefix')->never();
+        $this->expectWarning($bannerException, 'banner', self::BANNER_URL);
+
+        try {
+            $this->handler()->handle(self::CANONICAL_KEY, self::POSTER_URL, self::BANNER_URL);
+            self::fail('Expected ImageDownloadException.');
+        } catch (ImageDownloadException $exception) {
+            self::assertSame($posterException, $exception);
+            self::assertSame(120, $exception->retryAfterSeconds);
+        }
+    }
+
+    #[Test]
     public function it_logs_a_permanent_poster_failure_and_continues_with_banner(): void
     {
         $notFound = UnsupportedImageException::imageNotFound(self::POSTER_URL);
@@ -296,7 +366,7 @@ final class IngestTitleImagesHandlerTest extends TestCase
     }
 
     #[Test]
-    public function it_marks_the_title_incomplete_when_the_first_poster_is_rejected(): void
+    public function it_logs_a_permanent_first_poster_rejection_without_saving(): void
     {
         $notFound = UnsupportedImageException::imageNotFound(self::POSTER_URL);
 
@@ -306,9 +376,6 @@ final class IngestTitleImagesHandlerTest extends TestCase
             ->with(self::POSTER_URL)
             ->andThrow($notFound);
         $this->titleRepository->shouldReceive('savePoster')->never();
-        $this->titleRepository->shouldReceive('setIsTitleIncompleteFlag')
-            ->once()
-            ->with(self::CANONICAL_KEY, true);
         $this->imageStorage->shouldReceive('deleteByPrefix')->never();
         $this->expectWarning($notFound, 'poster', self::POSTER_URL);
 
@@ -316,7 +383,7 @@ final class IngestTitleImagesHandlerTest extends TestCase
     }
 
     #[Test]
-    public function it_marks_the_title_incomplete_when_the_first_poster_cannot_be_encoded(): void
+    public function it_logs_a_permanent_first_poster_encode_failure_without_saving(): void
     {
         $processingException = ImageProcessingException::encodeFailed('webp', 'gd');
 
@@ -324,12 +391,9 @@ final class IngestTitleImagesHandlerTest extends TestCase
         $this->expectPosterDownload();
         $this->expectPosterFullStoredThenThumbFails($processingException);
         $this->titleRepository->shouldReceive('savePoster')->never();
-        $this->titleRepository->shouldReceive('setIsTitleIncompleteFlag')
-            ->once()
-            ->with(self::CANONICAL_KEY, true);
         $this->imageStorage->shouldReceive('deleteByPrefix')
             ->once()
-            ->with('titles/posters/' . self::INGESTION_UUID);
+            ->with('titles/posters/'.self::INGESTION_UUID);
         $this->expectWarning($processingException, 'poster', self::POSTER_URL);
 
         $this->handler()->handle(self::CANONICAL_KEY, self::POSTER_URL, null);
@@ -338,7 +402,7 @@ final class IngestTitleImagesHandlerTest extends TestCase
     #[Test]
     public function it_deletes_the_current_poster_prefix_when_thumb_storage_fails(): void
     {
-        $storageException = ImageStorageException::storingFailed($this->posterThumbKey());
+        $storageException = ImageStorageException::storingFailed($this->posterThumbKey(), 45);
 
         $this->givenTitle($this->staleImageData());
         $this->expectPosterDownload();
@@ -349,7 +413,7 @@ final class IngestTitleImagesHandlerTest extends TestCase
         $this->titleRepository->shouldReceive('saveBanner')->once();
         $this->imageStorage->shouldReceive('deleteByPrefix')
             ->once()
-            ->with('titles/posters/' . self::INGESTION_UUID);
+            ->with('titles/posters/'.self::INGESTION_UUID);
         $this->imageStorage->shouldReceive('deleteByPrefix')
             ->once()
             ->with('titles/banners/old-uuid');
@@ -379,7 +443,7 @@ final class IngestTitleImagesHandlerTest extends TestCase
         $this->titleRepository->shouldReceive('saveBanner')->once();
         $this->imageStorage->shouldReceive('deleteByPrefix')
             ->once()
-            ->with('titles/posters/' . self::INGESTION_UUID);
+            ->with('titles/posters/'.self::INGESTION_UUID);
         $this->imageStorage->shouldReceive('deleteByPrefix')
             ->once()
             ->with('titles/banners/old-uuid');
@@ -452,7 +516,7 @@ final class IngestTitleImagesHandlerTest extends TestCase
             ->once()
             ->with('titles/banners/old-uuid');
         $this->imageStorage->shouldReceive('deleteByPrefix')
-            ->with('titles/posters/' . self::INGESTION_UUID)
+            ->with('titles/posters/'.self::INGESTION_UUID)
             ->never();
         $this->imageStorage->shouldReceive('deleteByPrefix')
             ->with('titles/posters/old-uuid')
@@ -465,8 +529,8 @@ final class IngestTitleImagesHandlerTest extends TestCase
     #[Test]
     public function it_keeps_the_original_storage_error_when_current_prefix_delete_fails(): void
     {
-        $storageException = ImageStorageException::storingFailed($this->posterThumbKey());
-        $deleteException = ImageStorageException::deletingFailed('titles/posters/' . self::INGESTION_UUID);
+        $storageException = ImageStorageException::storingFailed($this->posterThumbKey(), 45);
+        $deleteException = ImageStorageException::deletingFailed('titles/posters/'.self::INGESTION_UUID);
 
         $this->givenTitle($this->staleImageData());
         $this->expectPosterDownload();
@@ -477,7 +541,7 @@ final class IngestTitleImagesHandlerTest extends TestCase
         $this->titleRepository->shouldReceive('savePoster')->never();
         $this->imageStorage->shouldReceive('deleteByPrefix')
             ->once()
-            ->with('titles/posters/' . self::INGESTION_UUID)
+            ->with('titles/posters/'.self::INGESTION_UUID)
             ->andThrow($deleteException);
         $this->imageStorage->shouldReceive('deleteByPrefix')
             ->once()
@@ -544,6 +608,20 @@ final class IngestTitleImagesHandlerTest extends TestCase
         $this->expectWarning($notFound, 'banner', self::BANNER_URL);
 
         $this->handler()->handle(self::CANONICAL_KEY, self::POSTER_URL, self::BANNER_URL);
+    }
+
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Str::createUuidsUsing(static fn () => Uuid::fromString(self::INGESTION_UUID));
+
+        $this->imageCompressor = Mockery::mock(ImageCompressorContract::class);
+        $this->titleRepository = Mockery::mock(TitleRepositoryContract::class);
+        $this->titleRepository->shouldReceive('setIsTitleIncompleteFlag')->never();
+        $this->imageDownloader = Mockery::mock(ImageDownloaderContract::class);
+        $this->imageStorage = Mockery::mock(ImageStorageContract::class);
     }
 
     protected function tearDown(): void

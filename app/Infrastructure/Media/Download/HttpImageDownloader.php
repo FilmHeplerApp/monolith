@@ -41,7 +41,7 @@ readonly class HttpImageDownloader implements ImageDownloaderContract
                     connectTimeout: ImageConfig::connectTimeout(),
                     timeout: ImageConfig::timeout(),
                     schemes: ImageConfig::allowedSchemes(),
-                    pinned: $this->hosts->resolve($current),
+                    pinned: $this->resolvePublicHost($current),
                 );
 
                 if ($redirectTo === null) {
@@ -72,12 +72,21 @@ readonly class HttpImageDownloader implements ImageDownloaderContract
         }
     }
 
+    private function resolvePublicHost(string $url): PinnedAddress
+    {
+        try {
+            return $this->hosts->resolve($url);
+        } catch (ImageDownloadException $exception) {
+            throw ImageDownloadException::withRetryAfter($exception, ImageConfig::defaultRetrySeconds());
+        }
+    }
+
     private function createTempFile(): string
     {
         $path = tempnam(sys_get_temp_dir(), 'image_');
 
         if ($path === false) {
-            throw new ImageDownloadException('Unable to create temporary file.');
+            throw ImageDownloadException::defaultRetry('Unable to create temporary file.', ImageConfig::defaultRetrySeconds());
         }
 
         return $path;
@@ -101,7 +110,7 @@ readonly class HttpImageDownloader implements ImageDownloaderContract
         $handle = fopen($path, 'wb');
 
         if ($handle === false) {
-            throw new ImageDownloadException('Unable to open temporary file.');
+            throw ImageDownloadException::defaultRetry('Unable to open temporary file.', ImageConfig::defaultRetrySeconds());
         }
 
         $totalBytes = 0;
@@ -179,7 +188,11 @@ readonly class HttpImageDownloader implements ImageDownloaderContract
         }
 
         if ($succeeded === false) {
-            throw new ImageDownloadException(message: $error, code: $errorCode);
+            throw ImageDownloadException::defaultRetry(
+                message: $error,
+                seconds: ImageConfig::defaultRetrySeconds(),
+                code: $errorCode,
+            );
         }
 
         if (!is_string($primaryIp) || !$pinned->matches($primaryIp)) {
@@ -197,7 +210,10 @@ readonly class HttpImageDownloader implements ImageDownloaderContract
         $target = is_string($redirectUrl) && $redirectUrl !== '' ? $redirectUrl : $locationHeader;
 
         if (!is_string($target) || $target === '') {
-            throw new ImageDownloadException('Image host returned a redirect without a target.');
+            throw ImageDownloadException::defaultRetry(
+                'Image host returned a redirect without a target.',
+                ImageConfig::defaultRetrySeconds(),
+            );
         }
 
         return $this->absoluteRedirect($url, $target);
@@ -236,7 +252,10 @@ readonly class HttpImageDownloader implements ImageDownloaderContract
         $bytes = file_get_contents($path);
 
         if ($bytes === false) {
-            throw new ImageDownloadException('Unable to read the downloaded image.');
+            throw ImageDownloadException::defaultRetry(
+                'Unable to read the downloaded image.',
+                ImageConfig::defaultRetrySeconds(),
+            );
         }
 
         return new DownloadedImage(
@@ -299,7 +318,10 @@ readonly class HttpImageDownloader implements ImageDownloaderContract
         }
 
         if (in_array($httpCode, [408, 429], true) || $httpCode >= 500) {
-            throw new ImageDownloadException(sprintf('Image host responded with HTTP %d.', $httpCode));
+            throw ImageDownloadException::defaultRetry(
+                sprintf('Image host responded with HTTP %d.', $httpCode),
+                ImageConfig::defaultRetrySeconds(),
+            );
         }
 
         if (!in_array($httpCode, [200, ...self::REDIRECT_CODES], true)) {

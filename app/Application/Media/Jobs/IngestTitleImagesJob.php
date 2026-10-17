@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Application\Media\Jobs;
 
+use App\Application\Catalog\Exceptions\TitleNotFoundException;
 use App\Application\Media\Exceptions\ImageDownloadException;
+use App\Application\Media\Exceptions\ImageStorageException;
 use App\Application\Media\UseCases\IngestTitleImagesHandler;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -14,8 +16,10 @@ class IngestTitleImagesJob implements ShouldQueue
 {
     use Queueable;
 
-    public int $tries = 3;
+
+    public int $tries = 30;
     public int $timeout = 180;
+    public int $remainingAttempts = 3;
 
 
     public function __construct(
@@ -34,11 +38,26 @@ class IngestTitleImagesJob implements ShouldQueue
                 posterUrl: $this->posterUrl,
                 bannerUrl: $this->bannerUrl,
             );
-        } catch (ImageDownloadException $exception) {
-            if ($exception->retryAfterSeconds !== null and $this->attempts() < $this->tries) {
-                $this->release($exception->retryAfterSeconds);
+        } catch (TitleNotFoundException $exception) {
+            $this->fail($exception);
+
+            return;
+        } catch (ImageDownloadException|ImageStorageException $exception) {
+            $delay = $exception->retryAfterSeconds;
+
+            if ($delay !== null && $this->remainingAttempts > 1) {
+                $next = new IngestTitleImagesJob(
+                    $this->canonicalKey,
+                    $this->posterUrl,
+                    $this->bannerUrl,
+                );
+                $next->remainingAttempts = $this->remainingAttempts - 1;
+
+                dispatch($next)->delay($delay);
+
                 return;
             }
+
             throw $exception;
         }
     }

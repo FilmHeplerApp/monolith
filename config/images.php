@@ -56,6 +56,7 @@ return [
         ],
         'connect_timeout' => 10,
         'timeout' => 30,
+        'default_retry_seconds' => 45,
     ],
 
     'output' => [

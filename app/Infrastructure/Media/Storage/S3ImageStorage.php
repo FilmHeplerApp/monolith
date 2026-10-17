@@ -29,7 +29,7 @@ class S3ImageStorage implements ImageStorageContract
             );
 
         if (!$success) {
-            throw ImageStorageException::storingFailed($key);
+            throw ImageStorageException::storingFailed($key, ImageConfig::defaultRetrySeconds());
         }
 
         return new StoredImage($key);

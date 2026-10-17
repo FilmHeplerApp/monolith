@@ -38,7 +38,7 @@ readonly class PublicHostResolver
         $records = $this->dnsRecords($host);
 
         if ($records === false) {
-            throw new ImageDownloadException('Unable to fetch external host ip addresses.');
+            throw ImageDownloadException::hostLookupFailed();
         }
 
         return $this->addressesFromRecords($records);
@@ -69,7 +69,7 @@ readonly class PublicHostResolver
         $addresses = $this->lookupHost($host);
 
         if ($addresses === []) {
-            throw new ImageDownloadException('Unable to fetch external host ip addresses.');
+            throw ImageDownloadException::hostLookupFailed();
         }
 
         return $addresses;

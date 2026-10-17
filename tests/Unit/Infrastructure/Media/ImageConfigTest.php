@@ -57,6 +57,7 @@ final class ImageConfigTest extends TestCase
         self::assertSame(['http', 'https'], ImageConfig::allowedSchemes());
         self::assertSame(10, ImageConfig::connectTimeout());
         self::assertSame(30, ImageConfig::timeout());
+        self::assertSame(45, ImageConfig::defaultRetrySeconds());
         self::assertSame('webp', ImageConfig::outputFormat());
         self::assertSame('public, max-age=31536000, immutable', ImageConfig::cacheControl());
     }

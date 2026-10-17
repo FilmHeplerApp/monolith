@@ -103,6 +103,11 @@ final class ImageConfig
         return self::string('output.cache_control');
     }
 
+    public static function defaultRetrySeconds(): int
+    {
+        return self::int('download.default_retry_seconds');
+    }
+
 
     private static function string(string $key): string
     {

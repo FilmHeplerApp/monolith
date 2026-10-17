@@ -9,7 +9,7 @@ use App\Application\Media\Exceptions\UnsupportedImageException;
 use App\Infrastructure\Media\Download\IpAddressClassifier;
 use App\Infrastructure\Media\Download\PublicHostResolver;
 use PHPUnit\Framework\Attributes\Test;
-use PHPUnit\Framework\TestCase;
+use Tests\TestCase;
 
 final class PublicHostResolverTest extends TestCase
 {
@@ -85,9 +85,13 @@ final class PublicHostResolverTest extends TestCase
     #[Test]
     public function it_reports_an_empty_lookup_as_a_download_failure(): void
     {
-        $this->expectException(ImageDownloadException::class);
-
-        $this->resolver([])->resolve('http://cdn.example/poster.jpg');
+        try {
+            $this->resolver([])->resolve('http://cdn.example/poster.jpg');
+            self::fail('An empty DNS lookup must fail host resolution.');
+        } catch (ImageDownloadException $exception) {
+            self::assertSame('Unable to resolve host addresses.', $exception->getMessage());
+            self::assertNull($exception->retryAfterSeconds);
+        }
     }
 
     #[Test]
@@ -128,19 +132,27 @@ final class PublicHostResolverTest extends TestCase
     #[Test]
     public function it_reports_a_failed_dns_lookup_as_a_download_failure(): void
     {
-        $this->expectException(ImageDownloadException::class);
-
-        $this->resolverFromDns(false)->resolve('http://cdn.example/poster.jpg');
+        try {
+            $this->resolverFromDns(false)->resolve('http://cdn.example/poster.jpg');
+            self::fail('A failed DNS lookup must fail host resolution.');
+        } catch (ImageDownloadException $exception) {
+            self::assertSame('Unable to resolve host addresses.', $exception->getMessage());
+            self::assertNull($exception->retryAfterSeconds);
+        }
     }
 
     #[Test]
     public function it_reports_records_without_addresses_as_a_download_failure(): void
     {
-        $this->expectException(ImageDownloadException::class);
-
-        $this->resolverFromDns([
-            ['type' => 'CNAME', 'target' => 'cdn.example'],
-        ])->resolve('http://cdn.example/poster.jpg');
+        try {
+            $this->resolverFromDns([
+                ['type' => 'CNAME', 'target' => 'cdn.example'],
+            ])->resolve('http://cdn.example/poster.jpg');
+            self::fail('DNS records without addresses must fail host resolution.');
+        } catch (ImageDownloadException $exception) {
+            self::assertSame('Unable to resolve host addresses.', $exception->getMessage());
+            self::assertNull($exception->retryAfterSeconds);
+        }
     }
 
 

@@ -51,6 +51,13 @@ readonly class IngestTitleImagesHandler
         if ($posterException !== null) {
             if ($bannerException !== null && $bannerUrl !== null) {
                 $this->logFailure($bannerException, $canonicalKey, 'banner', $bannerUrl);
+                if ($bannerException instanceof ImageDownloadException && $posterException instanceof ImageDownloadException) {
+                    $retryAfterSeconds = max($posterException->retryAfterSeconds, $bannerException->retryAfterSeconds);
+
+                    if (is_int($retryAfterSeconds) && $retryAfterSeconds !== $posterException->retryAfterSeconds) {
+                        $posterException = ImageDownloadException::withRetryAfter($posterException, $retryAfterSeconds);
+                    }
+                }
             }
 
             throw $posterException;
@@ -104,9 +111,6 @@ readonly class IngestTitleImagesHandler
             return $exception;
         } catch (UnsupportedImageException $exception) {
             $this->logFailure($exception, $canonicalKey, 'poster', $posterUrl);
-            if (!$titleImageData->posterKey) {
-                $this->titleRepository->setIsTitleIncompleteFlag($canonicalKey, true);
-            }
         } catch (ImageStorageException $exception) {
             $this->deleteObjectPrefixSafely(
                 objectKey: $posterFull?->key,
@@ -124,9 +128,6 @@ readonly class IngestTitleImagesHandler
                 variant: 'poster',
                 externalUrl: $posterUrl,
             );
-            if (!$titleImageData->posterKey) {
-                $this->titleRepository->setIsTitleIncompleteFlag($canonicalKey, true);
-            }
         }
 
         return null;

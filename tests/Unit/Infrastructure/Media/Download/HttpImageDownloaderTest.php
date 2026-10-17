@@ -9,6 +9,7 @@ use App\Application\Media\Exceptions\ImageDownloadException;
 use App\Application\Media\Exceptions\UnsupportedImageException;
 use App\Infrastructure\Media\Download\HttpImageDownloader;
 use App\Infrastructure\Media\Download\IpAddressClassifier;
+use App\Infrastructure\Media\Download\PinnedAddress;
 use App\Infrastructure\Media\Download\PublicHostResolver;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
@@ -59,20 +60,6 @@ final class HttpImageDownloaderTest extends TestCase
         }
 
         parent::tearDownAfterClass();
-    }
-
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        $classifier = new class extends IpAddressClassifier {
-            public function classify(string $ip): bool
-            {
-                return $ip === '127.0.0.1' || parent::classify($ip);
-            }
-        };
-
-        $this->downloader = new HttpImageDownloader(new PublicHostResolver($classifier));
     }
 
     #[Test]
@@ -135,10 +122,13 @@ final class HttpImageDownloaderTest extends TestCase
     #[Test]
     public function it_rejects_a_redirect_without_a_target(): void
     {
-        $this->expectException(ImageDownloadException::class);
-        $this->expectExceptionMessage('redirect without a target');
-
-        $this->downloader->download($this->url('/redirect-empty'));
+        try {
+            $this->downloader->download($this->url('/redirect-empty'));
+            self::fail('A redirect without a target must be a retryable download failure.');
+        } catch (ImageDownloadException $exception) {
+            self::assertStringContainsString('redirect without a target', $exception->getMessage());
+            self::assertSame(45, $exception->retryAfterSeconds);
+        }
     }
 
     #[Test]
@@ -224,19 +214,25 @@ final class HttpImageDownloaderTest extends TestCase
     #[Test]
     public function it_reports_a_server_error_as_a_retryable_download_failure(): void
     {
-        $this->expectException(ImageDownloadException::class);
-        $this->expectExceptionMessage('HTTP 503');
-
-        $this->downloader->download($this->url('/unavailable'));
+        try {
+            $this->downloader->download($this->url('/unavailable'));
+            self::fail('A server error must be a retryable download failure.');
+        } catch (ImageDownloadException $exception) {
+            self::assertStringContainsString('HTTP 503', $exception->getMessage());
+            self::assertSame(45, $exception->retryAfterSeconds);
+        }
     }
 
     #[Test]
     public function it_retries_a_request_timeout(): void
     {
-        $this->expectException(ImageDownloadException::class);
-        $this->expectExceptionMessage('HTTP 408');
-
-        $this->downloader->download($this->url('/timeout'));
+        try {
+            $this->downloader->download($this->url('/timeout'));
+            self::fail('A request timeout must be a retryable download failure.');
+        } catch (ImageDownloadException $exception) {
+            self::assertStringContainsString('HTTP 408', $exception->getMessage());
+            self::assertSame(45, $exception->retryAfterSeconds);
+        }
     }
 
     #[Test]
@@ -247,7 +243,7 @@ final class HttpImageDownloaderTest extends TestCase
             self::fail('A rate limit must be a retryable download failure.');
         } catch (ImageDownloadException $exception) {
             self::assertStringContainsString('HTTP 429', $exception->getMessage());
-            self::assertNull($exception->retryAfterSeconds);
+            self::assertSame(45, $exception->retryAfterSeconds);
         }
     }
 
@@ -318,12 +314,54 @@ final class HttpImageDownloaderTest extends TestCase
     }
 
     #[Test]
+    public function it_retries_a_host_lookup_failure_with_the_default_delay(): void
+    {
+        $lookup = ImageDownloadException::hostLookupFailed();
+        $hosts = new readonly class($lookup) extends PublicHostResolver {
+            public function __construct(private ImageDownloadException $lookup)
+            {
+                parent::__construct(new IpAddressClassifier);
+            }
+
+            public function resolve(string $url): PinnedAddress
+            {
+                throw $this->lookup;
+            }
+        };
+
+        try {
+            (new HttpImageDownloader($hosts))->download($this->url('/poster.jpg'));
+            self::fail('A host lookup failure must become a retryable download failure.');
+        } catch (ImageDownloadException $exception) {
+            self::assertSame('Unable to resolve host addresses.', $exception->getMessage());
+            self::assertSame(45, $exception->retryAfterSeconds);
+            self::assertSame($lookup, $exception->getPrevious());
+        }
+    }
+
+    #[Test]
     public function it_is_bound_in_the_container(): void
     {
         $resolved = $this->app->make(ImageDownloaderContract::class);
 
         self::assertInstanceOf(HttpImageDownloader::class, $resolved);
     }
+
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $classifier = new class extends IpAddressClassifier {
+            public function classify(string $ip): bool
+            {
+                return $ip === '127.0.0.1' || parent::classify($ip);
+            }
+        };
+
+        $this->downloader = new HttpImageDownloader(new PublicHostResolver($classifier));
+    }
+
 
     private function url(string $path): string
     {

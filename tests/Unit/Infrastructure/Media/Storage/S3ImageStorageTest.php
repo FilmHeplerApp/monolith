@@ -24,14 +24,6 @@ final class S3ImageStorageTest extends TestCase
     private S3ImageStorage $storage;
 
 
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        $this->storage = new S3ImageStorage();
-    }
-
-
     #[Test]
     public function it_stores_bytes_under_the_given_key(): void
     {
@@ -73,10 +65,13 @@ final class S3ImageStorageTest extends TestCase
         $disk = $this->mockDisk();
         $disk->shouldReceive('put')->once()->andReturn(false);
 
-        $this->expectException(ImageStorageException::class);
-        $this->expectExceptionMessage('Storing image has been failed with key: "' . $key . '"');
-
-        $this->storage->put('webp-bytes', $key, 'image/webp');
+        try {
+            $this->storage->put('webp-bytes', $key, 'image/webp');
+            self::fail('A refused write must be a retryable storage failure.');
+        } catch (ImageStorageException $exception) {
+            self::assertSame('Storing image has been failed with key: "' . $key . '"', $exception->getMessage());
+            self::assertSame(45, $exception->retryAfterSeconds);
+        }
     }
 
     #[Test]
@@ -133,6 +128,7 @@ final class S3ImageStorageTest extends TestCase
             self::fail('An empty prefix was accepted.');
         } catch (ImageStorageException $exception) {
             self::assertSame(sprintf('Invalid prefix: "%s"', $prefix), $exception->getMessage());
+            self::assertNull($exception->retryAfterSeconds);
         }
 
         Storage::disk(ImageConfig::disk())->assertExists($key);
@@ -144,12 +140,16 @@ final class S3ImageStorageTest extends TestCase
         $disk = $this->mockDisk();
         $disk->shouldReceive('deleteDirectory')->once()->with(self::POSTER_PREFIX)->andReturn(false);
 
-        $this->expectException(ImageStorageException::class);
-        $this->expectExceptionMessage(
-            'Deleting directory has been failed with prefix: "' . self::POSTER_PREFIX . '"',
-        );
-
-        $this->storage->deleteByPrefix(self::POSTER_PREFIX);
+        try {
+            $this->storage->deleteByPrefix(self::POSTER_PREFIX);
+            self::fail('A refused delete must stay a storage failure without a retry delay.');
+        } catch (ImageStorageException $exception) {
+            self::assertSame(
+                'Deleting directory has been failed with prefix: "' . self::POSTER_PREFIX . '"',
+                $exception->getMessage(),
+            );
+            self::assertNull($exception->retryAfterSeconds);
+        }
     }
 
     #[Test]
@@ -158,6 +158,14 @@ final class S3ImageStorageTest extends TestCase
         $resolved = $this->app->make(ImageStorageContract::class);
 
         self::assertInstanceOf(S3ImageStorage::class, $resolved);
+    }
+
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->storage = new S3ImageStorage;
     }
 
 
