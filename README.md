@@ -135,12 +135,39 @@ filmhelper-local
 
 For local development, set anonymous read access for this bucket if uploaded images should be publicly reachable from generated URLs.
 
-Laravel uses the S3 disk:
+Laravel uses the S3 disk. The database stores the object key. `AWS_URL` turns that key into a public address, so a CDN change does not require a data migration:
 
 ```env
 FILESYSTEM_DISK=s3
 AWS_ENDPOINT=http://minio:9000
 AWS_USE_PATH_STYLE_ENDPOINT=true
+AWS_URL=http://localhost:9000/filmhelper-local
+```
+
+Locally `AWS_URL` points at this MinIO bucket. In production it is the CDN domain.
+
+Check that the bucket accepts a write:
+
+```bash
+docker compose exec app php artisan filmhelper:probe-image-storage
+```
+
+## Images
+
+Poster, banner, and avatar processing runs on the `images` queue. Horizon `supervisor-2` consumes that queue only (`memory` 256, `timeout` 180, `tries` 3, two processes locally and four in production). `supervisor-1` stays on `default` and does not take `images` jobs.
+
+`REDIS_QUEUE_RETRY_AFTER=240` is the Redis reservation lease. It must stay above the job timeout of 180 seconds. It is not an extra retry and not the processing timeout. After a change to `config/horizon.php`, restart Horizon so the supervisor picks it up:
+
+```bash
+docker compose restart horizon
+```
+
+The Horizon dashboard is at `http://localhost:8080/horizon`.
+
+Measure one external image without writing the database or the bucket. `variant` is `poster_full`, `poster_thumb`, `banner`, or `avatar`. The ratio is source bytes divided by compressed bytes:
+
+```bash
+docker compose exec app php artisan filmhelper:measure-image "https://example.com/poster.jpg" poster_full
 ```
 
 ## Useful Commands
