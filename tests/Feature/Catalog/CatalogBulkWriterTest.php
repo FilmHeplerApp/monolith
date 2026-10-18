@@ -56,18 +56,6 @@ final class CatalogBulkWriterTest extends TestCase
     private CatalogBulkWriterContract $writer;
 
 
-    /**
-     * @throws BindingResolutionException
-     */
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        $this->createCatalogSchema();
-        $this->writer = $this->app->make(CatalogBulkWriterContract::class);
-    }
-
-
     #[Test]
     public function it_inserts_catalog_collections_and_resolves_foreign_keys(): void
     {
@@ -172,12 +160,17 @@ final class CatalogBulkWriterTest extends TestCase
                 self::SECOND_CANONICAL_KEY,
             )],
             attributeOptions: [
-                new AttributeOptionData(self::ATTRIBUTE_GENRES, $this->createLocalizedText('Комедия', 'Comedy')),
+                new AttributeOptionData(
+                    self::ATTRIBUTE_GENRES,
+                    TitleContentType::ANIME,
+                    $this->createLocalizedText('Комедия', 'Comedy'),
+                ),
             ],
             titleAttributes: [
                 new TitleAttributeData(
                     $secondCanonicalKey,
                     self::ATTRIBUTE_GENRES,
+                    TitleContentType::ANIME,
                     AttributeValue::createFromArray(['Комедия']),
                 ),
             ],
@@ -203,6 +196,7 @@ final class CatalogBulkWriterTest extends TestCase
                     new TitleAttributeData(
                         TitleCanonicalKey::createFromString(self::CANONICAL_KEY),
                         'missing',
+                        TitleContentType::ANIME,
                         AttributeValue::createFromText('nope'),
                     ),
                 ],
@@ -275,6 +269,18 @@ final class CatalogBulkWriterTest extends TestCase
     }
 
 
+    /**
+     * @throws BindingResolutionException
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->createCatalogSchema();
+        $this->writer = $this->app->make(CatalogBulkWriterContract::class);
+    }
+
+
     private function preparedCatalog(
         string $titleRu = self::TITLE_RU,
         string $optionValueEn = self::GENRE_ACTION_EN,
@@ -307,18 +313,28 @@ final class CatalogBulkWriterTest extends TestCase
                 ),
             ],
             attributeOptions: [
-                new AttributeOptionData(self::ATTRIBUTE_GENRES, $this->createLocalizedText(self::GENRE_ACTION_RU, $optionValueEn)),
-                new AttributeOptionData(self::ATTRIBUTE_STUDIOS, $this->createLocalizedText(self::STUDIO_NAME, $studioOptionEn)),
+                new AttributeOptionData(
+                    self::ATTRIBUTE_GENRES,
+                    TitleContentType::ANIME,
+                    $this->createLocalizedText(self::GENRE_ACTION_RU, $optionValueEn),
+                ),
+                new AttributeOptionData(
+                    self::ATTRIBUTE_STUDIOS,
+                    TitleContentType::ANIME,
+                    $this->createLocalizedText(self::STUDIO_NAME, $studioOptionEn),
+                ),
             ],
             titleAttributes: [
                 new TitleAttributeData(
                     $canonicalKey,
                     self::ATTRIBUTE_GENRES,
+                    TitleContentType::ANIME,
                     AttributeValue::createFromArray([self::GENRE_ACTION_RU, self::GENRE_DRAMA_RU]),
                 ),
                 new TitleAttributeData(
                     $canonicalKey,
                     self::ATTRIBUTE_STUDIOS,
+                    TitleContentType::ANIME,
                     AttributeValue::createFromText($studioName),
                 ),
             ],

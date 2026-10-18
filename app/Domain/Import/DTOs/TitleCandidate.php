@@ -28,5 +28,6 @@ final readonly class TitleCandidate
         /** @var list<CandidateAttribute> */
         public array            $attributes = [],
         public ?TitleFormat     $format = null,
-    ) {}
+    ) {
+    }
 }
