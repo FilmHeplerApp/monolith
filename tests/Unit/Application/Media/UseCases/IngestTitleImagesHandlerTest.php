@@ -24,6 +24,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Mockery;
 use Mockery\MockInterface;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Ramsey\Uuid\Uuid;
 use Tests\TestCase;
@@ -337,6 +338,84 @@ final class IngestTitleImagesHandlerTest extends TestCase
         } catch (ImageDownloadException $exception) {
             self::assertSame($posterException, $exception);
             self::assertSame(120, $exception->retryAfterSeconds);
+        }
+    }
+
+    /**
+     * @return array<string, array{ImageDownloadException|ImageStorageException, ImageDownloadException|ImageStorageException, ?int}>
+     */
+    public static function retryableFailurePairs(): array
+    {
+        $cases = [];
+        $types = ['download' => ImageDownloadException::class, 'storage' => ImageStorageException::class];
+        $delays = [
+            'banner longer' => [45, 120, 120],
+            'poster longer' => [120, 45, 120],
+            'poster without delay' => [null, 120, 120],
+            'banner without delay' => [45, null, 45],
+            'both without delay' => [null, null, null],
+            'equal delays' => [120, 120, 120],
+        ];
+
+        foreach ($types as $posterType => $posterClass) {
+            foreach ($types as $bannerType => $bannerClass) {
+                foreach ($delays as $name => [$posterDelay, $bannerDelay, $expectedDelay]) {
+                    $cases[$posterType.'/'.$bannerType.' '.$name] = [
+                        new $posterClass(message: 'poster failure', retryAfterSeconds: $posterDelay, code: 502),
+                        new $bannerClass('banner failure', $bannerDelay),
+                        $expectedDelay,
+                    ];
+                }
+            }
+        }
+
+        return $cases;
+    }
+
+    #[Test]
+    #[DataProvider('retryableFailurePairs')]
+    public function it_keeps_the_longest_delay_for_every_retryable_failure_pair(
+        ImageDownloadException|ImageStorageException $posterException,
+        ImageDownloadException|ImageStorageException $bannerException,
+        ?int                                        $expectedDelay,
+    ): void {
+        $this->givenTitle($this->staleImageData());
+
+        if ($posterException instanceof ImageDownloadException) {
+            $this->imageDownloader->shouldReceive('download')
+                ->once()->with(self::POSTER_URL)->andThrow($posterException);
+        } else {
+            $this->expectPosterDownload();
+            $this->expectVariantStorageFailure(self::POSTER_RAW, ImageVariant::PosterFull, $posterException);
+        }
+
+        if ($bannerException instanceof ImageDownloadException) {
+            $this->imageDownloader->shouldReceive('download')
+                ->once()->with(self::BANNER_URL)->andThrow($bannerException);
+        } else {
+            $this->expectBannerDownload();
+            $this->expectVariantStorageFailure(self::BANNER_RAW, ImageVariant::Banner, $bannerException);
+        }
+
+        $this->titleRepository->shouldReceive('savePoster')->never();
+        $this->titleRepository->shouldReceive('saveBanner')->never();
+        $this->imageStorage->shouldReceive('deleteByPrefix')->never();
+        $this->expectWarning($bannerException, 'banner', self::BANNER_URL);
+
+        try {
+            $this->handler()->handle(self::CANONICAL_KEY, self::POSTER_URL, self::BANNER_URL);
+            self::fail('Expected a retryable failure.');
+        } catch (ImageDownloadException|ImageStorageException $exception) {
+            self::assertSame($posterException::class, $exception::class);
+            self::assertSame($posterException->getMessage(), $exception->getMessage());
+            self::assertSame($posterException->getCode(), $exception->getCode());
+            self::assertSame($expectedDelay, $exception->retryAfterSeconds);
+
+            if ($expectedDelay !== $posterException->retryAfterSeconds) {
+                self::assertSame($posterException, $exception->getPrevious());
+            } else {
+                self::assertSame($posterException, $exception);
+            }
         }
     }
 
@@ -726,6 +805,20 @@ final class IngestTitleImagesHandlerTest extends TestCase
             ->once()
             ->with($processed->bytes, $key, $processed->mimeType)
             ->andReturn(new StoredImage($key));
+    }
+
+    private function expectVariantStorageFailure(
+        string                $raw,
+        ImageVariant          $variant,
+        ImageStorageException $exception,
+    ): void {
+        $processed = $this->processedImage();
+        $this->imageCompressor->shouldReceive('compress')
+            ->once()->with($raw, $variant)->andReturn($processed);
+        $this->imageStorage->shouldReceive('put')
+            ->once()
+            ->with($processed->bytes, $variant->objectKey(self::INGESTION_UUID), $processed->mimeType)
+            ->andThrow($exception);
     }
 
     private function processedImage(): ProcessedImage

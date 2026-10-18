@@ -51,12 +51,12 @@ readonly class IngestTitleImagesHandler
         if ($posterException !== null) {
             if ($bannerException !== null && $bannerUrl !== null) {
                 $this->logFailure($bannerException, $canonicalKey, 'banner', $bannerUrl);
-                if ($bannerException instanceof ImageDownloadException && $posterException instanceof ImageDownloadException) {
-                    $retryAfterSeconds = max($posterException->retryAfterSeconds, $bannerException->retryAfterSeconds);
+                $retryAfterSeconds = max($posterException->retryAfterSeconds, $bannerException->retryAfterSeconds);
 
-                    if (is_int($retryAfterSeconds) && $retryAfterSeconds !== $posterException->retryAfterSeconds) {
-                        $posterException = ImageDownloadException::withRetryAfter($posterException, $retryAfterSeconds);
-                    }
+                if (is_int($retryAfterSeconds) && $retryAfterSeconds !== $posterException->retryAfterSeconds) {
+                    $posterException = $posterException instanceof ImageDownloadException
+                        ? ImageDownloadException::withRetryAfter($posterException, $retryAfterSeconds)
+                        : ImageStorageException::withRetryAfter($posterException, $retryAfterSeconds);
                 }
             }
 

@@ -20,10 +20,13 @@ use App\Application\Media\UseCases\IngestTitleImagesHandler;
 use App\Application\Media\UseCases\StoreRemoteImageHandler;
 use Illuminate\Pipeline\Pipeline;
 use Illuminate\Queue\Jobs\FakeJob;
+use Illuminate\Queue\WorkerOptions;
 use Illuminate\Support\Facades\Queue;
 use Mockery;
 use Mockery\MockInterface;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use RuntimeException;
 use Tests\TestCase;
 
 final class IngestTitleImagesJobTest extends TestCase
@@ -96,8 +99,10 @@ final class IngestTitleImagesJobTest extends TestCase
     }
 
     #[Test]
-    public function it_lets_a_retryable_handler_exception_escape(): void
+    public function it_uses_the_configured_delay_when_the_exception_has_no_retry_hint(): void
     {
+        Queue::fake();
+        config(['images.download.default_retry_seconds' => 75]);
         $downloadException = new ImageDownloadException('timeout');
 
         $this->titleRepository->shouldReceive('findImageData')
@@ -111,12 +116,11 @@ final class IngestTitleImagesJobTest extends TestCase
 
         $job = new IngestTitleImagesJob(self::CANONICAL_KEY, self::POSTER_URL, null);
 
-        try {
-            $job->handle($this->handler());
-            self::fail('Expected ImageDownloadException.');
-        } catch (ImageDownloadException $exception) {
-            self::assertSame($downloadException, $exception);
-        }
+        $job->handle($this->handler());
+
+        Queue::assertPushed(IngestTitleImagesJob::class, function (IngestTitleImagesJob $followUp): bool {
+            return $followUp->remainingAttempts === 2 && $followUp->delay === 75;
+        });
     }
 
     #[Test]
@@ -171,7 +175,7 @@ final class IngestTitleImagesJobTest extends TestCase
     }
 
     #[Test]
-    public function it_fails_a_rate_limit_on_the_last_download_attempt(): void
+    public function it_fails_a_rate_limit_on_the_last_download_attempt_without_a_worker_retry(): void
     {
         Queue::fake();
 
@@ -188,15 +192,81 @@ final class IngestTitleImagesJobTest extends TestCase
 
         $job = new IngestTitleImagesJob(self::CANONICAL_KEY, self::POSTER_URL, null);
         $job->remainingAttempts = 1;
-
-        try {
+        $queueJob = Mockery::mock(FakeJob::class)->makePartial();
+        $queueJob->shouldReceive('getRawBody')->andReturn(json_encode([
+            'job' => IngestTitleImagesJob::class,
+            'maxTries' => $job->tries,
+        ], JSON_THROW_ON_ERROR));
+        $queueJob->shouldReceive('fire')->once()->andReturnUsing(function () use ($job): void {
             $job->handle($this->handler());
-            self::fail('The last attempt must keep the download failure.');
-        } catch (ImageDownloadException $exception) {
-            self::assertSame($downloadException, $exception);
+        });
+        $job->setJob($queueJob);
+
+        $this->app->make('queue.worker')->process('test', $queueJob, new WorkerOptions(maxTries: 3));
+
+        self::assertTrue($queueJob->hasFailed());
+        self::assertSame($downloadException, $queueJob->failedWith);
+        self::assertFalse($queueJob->isReleased());
+        Queue::assertNothingPushed();
+    }
+
+    /** @return array<string, array{ImageDownloadException|ImageStorageException}> */
+    public static function retryableFailures(): array
+    {
+        return [
+            'download with default delay' => [ImageDownloadException::defaultRetry('timeout', 45)],
+            'download with Retry-After' => [ImageDownloadException::retryAfter(429, 120)],
+            'download without delay' => [new ImageDownloadException('timeout')],
+            'storage with delay' => [ImageStorageException::storingFailed('full.webp', 45)],
+            'storage without delay' => [new ImageStorageException('unavailable')],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('retryableFailures')]
+    public function it_stops_after_three_processing_failures(
+        ImageDownloadException|ImageStorageException $exception,
+    ): void {
+        Queue::fake();
+        config(['images.download.default_retry_seconds' => 75]);
+
+        $this->titleRepository->shouldReceive('findImageData')
+            ->times(3)
+            ->andReturn(new TitleImageData(null, null, null, null, null));
+
+        if ($exception instanceof ImageDownloadException) {
+            $this->imageDownloader->shouldReceive('download')->times(3)->andThrow($exception);
+        } else {
+            $this->imageDownloader->shouldReceive('download')->times(3)
+                ->andReturn(new DownloadedImage('poster-bytes', 'image/jpeg'));
+            $this->imageCompressor->shouldReceive('compress')->times(3)
+                ->andReturn(new ProcessedImage('webp-bytes', 'image/webp', 360, 540));
+            $this->imageStorage->shouldReceive('put')->times(3)->andThrow($exception);
         }
 
-        Queue::assertNothingPushed();
+        $this->imageStorage->shouldReceive('deleteByPrefix')->never();
+        $job = new IngestTitleImagesJob(self::CANONICAL_KEY, self::POSTER_URL, null);
+
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            $queueJob = new FakeJob;
+            $job->setJob($queueJob);
+            $job->handle($this->handler());
+
+            self::assertFalse($queueJob->isReleased());
+
+            if ($attempt < 3) {
+                self::assertFalse($queueJob->hasFailed());
+                $followUp = Queue::pushed(IngestTitleImagesJob::class)->last();
+                self::assertSame(3 - $attempt, $followUp->remainingAttempts);
+                self::assertSame($exception->retryAfterSeconds ?? 75, $followUp->delay);
+                $job = unserialize(serialize($followUp));
+            } else {
+                self::assertTrue($queueJob->hasFailed());
+                self::assertSame($exception, $queueJob->failedWith);
+            }
+        }
+
+        Queue::assertPushed(IngestTitleImagesJob::class, 2);
     }
 
     #[Test]
@@ -216,7 +286,7 @@ final class IngestTitleImagesJobTest extends TestCase
             ->andReturnUsing(function () use ($secondJob): void {
                 $this->runThroughMiddleware($secondJob);
 
-                throw new ImageDownloadException('still downloading');
+                throw new RuntimeException('still downloading');
             });
 
         $firstJob = new IngestTitleImagesJob(self::CANONICAL_KEY, self::POSTER_URL, null);
@@ -224,7 +294,7 @@ final class IngestTitleImagesJobTest extends TestCase
         try {
             $this->runThroughMiddleware($firstJob);
             self::fail('The first download is still in progress.');
-        } catch (ImageDownloadException $exception) {
+        } catch (RuntimeException $exception) {
             self::assertSame('still downloading', $exception->getMessage());
             self::assertTrue($secondQueueJob->isReleased());
             self::assertSame(180, $secondQueueJob->releaseDelay);
@@ -252,7 +322,7 @@ final class IngestTitleImagesJobTest extends TestCase
                     $waitingJobs[] = [$waiting, $fake];
                 }
 
-                throw new ImageDownloadException('still downloading');
+                throw new RuntimeException('still downloading');
             });
 
         $firstJob = new IngestTitleImagesJob(self::CANONICAL_KEY, self::POSTER_URL, null);
@@ -260,7 +330,7 @@ final class IngestTitleImagesJobTest extends TestCase
         try {
             $this->runThroughMiddleware($firstJob);
             self::fail('The first download is still in progress.');
-        } catch (ImageDownloadException $exception) {
+        } catch (RuntimeException $exception) {
             self::assertSame('still downloading', $exception->getMessage());
         }
 
@@ -323,14 +393,14 @@ final class IngestTitleImagesJobTest extends TestCase
 
         $job = new IngestTitleImagesJob(self::CANONICAL_KEY, self::POSTER_URL, null);
         $job->remainingAttempts = 1;
+        $queueJob = new FakeJob;
+        $job->setJob($queueJob);
 
-        try {
-            $job->handle($this->handler());
-            self::fail('The last attempt must keep the storage failure.');
-        } catch (ImageStorageException $exception) {
-            self::assertSame($storageException, $exception);
-        }
+        $job->handle($this->handler());
 
+        self::assertTrue($queueJob->hasFailed());
+        self::assertSame($storageException, $queueJob->failedWith);
+        self::assertFalse($queueJob->isReleased());
         Queue::assertNothingPushed();
     }
 

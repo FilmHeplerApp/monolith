@@ -43,22 +43,22 @@ class IngestTitleImagesJob implements ShouldQueue
 
             return;
         } catch (ImageDownloadException|ImageStorageException $exception) {
-            $delay = $exception->retryAfterSeconds;
-
-            if ($delay !== null && $this->remainingAttempts > 1) {
-                $next = new IngestTitleImagesJob(
-                    $this->canonicalKey,
-                    $this->posterUrl,
-                    $this->bannerUrl,
-                );
-                $next->remainingAttempts = $this->remainingAttempts - 1;
-
-                dispatch($next)->delay($delay);
+            if ($this->remainingAttempts <= 1) {
+                $this->fail($exception);
 
                 return;
             }
 
-            throw $exception;
+            $next = new IngestTitleImagesJob(
+                $this->canonicalKey,
+                $this->posterUrl,
+                $this->bannerUrl,
+            );
+            $next->remainingAttempts = $this->remainingAttempts - 1;
+
+            dispatch($next)->delay(
+                $exception->retryAfterSeconds ?? (int) config('images.download.default_retry_seconds'),
+            );
         }
     }
 
