@@ -15,16 +15,27 @@ class TitleAttributeBulkWriter
     private const int CHUNK_SIZE = 1000;
 
 
+    /** @param list<int> $titleIds */
+    public function deleteForTitles(array $titleIds): void
+    {
+        foreach (array_chunk($titleIds, self::CHUNK_SIZE) as $chunk) {
+            DB::table(TitleAttribute::TABLE_NAME)
+                ->whereIn(TitleAttribute::FIELD_TITLE_ID, $chunk)
+                ->delete();
+        }
+    }
+
     /**
-     * @param list<TitleAttributeData> $titleAttributes
-     * @param array<string, int> $titleIdsByCanonicalKey
-     * @param array<string, int> $definitionIdsByCode
+     * @param  list<TitleAttributeData>  $titleAttributes
+     * @param  array<string, int>  $titleIdsByCanonicalKey
+     * @param  array<string, array<string, int>>  $definitionIdsByContentTypeAndCode
+     *
      * @throws JsonException
      */
     public function write(
         array $titleAttributes,
         array $titleIdsByCanonicalKey,
-        array $definitionIdsByCode,
+        array $definitionIdsByContentTypeAndCode,
     ): void {
         if ($titleAttributes === []) {
             return;
@@ -34,7 +45,7 @@ class TitleAttributeBulkWriter
 
         foreach (array_chunk($titleAttributes, self::CHUNK_SIZE) as $dtoChunk) {
             DB::table(TitleAttribute::TABLE_NAME)->upsert(
-                $this->unpackTitleAttributeData($dtoChunk, $titleIdsByCanonicalKey, $definitionIdsByCode, $now),
+                $this->unpackTitleAttributeData($dtoChunk, $titleIdsByCanonicalKey, $definitionIdsByContentTypeAndCode, $now),
                 [
                     TitleAttribute::FIELD_TITLE_ID,
                     TitleAttribute::FIELD_ATTRIBUTE_ID,
@@ -55,24 +66,26 @@ class TitleAttributeBulkWriter
     /**
      * @param list<TitleAttributeData> $dtoChunk
      * @param array<string, int> $titleIdsByCanonicalKey
-     * @param array<string, int> $definitionIdsByCode
+     * @param array<string, array<string, int>> $definitionIdsByContentTypeAndCode
      * @return list<array<string, mixed>>
+     *
      * @throws JsonException
      */
     private function unpackTitleAttributeData(
         array             $dtoChunk,
         array             $titleIdsByCanonicalKey,
-        array             $definitionIdsByCode,
+        array             $definitionIdsByContentTypeAndCode,
         DateTimeInterface $now,
     ): array {
         $rows = [];
 
         foreach ($dtoChunk as $titleAttribute) {
             $canonicalKey = $titleAttribute->titleCanonicalKey->getValue();
+            $contentTypeCode = $titleAttribute->contentTypeCode->value;
             $titleId = $titleIdsByCanonicalKey[$canonicalKey]
                 ?? throw UnresolvedCatalogReferenceException::title($canonicalKey);
-            $attributeId = $definitionIdsByCode[$titleAttribute->attributeCode]
-                ?? throw UnresolvedCatalogReferenceException::attributeDefinition($titleAttribute->attributeCode);
+            $attributeId = $definitionIdsByContentTypeAndCode[$contentTypeCode][$titleAttribute->attributeCode]
+                ?? throw UnresolvedCatalogReferenceException::attributeDefinition($contentTypeCode, $titleAttribute->attributeCode);
 
             $value = $titleAttribute->value;
             $valueArray = $value->getArray();

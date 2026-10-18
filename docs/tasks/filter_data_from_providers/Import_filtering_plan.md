@@ -28,9 +28,9 @@
 
 ```text
 1. AttributeDefinition[]        ключ: content_type_code + code
-2. AttributeOption[]            ключ: attribute_code + normalize(value_ru)
+2. AttributeOption[]            ключ: content_type_code + attribute_code + normalize(value_ru)
 3. Title[]                      ключ: dedup_key
-4. Связи Title -> Definition[]  ключ: dedup_key + attribute_code
+4. Связи Title -> Definition[]  ключ: dedup_key + content_type_code + attribute_code
 ```
 
 **Главное требование:** после upsert в задаче 6.3.3 не должно быть дублей,
@@ -212,21 +212,42 @@ snapshot с учётом сохранённых записей.
 ### 4.4. Связи — только пары натуральных ключей
 
 В пачке **нет ни одного числового `id`**. Связь Title -> Definition это
-`{titleKey, attributeCode, value}`, а не `{title_id: 42, attribute_id: 7}`.
+`{titleKey, contentTypeCode, attributeCode, value}`, а не `{title_id: 42, attribute_id: 7}`.
+`contentTypeCode` связи совпадает с типом тайтла: один `attributeCode` больше не
+определяет атрибут.
 
 Порядок применения в задаче 6.3.3 задан топологией, всё в одной транзакции:
 
 ```text
-1. attribute_definitions -> upsert by (content_type_code, code)  -> map code => attribute_id
+1. attribute_definitions -> upsert by (content_type_code, code)  -> map (content_type_code, code) => attribute_id
 2. attribute_options     -> upsert by (attribute_id, value_ru)
 3. titles                -> upsert by dedup_key -> SELECT        -> map key => title_id
 4. title_attributes      -> upsert by (title_id, attribute_id)
 5. external_ids          -> upsert by (source, external_id)
 ```
 
+`PreparedCatalogDto` допускает частичные обновления. При изменении `TitleContentType`
+существующего тайтла упаковщик обязан передать его ключ в
+`completeAttributeSetTitleKeys`: это явная гарантия, что `titleAttributes` содержит
+полный набор атрибутов нового типа для этого тайтла. Пустой набор допустим только
+при этой явной отметке. Без неё смена типа отклоняется.
+Writer блокирует существующие тайтлы на время транзакции, обновляет тип, проверяет
+новые связи, удаляет прежние связи изменивших тип тайтлов и записывает новые.
+Определения, варианты атрибутов и связи других тайтлов не удаляются. Ошибка на любом
+этапе откатывает всю пачку. При неизменном типе сохраняется частичный upsert связей;
+отметка полноты сама по себе не включает замену связей.
+
+Миграция составной уникальности определений откатывается к `UNIQUE(code)` только
+при отсутствии одинаковых кодов у разных типов контента. Проверка выполняется до
+изменения индексов, в PostgreSQL под блокировкой таблицы. Если коды уже повторяются,
+откат останавливается с понятным сообщением, сохраняя данные, ссылки и составной индекс.
+Такой откат требует отдельного плана миграции данных и совместимой версии приложения;
+автоматически объединять или удалять определения нельзя.
+
 **Инвариант замкнутости** проверяется в конструкторе `PreparedCatalogBatch`:
-каждый `titleKey` из связей присутствует в коллекции титулов, каждый
-`attributeCode` — в коллекции дефиниций. Нарушение -> связь отбрасывается с
+каждый `titleKey` из связей присутствует в коллекции титулов, каждая пара
+`(contentTypeCode, attributeCode)` — в коллекции дефиниций, и `contentTypeCode`
+связи совпадает с типом тайтла. Нарушение -> связь отбрасывается с
 причиной на этапе фильтрации, а не падает по FK при сохранении.
 
 ### 4.5. Коллизии натурального ключа
@@ -269,7 +290,7 @@ snapshot с учётом сохранённых записей.
 | `titles.is_incomplete` (или `data_quality`) | ТЗ 6.3.2: неполные сохранять с флагом, а не отбрасывать |
 | `titles.last_synced_at` | Требование ТЗ 6.3.3 |
 | `import_runs` (+ `import_rejections`) | ТЗ 6.3.3 п.9 и «логировать причины отсева» |
-| `attribute_definitions`: UNIQUE `(content_type_code, code)` вместо глобального `code` | Иначе `genres` для аниме и для фильмов не сосуществуют |
+| `attribute_definitions`: UNIQUE `(content_type_code, code)` вместо глобального `code` | Сделано миграцией `2026_10_17_191400`: иначе `genres` для аниме и для фильмов не сосуществуют |
 | `attribute_definitions`: `studios` -> `value_type = ARRAY` | Решение 3.4 |
 | Разрешить противоречие `titles.external_id` | Сейчас это `uuid()` с неуникальным индексом, а `ExternalId` VO требует UUID — при этом id провайдера это `"52991"`. Читаем так: `external_id` это внутренний публичный UUID тайтла, а id провайдеров живут в `external_ids` |
 
