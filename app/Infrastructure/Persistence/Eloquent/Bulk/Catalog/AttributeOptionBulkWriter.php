@@ -16,9 +16,9 @@ class AttributeOptionBulkWriter
 
     /**
      * @param list<AttributeOptionData> $attributeOptions
-     * @param array<string, int> $definitionIdsByCode
+     * @param array<string, array<string, int>> $definitionIdsByContentTypeAndCode
      */
-    public function write(array $attributeOptions, array $definitionIdsByCode): void
+    public function write(array $attributeOptions, array $definitionIdsByContentTypeAndCode): void
     {
         if ($attributeOptions === []) {
             return;
@@ -28,7 +28,7 @@ class AttributeOptionBulkWriter
 
         foreach (array_chunk($attributeOptions, self::CHUNK_SIZE) as $dtoChunk) {
             DB::table(AttributeOption::TABLE_NAME)->upsert(
-                $this->unpackAttributeOptionData($dtoChunk, $definitionIdsByCode, $now),
+                $this->unpackAttributeOptionData($dtoChunk, $definitionIdsByContentTypeAndCode, $now),
                 [
                     AttributeOption::FIELD_ATTRIBUTE_ID,
                     AttributeOption::FIELD_VALUE_RU,
@@ -41,21 +41,23 @@ class AttributeOptionBulkWriter
         }
     }
 
+
     /**
      * @param list<AttributeOptionData> $dtoChunk
-     * @param array<string, int> $definitionIdsByCode
+     * @param array<string, array<string, int>> $definitionIdsByContentTypeAndCode
      * @return list<array<string, mixed>>
      */
     private function unpackAttributeOptionData(
         array             $dtoChunk,
-        array             $definitionIdsByCode,
+        array             $definitionIdsByContentTypeAndCode,
         DateTimeInterface $now,
     ): array {
         $rows = [];
 
         foreach ($dtoChunk as $option) {
-            $attributeId = $definitionIdsByCode[$option->attributeCode]
-                ?? throw UnresolvedCatalogReferenceException::attributeDefinition($option->attributeCode);
+            $contentTypeCode = $option->contentTypeCode->value;
+            $attributeId = $definitionIdsByContentTypeAndCode[$contentTypeCode][$option->attributeCode]
+                ?? throw UnresolvedCatalogReferenceException::attributeDefinition($contentTypeCode, $option->attributeCode);
 
             $rows[] = [
                 AttributeOption::FIELD_ATTRIBUTE_ID => $attributeId,

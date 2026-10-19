@@ -13,6 +13,5 @@ final readonly class AttributeOptionData
         public string           $attributeCode,
         public TitleContentType $contentTypeCode,
         public LocalizedText    $value,
-    ) {
-    }
+    ) {}
 }
