@@ -60,8 +60,11 @@ final class CatalogPackerTest extends TestCase
         self::assertSame(2002, $title->releaseYear?->getYear());
         self::assertSame(TitleContentType::ANIME, $title->type);
         self::assertSame(TitleStatus::RELEASED, $title->status);
-        self::assertSame('https://example.test/poster.jpg', $title->posterUrl);
-        self::assertSame('https://example.test/banner.jpg', $title->bannerUrl);
+        self::assertNull($title->posterKey);
+        self::assertNull($title->posterThumbKey);
+        self::assertNull($title->bannerKey);
+        self::assertNull($title->posterSourceHash);
+        self::assertNull($title->bannerSourceHash);
         self::assertFalse($title->isIncomplete);
         self::assertSame(TitleUpdatedBy::PROCESS, $title->updatedBy);
         self::assertMatchesRegularExpression(
@@ -425,17 +428,17 @@ final class CatalogPackerTest extends TestCase
     }
 
     #[Test]
-    public function it_packs_null_year_duration_and_poster(): void
+    public function it_packs_null_year_and_duration(): void
     {
         $packed = (new CatalogPacker)->pack(new CatalogPackInput(
-            titles: [$this->title(releaseYear: null, durationMinutes: null, posterUrl: null)],
+            titles: [$this->title(releaseYear: null, durationMinutes: null)],
             attributeDefinitions: [],
         ));
 
         self::assertNull($packed->titles[0]->releaseYear);
         self::assertNull($packed->titles[0]->duration);
-        self::assertNull($packed->titles[0]->posterUrl);
-        self::assertSame('https://example.test/banner.jpg', $packed->titles[0]->bannerUrl);
+        self::assertNull($packed->titles[0]->posterKey);
+        self::assertNull($packed->titles[0]->bannerKey);
     }
 
     #[Test]

@@ -261,8 +261,11 @@ final readonly class CatalogPacker
             releaseYear: ReleaseYear::createFromYear($title->releaseYear),
             type: $title->contentType,
             status: $title->status,
-            posterUrl: $title->posterUrl,
-            bannerUrl: $title->bannerUrl,
+            posterKey: null,
+            posterThumbKey: null,
+            bannerKey: null,
+            posterSourceHash: null,
+            bannerSourceHash: null,
             isIncomplete: $title->isIncomplete,
             updatedBy: TitleUpdatedBy::PROCESS,
         );

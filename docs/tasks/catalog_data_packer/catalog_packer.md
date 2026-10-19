@@ -51,7 +51,7 @@
 
 | Коллекция | Что заполняет упаковщик | Ключ upsert у сейвера |
 |---|---|---|
-| `TitleData` | uuid, canonicalKey, title, description, `shortPlotRu = null`, duration, releaseYear, type, status, posterUrl, bannerUrl, isIncomplete, `updatedBy = PROCESS` | `canonical_key`. `uuid` пишется только при insert |
+| `TitleData` | uuid, canonicalKey, title, description, `shortPlotRu = null`, duration, releaseYear, type, status, ключи картинок и хеши URL = `null`, isIncomplete, `updatedBy = PROCESS` | `canonical_key`. `uuid` пишется только при insert |
 | `AttributeDefinitionData` | только те дефиниции, которые пришли во вход | `(content_type_code, code)` |
 | `AttributeOptionData` | `attributeCode`, `contentTypeCode` тайтла, `LocalizedText`. Только `ARRAY` и `STRING` | `(attribute_id, value_ru)` |
 | `TitleAttributeData` | canonical key, `attributeCode`, `contentTypeCode` тайтла, `AttributeValue` | `(title_id, attribute_id)` |
@@ -74,6 +74,7 @@
 - `ENUM` не пакуется — `LogicException`. В `AttributeValue` для него нет отдельного поля.
 - Опции дедупятся по `(contentType, code, value_ru)`. При одном `value_ru` и разном `value_en` остаётся первая. Так одна пачка не содержит двух строк с одним ключом `ON CONFLICT`.
 - `Duration::createFromMinutes` и `ReleaseYear::createFromYear` вызываются как есть. `null` остаётся `null`, кривые значения бросает VO.
+- `posterKey`, `posterThumbKey`, `bannerKey`, `posterSourceHash` и `bannerSourceHash` всегда `null`. Эти колонки пишет медиа-job. `posterUrl` и `bannerUrl` остаются на `CatalogTitlePackData` и в `TitleData` не копируются.
 
 В `TitleData` у `isIncomplete` значение по умолчанию `false`. Упаковщик его не использует и всегда передаёт флаг из входа.
 
@@ -88,6 +89,6 @@
 
 `tests/Unit/Application/Import/Services/CatalogPackerTest.php` — без базы.
 
-Покрыто: один тайтл с `genres` (`ARRAY`) и `studios` (`STRING`), `contentTypeCode` на опции и связи, постер и баннер, стабильный uuid, дедуп опции и одинаковой дефиниции на двух тайтлах, непривязанная дефиниция, пустой вход, `null` у года, длительности и постера, атрибут без дефиниций в пачке, пустой атрибут, значение только на английском, склейка повторного `ARRAY`, повтор ключа, конфликт дефиниций, несовпадение `valueType` атрибута и дефиниции, два разных `valueType` одного кода, один код у двух `contentType`, несколько значений у `STRING`, повтор `STRING` с разным текстом, схлопывание повтора `STRING`/`NUMBER`/`BOOLEAN` с тем же значением (`8.5`/`8.50`, `true`/`1`), повтор числа и булева с другим значением, число и булево (`false`, `true`, `1`) без опций, нечисло, небулево и `INF`, несколько значений у числа, тип `enum`.
+Покрыто: один тайтл с `genres` (`ARRAY`) и `studios` (`STRING`), `contentTypeCode` на опции и связи, пустые ключи картинок при заполненных URL на входе, стабильный uuid, дедуп опции и одинаковой дефиниции на двух тайтлах, непривязанная дефиниция, пустой вход, `null` у года и длительности, атрибут без дефиниций в пачке, пустой атрибут, значение только на английском, склейка повторного `ARRAY`, повтор ключа, конфликт дефиниций, несовпадение `valueType` атрибута и дефиниции, два разных `valueType` одного кода, один код у двух `contentType`, несколько значений у `STRING`, повтор `STRING` с разным текстом, схлопывание повтора `STRING`/`NUMBER`/`BOOLEAN` с тем же значением (`8.5`/`8.50`, `true`/`1`), повтор числа и булева с другим значением, число и булево (`false`, `true`, `1`) без опций, нечисло, небулево и `INF`, несколько значений у числа, тип `enum`.
 
 `tests/Feature/Catalog/CatalogBulkWriterTest.php` собирает `PreparedCatalogDto` с `contentTypeCode`, чтобы текущий сейвер этой ветки компилировался. Логику будущего writer с уникальностью `(content_type_code, code)` этот тест не проверяет.

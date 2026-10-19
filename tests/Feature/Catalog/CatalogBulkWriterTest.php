@@ -600,18 +600,6 @@ final class CatalogBulkWriterTest extends TestCase
     }
 
 
-    /**
-     * @throws BindingResolutionException
-     */
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        $this->createCatalogSchema();
-        $this->writer = $this->app->make(CatalogBulkWriterContract::class);
-    }
-
-
     private function preparedCatalog(
         string $titleRu = self::TITLE_RU,
         string $optionValueEn = self::GENRE_ACTION_EN,
