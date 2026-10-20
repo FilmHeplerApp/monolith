@@ -7,7 +7,6 @@ namespace App\Infrastructure\Persistence\Eloquent\Bulk\Catalog;
 use App\Application\Catalog\Contracts\CatalogBulkWriterContract;
 use App\Application\Catalog\DTOs\PreparedCatalogDto;
 use App\Application\Catalog\DTOs\TitleAttributeData;
-use App\Domain\Catalog\ValueObjects\Title\TitleCanonicalKey;
 use Illuminate\Support\Facades\DB;
 
 readonly class CatalogBulkWriter implements CatalogBulkWriterContract
@@ -23,16 +22,6 @@ readonly class CatalogBulkWriter implements CatalogBulkWriterContract
     public function write(PreparedCatalogDto $preparedCatalogDto): void
     {
         DB::transaction(function () use ($preparedCatalogDto): void {
-            $canonicalKeys = $this->getTitleCanonicalKeys($preparedCatalogDto);
-            $storedTitlesBeforeUpdate = $this->titleBulkWriter->getStoredTitlesByCanonicalKeys(
-                $canonicalKeys,
-                lockForUpdate: true,
-            );
-            $titleIdsToReplaceAttributes = $this->getTitleIdsChangingContentType(
-                $preparedCatalogDto,
-                $storedTitlesBeforeUpdate,
-            );
-
             $this->attributeDefinitionBulkWriter->write($preparedCatalogDto->attributeDefinitions);
 
             $definitionIdsByContentTypeAndCode = $this->attributeDefinitionBulkWriter->getDefinitionIdsByContentTypeAndCode(
@@ -47,16 +36,13 @@ readonly class CatalogBulkWriter implements CatalogBulkWriterContract
             $this->titleBulkWriter->write($preparedCatalogDto->titles);
 
             $storedTitlesByCanonicalKey = $this->titleBulkWriter->getStoredTitlesByCanonicalKeys(
-                $canonicalKeys,
-                lockForUpdate: true,
+                $this->getTitleCanonicalKeys($preparedCatalogDto),
             );
 
             $this->assertTitleAttributesMatchStoredContentTypes(
                 $preparedCatalogDto->titleAttributes,
                 $storedTitlesByCanonicalKey,
             );
-
-            $this->titleAttributeBulkWriter->deleteForTitles($titleIdsToReplaceAttributes);
 
             $this->titleAttributeBulkWriter->write(
                 $preparedCatalogDto->titleAttributes,
@@ -94,50 +80,10 @@ readonly class CatalogBulkWriter implements CatalogBulkWriterContract
      */
     private function getTitleCanonicalKeys(PreparedCatalogDto $preparedCatalogDto): array
     {
-        $canonicalKeys = [];
-
-        foreach ($preparedCatalogDto->titles as $title) {
-            $canonicalKeys[] = $title->canonicalKey->getValue();
-        }
-
-        foreach ($preparedCatalogDto->titleAttributes as $titleAttribute) {
-            $canonicalKeys[] = $titleAttribute->titleCanonicalKey->getValue();
-        }
-
-        return array_values(array_unique($canonicalKeys));
-    }
-
-    /**
-     * @param array<string, array{id: int, contentTypeCode: string}> $storedTitlesByCanonicalKey
-     * @return list<int>
-     */
-    private function getTitleIdsChangingContentType(
-        PreparedCatalogDto $preparedCatalogDto,
-        array              $storedTitlesByCanonicalKey,
-    ): array
-    {
-        $completeAttributeSets = array_fill_keys(array_map(
-            static fn(TitleCanonicalKey $key): string => $key->getValue(),
-            $preparedCatalogDto->completeAttributeSetTitleKeys,
-        ), true);
-        $titleIds = [];
-
-        foreach ($preparedCatalogDto->titles as $title) {
-            $canonicalKey = $title->canonicalKey->getValue();
-            $storedTitle = $storedTitlesByCanonicalKey[$canonicalKey] ?? null;
-
-            if ($storedTitle === null || $storedTitle['contentTypeCode'] === $title->type->value) {
-                continue;
-            }
-
-            if (!isset($completeAttributeSets[$canonicalKey])) {
-                throw IncompleteTitleAttributeSetException::contentTypeChange($canonicalKey);
-            }
-
-            $titleIds[] = $storedTitle['id'];
-        }
-
-        return $titleIds;
+        return array_map(
+            static fn(TitleAttributeData $titleAttribute): string => $titleAttribute->titleCanonicalKey->getValue(),
+            $preparedCatalogDto->titleAttributes,
+        );
     }
 
     /**
@@ -147,8 +93,7 @@ readonly class CatalogBulkWriter implements CatalogBulkWriterContract
     private function assertTitleAttributesMatchStoredContentTypes(
         array $titleAttributes,
         array $storedTitlesByCanonicalKey,
-    ): void
-    {
+    ): void {
         foreach ($titleAttributes as $titleAttribute) {
             $canonicalKey = $titleAttribute->titleCanonicalKey->getValue();
             $storedTitle = $storedTitlesByCanonicalKey[$canonicalKey]
