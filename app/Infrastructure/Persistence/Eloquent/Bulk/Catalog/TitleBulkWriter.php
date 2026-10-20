@@ -49,7 +49,7 @@ class TitleBulkWriter
      * @param  list<string>  $canonicalKeys
      * @return array<string, array{id: int, contentTypeCode: string}>
      */
-    public function getStoredTitlesByCanonicalKeys(array $canonicalKeys, bool $lockForUpdate = false): array
+    public function getStoredTitlesByCanonicalKeys(array $canonicalKeys): array
     {
         if ($canonicalKeys === []) {
             return [];
@@ -57,19 +57,9 @@ class TitleBulkWriter
 
         $storedTitlesByCanonicalKey = [];
 
-        $canonicalKeys = array_values(array_unique($canonicalKeys));
-        sort($canonicalKeys, SORT_STRING);
-
-        foreach (array_chunk($canonicalKeys, self::CHUNK_SIZE) as $chunk) {
-            $query = DB::table(Title::TABLE_NAME)
+        foreach (array_chunk(array_values(array_unique($canonicalKeys)), self::CHUNK_SIZE) as $chunk) {
+            $rows = DB::table(Title::TABLE_NAME)
                 ->whereIn(Title::FIELD_CANONICAL_KEY, $chunk)
-                ->orderBy(Title::FIELD_CANONICAL_KEY);
-
-            if ($lockForUpdate) {
-                $query->lockForUpdate();
-            }
-
-            $rows = $query
                 ->get([
                     Title::FIELD_ID,
                     Title::FIELD_CANONICAL_KEY,
