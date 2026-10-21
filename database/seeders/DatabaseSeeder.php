@@ -15,6 +15,7 @@ class DatabaseSeeder extends Seeder
                 AttributeDefinitionSeeder::class,
                 AttributeOptionSeeder::class,
                 TitleAttributeSeeder::class,
+                UserSeeder::class,
             ]);
         });
     }

@@ -6,19 +6,14 @@ namespace App\Domain\Users\ValueObjects\User;
 
 use App\Domain\Users\Exceptions\InvalidUserValueException;
 
-final readonly class Name
+final readonly class Nickname
 {
-    private function __construct(
-        private string $value,
-    ) {
-    }
-
     public static function createFromString(string $value): self
     {
         $normalized = trim($value);
 
         if ($normalized === '') {
-            throw InvalidUserValueException::blankName();
+            throw InvalidUserValueException::blankNickname();
         }
 
         return new self($normalized);
@@ -32,5 +27,11 @@ final readonly class Name
     public function __toString(): string
     {
         return $this->value;
+    }
+
+
+    private function __construct(
+        private string $value,
+    ) {
     }
 }

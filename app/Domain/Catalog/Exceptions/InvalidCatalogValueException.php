@@ -49,11 +49,6 @@ final class InvalidCatalogValueException extends InvalidArgumentException
         return new self(sprintf('Rating count must be >= 0, got %d.', $count));
     }
 
-    public static function invalidEmbeddingDimension(int $expected, int $actual): self
-    {
-        return new self(sprintf('Embedding must have %d dimensions, got %d.', $expected, $actual));
-    }
-
     public static function emptyAttributeValue(): self
     {
         return new self('Attribute value must contain exactly one typed value.');

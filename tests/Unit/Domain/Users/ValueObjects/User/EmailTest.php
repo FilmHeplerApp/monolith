@@ -12,7 +12,7 @@ use PHPUnit\Framework\TestCase;
 final class EmailTest extends TestCase
 {
     #[Test]
-    public function email_normalizes_and_validates(): void
+    public function email_normalizes_the_value(): void
     {
         $email = Email::createFromString('  User@Example.COM ');
 

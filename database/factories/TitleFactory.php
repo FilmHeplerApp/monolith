@@ -5,6 +5,7 @@ namespace Database\Factories;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\Enums\Title\TitleStatus;
 use App\Domain\Catalog\Enums\Title\TitleUpdatedBy;
+use App\Domain\Shared\ValueObjects\Embedding;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\Title;
 use Database\Factories\Fixtures\TitleFixture;
 use Illuminate\Database\Eloquent\Factories\Attributes\UseModel;
@@ -14,7 +15,6 @@ use Illuminate\Database\Eloquent\Factories\Factory;
 class TitleFactory extends Factory
 {
     private const string EN_LOCALE = 'en_US';
-    private const int EMBEDDING_SIZE = 1535;
     private const int ZERO_VALUE = 0;
     private const int MIN_RELEASE_YEAR = 1950;
     private const int MAX_RELEASE_YEAR = 2026;
@@ -49,8 +49,9 @@ class TitleFactory extends Factory
 
     private function generateEmbedding(): array
     {
-        $embedding = range(self::ZERO_VALUE, self::EMBEDDING_SIZE);
+        $embedding = range(self::ZERO_VALUE, Embedding::DIMENSION - 1);
         shuffle($embedding);
+
         return $embedding;
     }
 
