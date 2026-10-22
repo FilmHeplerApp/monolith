@@ -15,20 +15,10 @@ class TitleAttributeBulkWriter
     private const int CHUNK_SIZE = 1000;
 
 
-    /** @param list<int> $titleIds */
-    public function deleteForTitles(array $titleIds): void
-    {
-        foreach (array_chunk($titleIds, self::CHUNK_SIZE) as $chunk) {
-            DB::table(TitleAttribute::TABLE_NAME)
-                ->whereIn(TitleAttribute::FIELD_TITLE_ID, $chunk)
-                ->delete();
-        }
-    }
-
     /**
-     * @param  list<TitleAttributeData>  $titleAttributes
-     * @param  array<string, int>  $titleIdsByCanonicalKey
-     * @param  array<string, array<string, int>>  $definitionIdsByContentTypeAndCode
+     * @param list<TitleAttributeData> $titleAttributes
+     * @param array<string, int> $titleIdsByCanonicalKey
+     * @param array<string, array<string, int>> $definitionIdsByContentTypeAndCode
      *
      * @throws JsonException
      */
