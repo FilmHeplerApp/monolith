@@ -10,6 +10,5 @@ final readonly class ProviderTaxonomyItem
         public string  $kind,
         public ?string $nameRu,
         public ?string $nameEn,
-    ) {
-    }
+    ) {}
 }

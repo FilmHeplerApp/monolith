@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Domain\Import\Rules;
 
 use App\Domain\Import\Contracts\ImportFilterRuleContract;
+use App\Domain\Import\DTOs\FilterDecision;
 use App\Domain\Import\DTOs\TitleCandidate;
-use App\Domain\Import\ValueObjects\FilterDecision;
 
 final readonly class CompletenessRule implements ImportFilterRuleContract
 {

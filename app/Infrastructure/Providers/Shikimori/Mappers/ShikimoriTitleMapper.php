@@ -7,6 +7,8 @@ namespace App\Infrastructure\Providers\Shikimori\Mappers;
 use App\Application\Import\DTOs\ProviderTaxonomyItem;
 use App\Application\Import\DTOs\ProviderTitle;
 use App\Application\Import\Enums\ProviderSource;
+use App\Domain\Catalog\Enums\Title\TitleContentType;
+use App\Domain\Catalog\Enums\Title\TitleFormat;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 
 final readonly class ShikimoriTitleMapper
@@ -29,12 +31,13 @@ final readonly class ShikimoriTitleMapper
             studios: $this->mapStudios($row['studios'] ?? []),
             year: $this->nullableInt(data_get($row, 'airedOn.year') ?? data_get($row, 'releasedOn.year')),
             durationMinutes: $this->nullablePositiveInt($row['duration'] ?? null),
-            rating: $this->nullablePositiveFloat($row['score'] ?? null),
+            rating: $this->nullableFloat($row['score'] ?? null),
             ratingCount: $this->ratingCount($row['scoresStats'] ?? []),
             posterUrl: $this->cleanString(data_get($row, 'poster.originalUrl')),
             bannerUrl: null,
-            type: (string) ($row['kind'] ?? ''),
-            status: (string) ($row['status'] ?? ''),
+            type: TitleContentType::ANIME->value,
+            status: ($row['status'] ?? '') === 'anons' ? 'announced' : (string) ($row['status'] ?? ''),
+            format: TitleFormat::tryFrom(strtolower(trim((string) ($row['kind'] ?? '')))),
         );
     }
 
@@ -86,7 +89,7 @@ final readonly class ShikimoriTitleMapper
 
     private function cleanString(mixed $value): ?string
     {
-        if (! is_string($value)) {
+        if (!is_string($value)) {
             return null;
         }
 
@@ -107,10 +110,8 @@ final readonly class ShikimoriTitleMapper
         return $value !== null && $value > 0 ? $value : null;
     }
 
-    private function nullablePositiveFloat(mixed $value): ?float
+    private function nullableFloat(mixed $value): ?float
     {
-        $value = (float) ($value ?? 0);
-
-        return $value > 0 ? $value : null;
+        return $value === null || $value === '' ? null : (float) $value;
     }
 }

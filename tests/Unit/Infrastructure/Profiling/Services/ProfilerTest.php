@@ -19,7 +19,6 @@ class ProfilerTest extends TestCase
     {
         parent::setUp();
 
-        config()->set('profiler.enabled', true);
         $this->clearProfilerState();
     }
 

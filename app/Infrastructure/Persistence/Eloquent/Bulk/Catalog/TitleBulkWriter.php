@@ -37,8 +37,6 @@ class TitleBulkWriter
                     Title::FIELD_RELEASE_YEAR,
                     Title::FIELD_TYPE,
                     Title::FIELD_STATUS,
-                    Title::FIELD_POSTER_URL,
-                    Title::FIELD_BANNER_URL,
                     Title::FIELD_IS_INCOMPLETE,
                     Title::FIELD_UPDATED_BY,
                     Title::FIELD_UPDATED_AT,
@@ -48,7 +46,40 @@ class TitleBulkWriter
     }
 
     /**
-     * @param list<TitleData> $dtoChunk
+     * @param  list<string>  $canonicalKeys
+     * @return array<string, array{id: int, contentTypeCode: string}>
+     */
+    public function getStoredTitlesByCanonicalKeys(array $canonicalKeys): array
+    {
+        if ($canonicalKeys === []) {
+            return [];
+        }
+
+        $storedTitlesByCanonicalKey = [];
+
+        foreach (array_chunk(array_values(array_unique($canonicalKeys)), self::CHUNK_SIZE) as $chunk) {
+            $rows = DB::table(Title::TABLE_NAME)
+                ->whereIn(Title::FIELD_CANONICAL_KEY, $chunk)
+                ->get([
+                    Title::FIELD_ID,
+                    Title::FIELD_CANONICAL_KEY,
+                    Title::FIELD_TYPE,
+                ]);
+
+            foreach ($rows as $row) {
+                $storedTitlesByCanonicalKey[(string) $row->{Title::FIELD_CANONICAL_KEY}] = [
+                    'id' => (int) $row->{Title::FIELD_ID},
+                    'contentTypeCode' => (string) $row->{Title::FIELD_TYPE},
+                ];
+            }
+        }
+
+        return $storedTitlesByCanonicalKey;
+    }
+
+
+    /**
+     * @param  list<TitleData>  $dtoChunk
      * @return list<array<string, mixed>>
      */
     private function unpackTitleData(array $dtoChunk, DateTimeInterface $now): array
@@ -68,8 +99,11 @@ class TitleBulkWriter
                 Title::FIELD_RELEASE_YEAR => $titleData->releaseYear?->getYear(),
                 Title::FIELD_TYPE => $titleData->type->value,
                 Title::FIELD_STATUS => $titleData->status->value,
-                Title::FIELD_POSTER_URL => $titleData->posterUrl,
-                Title::FIELD_BANNER_URL => $titleData->bannerUrl,
+                Title::FIELD_POSTER_KEY => $titleData->posterKey,
+                Title::FIELD_POSTER_THUMB_KEY => $titleData->posterThumbKey,
+                Title::FIELD_BANNER_KEY => $titleData->bannerKey,
+                Title::FIELD_POSTER_SOURCE_HASH => $titleData->posterSourceHash,
+                Title::FIELD_BANNER_SOURCE_HASH => $titleData->bannerSourceHash,
                 Title::FIELD_IS_INCOMPLETE => $titleData->isIncomplete,
                 Title::FIELD_UPDATED_BY => $titleData->updatedBy->value,
                 Title::FIELD_CREATED_AT => $now,
@@ -78,31 +112,5 @@ class TitleBulkWriter
         }
 
         return $rows;
-    }
-
-    /**
-     * @param list<string> $canonicalKeys
-     * @return array<string, int>
-     */
-    public function getTitleIdsByCanonicalKeys(array $canonicalKeys): array
-    {
-        if ($canonicalKeys === []) {
-            return [];
-        }
-
-        $map = [];
-
-        foreach (array_chunk(array_values(array_unique($canonicalKeys)), self::CHUNK_SIZE) as $chunk) {
-            $rows = DB::table(Title::TABLE_NAME)
-                ->whereIn(Title::FIELD_CANONICAL_KEY, $chunk)
-                ->pluck(Title::FIELD_ID, Title::FIELD_CANONICAL_KEY)
-                ->toArray();
-
-            foreach ($rows as $canonicalKey => $id) {
-                $map[(string)$canonicalKey] = (int)$id;
-            }
-        }
-
-        return $map;
     }
 }

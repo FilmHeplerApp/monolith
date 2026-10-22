@@ -10,9 +10,13 @@ use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\CommittedShikimoriDump;
 
 final class DumpReplayProviderClientTest extends TestCase
 {
+    private string $directory;
+
+
     #[Test]
     public function it_streams_a_dump_with_limit_and_offset(): void
     {
@@ -48,11 +52,29 @@ final class DumpReplayProviderClientTest extends TestCase
         $this->client()->fetchTitles(offset: -1);
     }
 
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->directory = sys_get_temp_dir().'/shikimori-replay-'.bin2hex(random_bytes(8));
+        CommittedShikimoriDump::create($this->directory, file_get_contents(dirname(__DIR__, 5).'/static/Fixtures/Shikimori/animes.ndjson'));
+    }
+
+    protected function tearDown(): void
+    {
+        foreach (glob($this->directory.'/*') as $path) {
+            unlink($path);
+        }
+        rmdir($this->directory);
+        parent::tearDown();
+    }
+
+
     private function client(): DumpReplayProviderClient
     {
         return new DumpReplayProviderClient(
             new ShikimoriTitleMapper,
-            dirname(__DIR__, 4).'/Fixtures/Shikimori/animes.ndjson',
+            $this->directory.'/shikimori_anime.ndjson',
         );
     }
 }

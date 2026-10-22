@@ -8,6 +8,7 @@ use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\UseCases\ImportTitlesFromProvider;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use Throwable;
 
@@ -18,16 +19,15 @@ final class RunImportCommand extends Command
         {--source=api : Data source (api or dump)}
         {--limit= : Maximum total number of titles for this run}
         {--resume : Resume the latest incomplete matching run}';
-
     protected $description = 'Collect, normalize and filter titles from a provider';
 
 
     public function handle(ImportTitlesFromProvider $importer): int
     {
         try {
-            $provider = ProviderSource::tryFrom((string)$this->argument('provider'))
+            $provider = ProviderSource::tryFrom((string) $this->argument('provider'))
                 ?? throw new InvalidArgumentException('Unknown provider.');
-            $dataSource = ProviderDataSource::tryFrom((string)$this->option('source'))
+            $dataSource = ProviderDataSource::tryFrom((string) $this->option('source'))
                 ?? throw new InvalidArgumentException('Source must be api or dump.');
             $limit = $this->parseLimit($this->option('limit'));
 
@@ -35,9 +35,10 @@ final class RunImportCommand extends Command
                 provider: $provider,
                 dataSource: $dataSource,
                 limit: $limit,
-                resume: (bool)$this->option('resume'),
+                resume: (bool) $this->option('resume'),
             );
         } catch (Throwable $exception) {
+            Log::error('Provider import failed.', ['provider' => $this->argument('provider'), 'source' => $this->option('source'), 'exception' => $exception]);
             $this->error($exception->getMessage());
 
             return self::FAILURE;
@@ -56,6 +57,8 @@ final class RunImportCommand extends Command
             ]],
         );
 
+        Log::info('Provider import completed.', ['run_id' => $result->runId, 'checkpoint' => $result->checkpoint, 'fetched' => $result->counters->fetched, 'accepted' => $result->counters->accepted, 'flagged' => $result->counters->flagged, 'rejected' => $result->counters->rejected]);
+
         return self::SUCCESS;
     }
 
@@ -66,10 +69,10 @@ final class RunImportCommand extends Command
             return null;
         }
 
-        if (filter_var($value, FILTER_VALIDATE_INT) === false || (int)$value < 1) {
+        if (filter_var($value, FILTER_VALIDATE_INT) === false || (int) $value < 1) {
             throw new InvalidArgumentException('Limit must be a positive integer.');
         }
 
-        return (int)$value;
+        return (int) $value;
     }
 }

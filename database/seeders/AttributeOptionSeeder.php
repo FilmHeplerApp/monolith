@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeDefinition;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeOption;
 use Illuminate\Database\Seeder;
@@ -20,7 +21,7 @@ class AttributeOptionSeeder extends Seeder
         ['Драма', 'Drama'],
         ['Романтика', 'Romance'],
         ['Фэнтези', 'Fantasy'],
-        ['Повседневность', 'Slice of Life']
+        ['Повседневность', 'Slice of Life'],
     ];
     private const array TARGET_AUDIENCE_ARRAY = [
         ['Кодомо', 'Kodomo'],
@@ -91,9 +92,7 @@ class AttributeOptionSeeder extends Seeder
 
     private function seedGenre(): void
     {
-        $attribute = AttributeDefinition::query()
-            ->where(AttributeDefinition::FIELD_CODE, self::GENRES)
-            ->firstOrFail('id');
+        $attribute = $this->findDefinition(self::GENRES);
 
         $dataToSave = $this->combineData($attribute->id, self::GENRES_ARRAY);
         if (empty($dataToSave)) {
@@ -105,9 +104,7 @@ class AttributeOptionSeeder extends Seeder
 
     private function seedTargetAudience(): void
     {
-        $attribute = AttributeDefinition::query()
-            ->where(AttributeDefinition::FIELD_CODE, self::TARGET_AUDIENCE)
-            ->firstOrFail('id');
+        $attribute = $this->findDefinition(self::TARGET_AUDIENCE);
 
         $dataToSave = $this->combineData($attribute->id, self::TARGET_AUDIENCE_ARRAY);
         if (empty($dataToSave)) {
@@ -119,9 +116,7 @@ class AttributeOptionSeeder extends Seeder
 
     private function seedTags(): void
     {
-        $attribute = AttributeDefinition::query()
-            ->where(AttributeDefinition::FIELD_CODE, self::TAGS)
-            ->firstOrFail('id');
+        $attribute = $this->findDefinition(self::TAGS);
 
         $dataToSave = $this->combineData($attribute->id, self::TAGS_ARRAY);
         if (empty($dataToSave)) {
@@ -133,9 +128,7 @@ class AttributeOptionSeeder extends Seeder
 
     private function seedStudios(): void
     {
-        $attribute = AttributeDefinition::query()
-            ->where(AttributeDefinition::FIELD_CODE, self::STUDIOS)
-            ->firstOrFail();
+        $attribute = $this->findDefinition(self::STUDIOS);
 
         $dataToSave = $this->combineData($attribute->id, self::STUDIOS_ARRAY);
         if (empty($dataToSave)) {
@@ -143,6 +136,14 @@ class AttributeOptionSeeder extends Seeder
         }
 
         $this->upsertData($dataToSave);
+    }
+
+    private function findDefinition(string $code): AttributeDefinition
+    {
+        return AttributeDefinition::query()
+            ->where(AttributeDefinition::FIELD_CONTENT_TYPE_CODE, TitleContentType::ANIME->value)
+            ->where(AttributeDefinition::FIELD_CODE, $code)
+            ->firstOrFail();
     }
 
     private function combineData(int $attributeId, array $incomingData): array
@@ -159,6 +160,7 @@ class AttributeOptionSeeder extends Seeder
                 AttributeOption::FIELD_VALUE_RU => $ru,
             ];
         }
+
         return $dataToSave;
     }
 

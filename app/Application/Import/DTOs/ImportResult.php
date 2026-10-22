@@ -11,6 +11,5 @@ final readonly class ImportResult
         public ImportCounters $counters,
         public int            $checkpoint,
         public bool           $resumed,
-    ) {
-    }
+    ) {}
 }

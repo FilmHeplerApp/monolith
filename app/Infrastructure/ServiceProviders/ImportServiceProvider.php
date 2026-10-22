@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Infrastructure\ServiceProviders;
 
 use App\Application\Import\Contracts\CandidateSinkContract;
+use App\Application\Import\Contracts\ImportRunLockContract;
 use App\Application\Import\Contracts\ImportRunRecorderContract;
 use App\Application\Import\Contracts\ProviderClientFactoryContract;
 use App\Application\Import\Services\ProviderTitleToCandidateMapper;
@@ -12,10 +13,11 @@ use App\Application\Import\UseCases\ImportTitlesFromProvider;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Import\Rules\AllowedContentTypeRule;
 use App\Domain\Import\Rules\CompletenessRule;
+use App\Domain\Import\Rules\ExcludedTitleFormatRule;
 use App\Domain\Import\Rules\HasAnyTitleRule;
-use App\Domain\Import\Rules\MinProviderScoreRule;
 use App\Domain\Import\Rules\MinReleaseYearRule;
-use App\Domain\Import\Services\ImportFilterEngine;
+use App\Domain\Import\Services\TitleCandidateEvaluator;
+use App\Infrastructure\Import\Locks\DatabaseImportRunLock;
 use App\Infrastructure\Import\Sinks\LogCandidateSink;
 use App\Infrastructure\Persistence\Eloquent\Import\EloquentImportRunRecorder;
 use App\Infrastructure\Providers\Factories\ProviderClientFactory;
@@ -35,10 +37,11 @@ final class ImportServiceProvider extends ServiceProvider
                 isProduction: $app->isProduction(),
             ),
         );
+        $this->app->bind(ImportRunLockContract::class, DatabaseImportRunLock::class);
         $this->app->bind(ImportRunRecorderContract::class, EloquentImportRunRecorder::class);
         $this->app->bind(CandidateSinkContract::class, LogCandidateSink::class);
 
-        $this->app->singleton(ImportFilterEngine::class, static function (): ImportFilterEngine {
+        $this->app->singleton(TitleCandidateEvaluator::class, static function (): TitleCandidateEvaluator {
             $allowedTypes = array_values(array_filter(array_map(
                 static fn (string $type): ?TitleContentType => TitleContentType::tryFrom($type),
                 (array) config('import.filter.allowed_types', []),
@@ -54,18 +57,11 @@ final class ImportServiceProvider extends ServiceProvider
                 $rules[] = new MinReleaseYearRule((int) $minYear);
             }
 
-            $minScore = config('import.filter.min_provider_score');
-            $minScoreCount = config('import.filter.min_provider_score_count');
-            if ($minScore !== null || $minScoreCount !== null) {
-                $rules[] = new MinProviderScoreRule(
-                    $minScore === null ? PHP_FLOAT_MAX : (float) $minScore,
-                    $minScoreCount === null ? PHP_INT_MAX : (int) $minScoreCount,
-                );
-            }
+            $rules[] = new ExcludedTitleFormatRule;
 
             $rules[] = new CompletenessRule;
 
-            return new ImportFilterEngine($rules);
+            return new TitleCandidateEvaluator($rules);
         });
 
         $this->app->bind(
@@ -73,9 +69,10 @@ final class ImportServiceProvider extends ServiceProvider
             static fn (Application $app): ImportTitlesFromProvider => new ImportTitlesFromProvider(
                 clients: $app->make(ProviderClientFactoryContract::class),
                 mapper: $app->make(ProviderTitleToCandidateMapper::class),
-                filter: $app->make(ImportFilterEngine::class),
+                filter: $app->make(TitleCandidateEvaluator::class),
                 recorder: $app->make(ImportRunRecorderContract::class),
                 sink: $app->make(CandidateSinkContract::class),
+                lock: $app->make(ImportRunLockContract::class),
                 checkpointEvery: (int) config('import.checkpoint_every', 50),
             ),
         );

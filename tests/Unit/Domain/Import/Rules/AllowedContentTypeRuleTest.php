@@ -9,7 +9,7 @@ use App\Domain\Import\Enums\RejectionReason;
 use App\Domain\Import\Rules\AllowedContentTypeRule;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use Tests\Unit\Domain\Import\Support\CandidateParent;
+use Tests\Unit\Domain\Import\Support\TitleCandidateFactory;
 
 final class AllowedContentTypeRuleTest extends TestCase
 {
@@ -18,14 +18,14 @@ final class AllowedContentTypeRuleTest extends TestCase
     {
         $rule = new AllowedContentTypeRule([TitleContentType::ANIME]);
 
-        self::assertTrue($rule->evaluate(CandidateParent::create(type: TitleContentType::ANIME))->isAccepted());
+        self::assertTrue($rule->evaluate(TitleCandidateFactory::create(type: TitleContentType::ANIME))->isAccepted());
     }
 
     #[Test]
     public function rejects_disallowed_type(): void
     {
         $rule = new AllowedContentTypeRule([TitleContentType::ANIME]);
-        $decision = $rule->evaluate(CandidateParent::create(type: TitleContentType::MOVIE));
+        $decision = $rule->evaluate(TitleCandidateFactory::create(type: TitleContentType::MOVIE));
 
         self::assertTrue($decision->isRejected());
         self::assertSame(RejectionReason::UNSUPPORTED_TYPE, $decision->reason);

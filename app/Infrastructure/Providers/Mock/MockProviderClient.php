@@ -17,9 +17,7 @@ final class MockProviderClient implements ProviderClientContract
 {
     /** @var list<ProviderTitle> */
     private array $titles;
-
     private ?ProviderException $failure = null;
-
     private int $failAfter = 0;
 
 
@@ -34,7 +32,7 @@ final class MockProviderClient implements ProviderClientContract
         return ProviderSource::Mock;
     }
 
-    public function fetchTitles(?int $limit = null, int $offset = 0): Generator
+    public function fetchTitles(?int $limit = 50, int $offset = 0): Generator
     {
         if ($limit !== null && $limit < 1) {
             throw new InvalidArgumentException("Fetch limit must be >= 1 or null, got {$limit}.");
@@ -49,12 +47,23 @@ final class MockProviderClient implements ProviderClientContract
 
     public function fetchTitleByExternalId(string $externalId): ?ProviderTitle
     {
+        if ($this->failure !== null && $this->failAfter === 0) {
+            throw $this->failure;
+        }
+
         return array_find(
             $this->titles,
             static fn (ProviderTitle $title): bool => $title->externalId === $externalId,
         );
     }
 
+    /**
+     * Fail the stream after this many successful yields.
+     *
+     * Offset 0 means the provider is already down: {@see fetchTitleByExternalId()} throws the same
+     * exception, and {@see fetchTitles()} throws on the first iteration step. A positive offset
+     * leaves lookup working until iteration reaches the failure.
+     */
     public function failWith(ProviderException $exception, int $afterItems = 0): void
     {
         $available = count($this->titles);
@@ -115,16 +124,8 @@ final class MockProviderClient implements ProviderClientContract
     private static function defaultFixtures(): array
     {
         return [
-            ...self::fixturesWithoutDuplicatedExternalId(),
-            self::fixtureWithDuplicatedExternalId(),
-        ];
-    }
-
-    /** @return list<ProviderTitle> */
-    private static function fixturesWithoutDuplicatedExternalId(): array
-    {
-        return [
             ...self::completeFixtures(),
+            self::fixtureWithDuplicatedExternalId(),
             ...self::incompleteFixtures(),
             ...self::invalidFixtures(),
         ];
@@ -179,7 +180,7 @@ final class MockProviderClient implements ProviderClientContract
                 genres: ['action', 'fantasy'],
                 studios: ['MAPPA'],
                 year: 2023,
-                rating: null,
+                rating: 8.6,
                 ratingCount: null,
                 posterUrl: 'https://mock.local/posters/52991.jpg',
                 status: 'ongoing',
@@ -209,6 +210,7 @@ final class MockProviderClient implements ProviderClientContract
                 titleRu: 'Забытое старое кино',
                 titleEn: null,
                 descriptionRu: null,
+                genres: [],
                 year: 1975,
                 durationMinutes: null,
                 rating: null,
@@ -219,6 +221,7 @@ final class MockProviderClient implements ProviderClientContract
                 titleRu: null,
                 titleEn: 'Untitled Announced Project',
                 descriptionRu: null,
+                genres: [],
                 year: null,
                 durationMinutes: null,
                 rating: null,
@@ -230,6 +233,7 @@ final class MockProviderClient implements ProviderClientContract
                 titleRu: null,
                 titleEn: null,
                 descriptionRu: null,
+                genres: [],
                 year: null,
                 durationMinutes: null,
                 rating: null,
@@ -303,7 +307,7 @@ final class MockProviderClient implements ProviderClientContract
         ?string $titleEn = 'Test title',
         ?string $descriptionRu = 'Тестовое описание.',
         ?string $descriptionEn = null,
-        array   $genres = [],
+        array   $genres = ['test'],
         array   $studios = [],
         ?int    $year = 2024,
         ?int    $durationMinutes = 24,

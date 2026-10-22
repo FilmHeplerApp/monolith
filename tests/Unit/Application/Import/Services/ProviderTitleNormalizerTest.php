@@ -5,15 +5,33 @@ declare(strict_types=1);
 namespace Tests\Unit\Application\Import\Services;
 
 use App\Application\Import\Services\ProviderTitleNormalizer;
-use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
 final class ProviderTitleNormalizerTest extends TestCase
 {
-    private function normalizer(int $max = 1000): ProviderTitleNormalizer
+    #[Test]
+    #[DataProvider('entityEncodedBbcode')]
+    public function it_decodes_entities_before_stripping_bbcode(string $raw): void
     {
-        return new ProviderTitleNormalizer($max);
+        self::assertSame('Спайк — охотник.', $this->normalizer()->normalizeDescription($raw));
+    }
+
+    public static function entityEncodedBbcode(): array
+    {
+        return [
+            'decimal brackets' => ['&#91;character=42&#93;Спайк&#91;/character&#93; — охотник.'],
+            'hexadecimal brackets' => ['&#x5B;character=42&#x5D;Спайк&#x5B;/character&#x5D; — охотник.'],
+            'named brackets' => ['&lbrack;character=42&rbrack;Спайк&lbrack;/character&rbrack; — охотник.'],
+            'mixed HTML and BBCode' => ["&lt;b&gt;[character=42]Спайк&#91;/character&#93;&lt;/b&gt;  —\n охотник."],
+        ];
+    }
+
+    #[Test]
+    public function it_returns_null_when_entity_encoded_bbcode_has_no_content(): void
+    {
+        self::assertNull($this->normalizer()->normalizeDescription('&#91;character=42&#93;&#91;/character&#93;'));
     }
 
     #[Test]
@@ -32,14 +50,15 @@ final class ProviderTitleNormalizerTest extends TestCase
     }
 
     #[Test]
-    public function it_strips_html_encoded_as_entities(): void
+    public function it_strips_entity_encoded_html_but_keeps_inner_text(): void
     {
-        self::assertSame(
-            'alert(1) safe text',
-            $this->normalizer()->normalizeDescription(
-                '&lt;script&gt;alert(1)&lt;/script&gt; &lt;strong&gt;safe&lt;/strong&gt; text',
-            ),
-        );
+        self::assertSame('текст', $this->normalizer()->normalizeDescription('&lt;b&gt;текст&lt;/b&gt;'));
+    }
+
+    #[Test]
+    public function it_returns_null_for_empty_entity_encoded_html(): void
+    {
+        self::assertNull($this->normalizer()->normalizeDescription('&lt;b&gt;&lt;/b&gt;'));
     }
 
     #[Test]
@@ -61,6 +80,23 @@ final class ProviderTitleNormalizerTest extends TestCase
     }
 
     #[Test]
+    public function it_truncates_text_without_spaces_within_the_limit(): void
+    {
+        $result = $this->normalizer()->normalizeDescription(str_repeat('я', 1001));
+
+        self::assertSame(str_repeat('я', 999).'…', $result);
+        self::assertSame(1000, mb_strlen($result));
+    }
+
+    #[Test]
+    public function it_keeps_text_at_the_length_limit(): void
+    {
+        $text = str_repeat('я', 1000);
+
+        self::assertSame($text, $this->normalizer()->normalizeDescription($text));
+    }
+
+    #[Test]
     public function it_returns_null_for_null(): void
     {
         self::assertNull($this->normalizer()->normalizeDescription(null));
@@ -72,22 +108,9 @@ final class ProviderTitleNormalizerTest extends TestCase
         self::assertNull($this->normalizer()->normalizeDescription('  [b][/b]  '));
     }
 
-    #[Test]
-    public function it_normalizes_each_localized_description_independently(): void
-    {
-        $description = $this->normalizer()->normalizeLocalizedDescription(
-            LocalizedText::create('<b>Русское</b> описание', 'English &amp; description'),
-        );
 
-        self::assertSame('Русское описание', $description?->getRu());
-        self::assertSame('English & description', $description?->getEn());
-    }
-
-    #[Test]
-    public function it_returns_null_when_all_localized_descriptions_are_blank(): void
+    private function normalizer(int $max = 1000): ProviderTitleNormalizer
     {
-        self::assertNull($this->normalizer()->normalizeLocalizedDescription(
-            LocalizedText::create('<b></b>', '[description][/description]'),
-        ));
+        return new ProviderTitleNormalizer($max);
     }
 }

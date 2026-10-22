@@ -9,10 +9,10 @@ use InvalidArgumentException;
 final class ImportCounters
 {
     public function __construct(
-        private(set) int $fetched = 0,
-        private(set) int $accepted = 0,
-        private(set) int $flagged = 0,
-        private(set) int $rejected = 0,
+        public private(set) int $fetched = 0,
+        public private(set) int $accepted = 0,
+        public private(set) int $flagged = 0,
+        public private(set) int $rejected = 0,
     ) {
         if (min($this->fetched, $this->accepted, $this->flagged, $this->rejected) < 0) {
             throw new InvalidArgumentException('Import counters cannot be negative.');

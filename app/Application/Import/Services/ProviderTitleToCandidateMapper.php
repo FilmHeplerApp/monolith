@@ -6,11 +6,11 @@ namespace App\Application\Import\Services;
 
 use App\Application\Import\DTOs\ProviderTaxonomyItem;
 use App\Application\Import\DTOs\ProviderTitle;
-use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\Exceptions\ProviderTitleMappingException;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\Enums\Title\TitleStatus;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
+use App\Domain\Catalog\ValueObjects\Title\ReleaseYear;
 use App\Domain\Import\DTOs\CandidateAttribute;
 use App\Domain\Import\DTOs\TitleCandidate;
 use App\Domain\Import\Enums\RejectionReason;
@@ -30,7 +30,7 @@ final readonly class ProviderTitleToCandidateMapper
             );
         }
 
-        if ($title->rating !== null && ($title->rating < 0 || $title->rating > 10)) {
+        if ($title->rating !== null && (!is_finite($title->rating) || $title->rating < 0 || $title->rating > 10)) {
             throw new ProviderTitleMappingException(
                 RejectionReason::MALFORMED,
                 ['rating' => $title->rating],
@@ -44,6 +44,10 @@ final readonly class ProviderTitleToCandidateMapper
                 ['durationMinutes' => $title->durationMinutes],
                 "Provider title duration must be positive, got {$title->durationMinutes}.",
             );
+        }
+
+        if ($title->year !== null && ($title->year < ReleaseYear::MIN_YEAR || $title->year > ReleaseYear::MAX_YEAR)) {
+            throw new ProviderTitleMappingException(RejectionReason::MALFORMED, ['year' => $title->year], 'Provider title year is out of range.');
         }
 
         return new TitleCandidate(
@@ -60,6 +64,7 @@ final readonly class ProviderTitleToCandidateMapper
             posterUrl: $title->posterUrl,
             bannerUrl: $title->bannerUrl,
             attributes: $this->mapAttributes($title),
+            format: $title->format,
         );
     }
 
@@ -68,21 +73,6 @@ final readonly class ProviderTitleToCandidateMapper
     {
         $type = strtolower(trim($title->type));
 
-        if ($title->source === ProviderSource::Shikimori) {
-            return match ($type) {
-                'tv', 'movie', 'ova', 'ona', 'special', 'tv_special' => TitleContentType::ANIME,
-                'pv', 'cm' => throw new ProviderTitleMappingException(
-                    RejectionReason::UNSUPPORTED_TYPE,
-                    ['type' => $type],
-                    "Unsupported Shikimori title type [$type].",
-                ),
-                default => throw new ProviderTitleMappingException(
-                    RejectionReason::MALFORMED,
-                    ['type' => $type],
-                    "Unknown Shikimori title type [$type].",
-                ),
-            };
-        }
 
         return TitleContentType::tryFrom($type)
             ?? throw new ProviderTitleMappingException(
@@ -95,10 +85,6 @@ final readonly class ProviderTitleToCandidateMapper
     private function mapStatus(string $status): TitleStatus
     {
         $status = strtolower(trim($status));
-
-        if ($status === 'anons') {
-            return TitleStatus::ANNOUNCED;
-        }
 
         return TitleStatus::tryFrom($status)
             ?? throw new ProviderTitleMappingException(

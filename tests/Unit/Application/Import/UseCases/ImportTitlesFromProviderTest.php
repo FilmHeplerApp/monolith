@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Tests\Unit\Application\Import\UseCases;
 
 use App\Application\Import\Contracts\CandidateSinkContract;
+use App\Application\Import\Contracts\ImportRunLockContract;
 use App\Application\Import\Contracts\ImportRunRecorderContract;
 use App\Application\Import\Contracts\ProviderClientContract;
-use App\Application\Import\Contracts\ProviderClientFactoryContract;
 use App\Application\Import\DTOs\ImportCounters;
 use App\Application\Import\DTOs\ImportRunCheckpoint;
 use App\Application\Import\DTOs\ProviderTitle;
@@ -17,16 +17,18 @@ use App\Application\Import\Services\ProviderTitleNormalizer;
 use App\Application\Import\Services\ProviderTitleToCandidateMapper;
 use App\Application\Import\UseCases\ImportTitlesFromProvider;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
+use App\Domain\Import\DTOs\FilterDecision;
 use App\Domain\Import\DTOs\TitleCandidate;
 use App\Domain\Import\Enums\RejectionReason;
 use App\Domain\Import\Rules\CompletenessRule;
 use App\Domain\Import\Rules\HasAnyTitleRule;
-use App\Domain\Import\Services\ImportFilterEngine;
-use App\Domain\Import\ValueObjects\FilterDecision;
+use App\Domain\Import\Services\TitleCandidateEvaluator;
 use App\Infrastructure\Providers\Mock\MockProviderClient;
+use Closure;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
+use Tests\Support\SingleProviderClientFactory;
 use Throwable;
 
 final class ImportTitlesFromProviderTest extends TestCase
@@ -101,9 +103,16 @@ final class ImportTitlesFromProviderTest extends TestCase
         return new ImportTitlesFromProvider(
             clients: new SingleProviderClientFactory($client),
             mapper: new ProviderTitleToCandidateMapper(new ProviderTitleNormalizer),
-            filter: new ImportFilterEngine([new HasAnyTitleRule, new CompletenessRule]),
+            filter: new TitleCandidateEvaluator([new HasAnyTitleRule, new CompletenessRule]),
             recorder: $recorder,
             sink: $sink,
+            lock: new class implements ImportRunLockContract
+            {
+                public function synchronized(ProviderSource $provider, ProviderDataSource $source, Closure $work): mixed
+                {
+                    return $work();
+                }
+            },
             checkpointEvery: 1,
         );
     }
@@ -134,36 +143,13 @@ final class ImportTitlesFromProviderTest extends TestCase
     }
 }
 
-final readonly class SingleProviderClientFactory implements ProviderClientFactoryContract
-{
-    public function __construct(private ProviderClientContract $client) {}
-
-    public function make(
-        ProviderSource     $source,
-        ProviderDataSource $dataSource = ProviderDataSource::Api,
-    ): ProviderClientContract {
-        return $this->client;
-    }
-
-    public function enabled(): array
-    {
-        return [$this->client->source()->value => $this->client];
-    }
-
-    public function getEnabledSources(): array
-    {
-        return [$this->client->source()];
-    }
-}
-
 final class InMemoryImportRunRecorder implements ImportRunRecorderContract
 {
     /** @var list<array{external_id: string, reason: RejectionReason, context: array<string, mixed>}> */
     public array $rejections = [];
-
     public bool $completed = false;
-
     public int $checkpoint = 0;
+
 
     public function __construct(private readonly ?ImportRunCheckpoint $resumable = null) {}
 
@@ -183,10 +169,17 @@ final class InMemoryImportRunRecorder implements ImportRunRecorderContract
         return $this->resumable;
     }
 
-    public function progress(int $runId, ImportCounters $counters, int $checkpoint): void
+    public function progress(int $runId, ImportCounters $counters, int $checkpoint, array $processedIds = []): void
     {
         $this->checkpoint = $checkpoint;
     }
+
+    public function processedIds(int $runId): array
+    {
+        return $this->resumable === null ? [] : ['1'];
+    }
+
+    public function bindSnapshot(int $runId, string $snapshotId): void {}
 
     public function rejection(
         int             $runId,
@@ -201,7 +194,7 @@ final class InMemoryImportRunRecorder implements ImportRunRecorderContract
         ];
     }
 
-    public function complete(int $runId, ImportCounters $counters, int $checkpoint): void
+    public function complete(int $runId, ImportCounters $counters, int $checkpoint, array $processedIds = []): void
     {
         $this->completed = true;
         $this->checkpoint = $checkpoint;
@@ -218,10 +211,15 @@ final class CollectingCandidateSink implements CandidateSinkContract
     /** @var list<array{candidate: TitleCandidate, decision: FilterDecision}> */
     public array $items = [];
 
+
     public function consume(TitleCandidate $candidate, FilterDecision $decision): void
     {
         $this->items[] = compact('candidate', 'decision');
     }
 
+    public function flush(): void {}
+
     public function finish(): void {}
+
+    public function abort(): void {}
 }

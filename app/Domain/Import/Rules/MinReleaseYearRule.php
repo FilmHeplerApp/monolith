@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace App\Domain\Import\Rules;
 
 use App\Domain\Import\Contracts\ImportFilterRuleContract;
+use App\Domain\Import\DTOs\FilterDecision;
 use App\Domain\Import\DTOs\TitleCandidate;
 use App\Domain\Import\Enums\RejectionReason;
-use App\Domain\Import\ValueObjects\FilterDecision;
 
 final readonly class MinReleaseYearRule implements ImportFilterRuleContract
 {
@@ -15,10 +15,12 @@ final readonly class MinReleaseYearRule implements ImportFilterRuleContract
 
     public function evaluate(TitleCandidate $candidate): FilterDecision
     {
-        if ($candidate->releaseYear !== null && $candidate->releaseYear < $this->minYear) {
-            return FilterDecision::reject(RejectionReason::YEAR_TOO_OLD, ['year' => $candidate->releaseYear]);
+        if ($candidate->releaseYear === null) {
+            return FilterDecision::accept();
         }
 
-        return FilterDecision::accept();
+        return $candidate->releaseYear < $this->minYear
+            ? FilterDecision::reject(RejectionReason::YEAR_TOO_OLD, ['year' => $candidate->releaseYear])
+            : FilterDecision::accept();
     }
 }

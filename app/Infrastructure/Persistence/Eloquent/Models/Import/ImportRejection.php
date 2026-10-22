@@ -40,21 +40,22 @@ final class ImportRejection extends Model
 
     protected $table = self::TABLE_NAME;
 
-    protected function casts(): array
-    {
-        return [
-            self::FIELD_IMPORT_RUN_ID => 'integer',
-            self::FIELD_REASON        => RejectionReason::class,
-            self::FIELD_CONTEXT       => 'array',
-            self::FIELD_CREATED_AT    => 'immutable_datetime',
-            self::FIELD_UPDATED_AT    => 'immutable_datetime',
-        ];
-    }
-
 
     /** @return BelongsTo<ImportRun, $this> */
     public function run(): BelongsTo
     {
         return $this->belongsTo(ImportRun::class, self::FIELD_IMPORT_RUN_ID);
+    }
+
+
+    protected function casts(): array
+    {
+        return [
+            self::FIELD_IMPORT_RUN_ID => 'integer',
+            self::FIELD_REASON => RejectionReason::class,
+            self::FIELD_CONTEXT => 'array',
+            self::FIELD_CREATED_AT => 'immutable_datetime',
+            self::FIELD_UPDATED_AT => 'immutable_datetime',
+        ];
     }
 }

@@ -10,6 +10,12 @@ use App\Application\Catalog\DTOs\AttributeOptionData;
 use App\Application\Catalog\DTOs\PreparedCatalogDto;
 use App\Application\Catalog\DTOs\TitleAttributeData;
 use App\Application\Catalog\DTOs\TitleData;
+use App\Application\Import\DTOs\CatalogAttributePackData;
+use App\Application\Import\DTOs\CatalogPackInput;
+use App\Application\Import\DTOs\CatalogTitlePackData;
+use App\Application\Import\Services\CatalogPacker;
+use App\Application\Import\Services\ImportAttributeRegistry;
+use App\Application\Import\Services\ProviderTitleToCandidateMapper;
 use App\Domain\Catalog\Enums\AttributeDefinition\AttributeValueType;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\Enums\Title\TitleStatus;
@@ -20,16 +26,23 @@ use App\Domain\Catalog\ValueObjects\Title\ReleaseYear;
 use App\Domain\Catalog\ValueObjects\Title\TitleCanonicalKey;
 use App\Domain\Catalog\ValueObjects\Title\TitleUuid;
 use App\Domain\Catalog\ValueObjects\TitleAttribute\AttributeValue;
+use App\Domain\Import\Services\TitleCandidateEvaluator;
+use App\Domain\Import\Services\TitleCanonicalKeyFactory;
+use App\Domain\Import\Services\TitleKeyResolver;
+use App\Infrastructure\Persistence\Eloquent\Bulk\Catalog\TitleContentTypeMismatchException;
 use App\Infrastructure\Persistence\Eloquent\Bulk\Catalog\UnresolvedCatalogReferenceException;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeDefinition;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeOption;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\Title;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\TitleAttribute;
+use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
+use Database\Seeders\AttributeDefinitionSeeder;
 use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\Test;
+use RuntimeException;
 use Tests\TestCase;
 
 final class CatalogBulkWriterTest extends TestCase
@@ -38,6 +51,10 @@ final class CatalogBulkWriterTest extends TestCase
     private const string SECOND_TITLE_UUID = '018fe2f8-0a2e-7a42-b0a7-6f6f5b0f0f14';
     private const string CANONICAL_KEY = 'naruto|anime';
     private const string SECOND_CANONICAL_KEY = 'bleach|anime';
+    private const string MOVIE_TITLE_UUID = '018fe2f8-0a2e-7a42-b0a7-6f6f5b0f0f15';
+    private const string MOVIE_CANONICAL_KEY = 'inception|movie';
+    private const string MOVIE_GENRE_RU = 'Фантастика';
+    private const string MOVIE_GENRE_EN = 'Science Fiction';
     private const string ATTRIBUTE_GENRES = 'genres';
     private const string ATTRIBUTE_STUDIOS = 'studios';
     private const string TITLE_RU = 'Наруто';
@@ -56,18 +73,6 @@ final class CatalogBulkWriterTest extends TestCase
     private CatalogBulkWriterContract $writer;
 
 
-    /**
-     * @throws BindingResolutionException
-     */
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        $this->createCatalogSchema();
-        $this->writer = $this->app->make(CatalogBulkWriterContract::class);
-    }
-
-
     #[Test]
     public function it_inserts_catalog_collections_and_resolves_foreign_keys(): void
     {
@@ -80,9 +85,11 @@ final class CatalogBulkWriterTest extends TestCase
 
         $title = Title::query()->where(Title::FIELD_UUID, self::TITLE_UUID)->firstOrFail();
         $genres = AttributeDefinition::query()
+            ->where(AttributeDefinition::FIELD_CONTENT_TYPE_CODE, TitleContentType::ANIME->value)
             ->where(AttributeDefinition::FIELD_CODE, self::ATTRIBUTE_GENRES)
             ->firstOrFail();
         $studios = AttributeDefinition::query()
+            ->where(AttributeDefinition::FIELD_CONTENT_TYPE_CODE, TitleContentType::ANIME->value)
             ->where(AttributeDefinition::FIELD_CODE, self::ATTRIBUTE_STUDIOS)
             ->firstOrFail();
 
@@ -111,7 +118,7 @@ final class CatalogBulkWriterTest extends TestCase
             $genreValues->{TitleAttribute::FIELD_VALUE_ARRAY},
         );
         $this->assertSame(
-            self::GENRE_ACTION_RU . ' ' . self::GENRE_DRAMA_RU,
+            self::GENRE_ACTION_RU.' '.self::GENRE_DRAMA_RU,
             $genreValues->{TitleAttribute::FIELD_SEARCHABLE_TEXT},
         );
 
@@ -120,7 +127,8 @@ final class CatalogBulkWriterTest extends TestCase
             ->where(TitleAttribute::FIELD_ATTRIBUTE_ID, $studios->{AttributeDefinition::FIELD_ID})
             ->firstOrFail();
 
-        $this->assertSame(self::STUDIO_NAME, $studioValue->{TitleAttribute::FIELD_VALUE_TEXT});
+        $this->assertSame([self::STUDIO_NAME], $studioValue->{TitleAttribute::FIELD_VALUE_ARRAY});
+        $this->assertNull($studioValue->{TitleAttribute::FIELD_VALUE_TEXT});
         $this->assertSame(self::STUDIO_NAME, $studioValue->{TitleAttribute::FIELD_SEARCHABLE_TEXT});
     }
 
@@ -151,8 +159,135 @@ final class CatalogBulkWriterTest extends TestCase
         ]);
 
         $this->assertDatabaseHas(TitleAttribute::TABLE_NAME, [
-            TitleAttribute::FIELD_VALUE_TEXT => 'Studio Pierrot',
             TitleAttribute::FIELD_SEARCHABLE_TEXT => 'Studio Pierrot',
+        ]);
+    }
+
+    #[Test]
+    public function it_stores_the_same_attribute_code_separately_for_each_content_type(): void
+    {
+        $this->writer->write($this->preparedCatalog());
+
+        $this->writer->write(new PreparedCatalogDto(
+            titles: [$this->createTitleData(
+                TitleUuid::createFromString(self::MOVIE_TITLE_UUID),
+                'Начало',
+                'Inception',
+                self::MOVIE_CANONICAL_KEY,
+                type: TitleContentType::MOVIE,
+            )],
+            attributeDefinitions: [
+                new AttributeDefinitionData(
+                    self::ATTRIBUTE_GENRES,
+                    $this->createLocalizedText('Жанры фильмов', 'Movie genres'),
+                    TitleContentType::MOVIE,
+                    AttributeValueType::ARRAY,
+                    true,
+                    false,
+                    1,
+                ),
+            ],
+            attributeOptions: [
+                new AttributeOptionData(
+                    self::ATTRIBUTE_GENRES,
+                    TitleContentType::MOVIE,
+                    $this->createLocalizedText(self::MOVIE_GENRE_RU, self::MOVIE_GENRE_EN),
+                ),
+            ],
+            titleAttributes: [
+                new TitleAttributeData(
+                    TitleCanonicalKey::createFromString(self::MOVIE_CANONICAL_KEY),
+                    self::ATTRIBUTE_GENRES,
+                    TitleContentType::MOVIE,
+                    AttributeValue::createFromArray([self::MOVIE_GENRE_RU]),
+                ),
+            ],
+        ));
+
+        $this->writer->write(new PreparedCatalogDto(
+            attributeDefinitions: [
+                new AttributeDefinitionData(
+                    self::ATTRIBUTE_GENRES,
+                    $this->createLocalizedText('Жанры кино', 'Film genres'),
+                    TitleContentType::MOVIE,
+                    AttributeValueType::ARRAY,
+                    true,
+                    false,
+                    1,
+                ),
+            ],
+        ));
+
+        $this->assertDatabaseCount(AttributeDefinition::TABLE_NAME, 3);
+        $this->assertDatabaseCount(Title::TABLE_NAME, 2);
+
+        $animeGenres = AttributeDefinition::query()
+            ->where(AttributeDefinition::FIELD_CONTENT_TYPE_CODE, TitleContentType::ANIME->value)
+            ->where(AttributeDefinition::FIELD_CODE, self::ATTRIBUTE_GENRES)
+            ->firstOrFail();
+        $movieGenres = AttributeDefinition::query()
+            ->where(AttributeDefinition::FIELD_CONTENT_TYPE_CODE, TitleContentType::MOVIE->value)
+            ->where(AttributeDefinition::FIELD_CODE, self::ATTRIBUTE_GENRES)
+            ->firstOrFail();
+
+        $this->assertNotSame(
+            $animeGenres->{AttributeDefinition::FIELD_ID},
+            $movieGenres->{AttributeDefinition::FIELD_ID},
+        );
+        $this->assertSame('Жанры', $animeGenres->{AttributeDefinition::FIELD_NAME_RU});
+        $this->assertSame('Жанры кино', $movieGenres->{AttributeDefinition::FIELD_NAME_RU});
+
+        $this->assertDatabaseHas(AttributeOption::TABLE_NAME, [
+            AttributeOption::FIELD_ATTRIBUTE_ID => $animeGenres->{AttributeDefinition::FIELD_ID},
+            AttributeOption::FIELD_VALUE_RU => self::GENRE_ACTION_RU,
+        ]);
+        $this->assertDatabaseHas(AttributeOption::TABLE_NAME, [
+            AttributeOption::FIELD_ATTRIBUTE_ID => $movieGenres->{AttributeDefinition::FIELD_ID},
+            AttributeOption::FIELD_VALUE_RU => self::MOVIE_GENRE_RU,
+            AttributeOption::FIELD_VALUE_EN => self::MOVIE_GENRE_EN,
+        ]);
+
+        $movie = Title::query()->where(Title::FIELD_UUID, self::MOVIE_TITLE_UUID)->firstOrFail();
+
+        $this->assertDatabaseHas(TitleAttribute::TABLE_NAME, [
+            TitleAttribute::FIELD_TITLE_ID => $movie->{Title::FIELD_ID},
+            TitleAttribute::FIELD_ATTRIBUTE_ID => $movieGenres->{AttributeDefinition::FIELD_ID},
+        ]);
+    }
+
+    #[Test]
+    public function it_does_not_overwrite_image_keys_on_upsert(): void
+    {
+        $this->writer->write($this->preparedCatalog());
+
+        $inserted = Title::query()->where(Title::FIELD_CANONICAL_KEY, self::CANONICAL_KEY)->firstOrFail();
+
+        $this->assertNull($inserted->{Title::FIELD_POSTER_KEY});
+        $this->assertNull($inserted->{Title::FIELD_POSTER_THUMB_KEY});
+        $this->assertNull($inserted->{Title::FIELD_BANNER_KEY});
+        $this->assertNull($inserted->{Title::FIELD_POSTER_SOURCE_HASH});
+        $this->assertNull($inserted->{Title::FIELD_BANNER_SOURCE_HASH});
+
+        DB::table(Title::TABLE_NAME)
+            ->where(Title::FIELD_CANONICAL_KEY, self::CANONICAL_KEY)
+            ->update([
+                Title::FIELD_POSTER_KEY => 'titles/posters/uuid/full.webp',
+                Title::FIELD_POSTER_THUMB_KEY => 'titles/posters/uuid/thumb.webp',
+                Title::FIELD_BANNER_KEY => 'titles/banners/uuid/banner.webp',
+                Title::FIELD_POSTER_SOURCE_HASH => str_repeat('a', 64),
+                Title::FIELD_BANNER_SOURCE_HASH => str_repeat('b', 64),
+            ]);
+
+        $this->writer->write($this->preparedCatalog(titleRu: 'Наруто: обновлённый'));
+
+        $this->assertDatabaseHas(Title::TABLE_NAME, [
+            Title::FIELD_CANONICAL_KEY => self::CANONICAL_KEY,
+            Title::FIELD_TITLE_RU => 'Наруто: обновлённый',
+            Title::FIELD_POSTER_KEY => 'titles/posters/uuid/full.webp',
+            Title::FIELD_POSTER_THUMB_KEY => 'titles/posters/uuid/thumb.webp',
+            Title::FIELD_BANNER_KEY => 'titles/banners/uuid/banner.webp',
+            Title::FIELD_POSTER_SOURCE_HASH => str_repeat('a', 64),
+            Title::FIELD_BANNER_SOURCE_HASH => str_repeat('b', 64),
         ]);
     }
 
@@ -172,12 +307,17 @@ final class CatalogBulkWriterTest extends TestCase
                 self::SECOND_CANONICAL_KEY,
             )],
             attributeOptions: [
-                new AttributeOptionData(self::ATTRIBUTE_GENRES, $this->createLocalizedText('Комедия', 'Comedy')),
+                new AttributeOptionData(
+                    self::ATTRIBUTE_GENRES,
+                    TitleContentType::ANIME,
+                    $this->createLocalizedText('Комедия', 'Comedy'),
+                ),
             ],
             titleAttributes: [
                 new TitleAttributeData(
                     $secondCanonicalKey,
                     self::ATTRIBUTE_GENRES,
+                    TitleContentType::ANIME,
                     AttributeValue::createFromArray(['Комедия']),
                 ),
             ],
@@ -203,6 +343,7 @@ final class CatalogBulkWriterTest extends TestCase
                     new TitleAttributeData(
                         TitleCanonicalKey::createFromString(self::CANONICAL_KEY),
                         'missing',
+                        TitleContentType::ANIME,
                         AttributeValue::createFromText('nope'),
                     ),
                 ],
@@ -210,6 +351,53 @@ final class CatalogBulkWriterTest extends TestCase
         } finally {
             $this->assertDatabaseCount(Title::TABLE_NAME, 0);
             $this->assertDatabaseCount(TitleAttribute::TABLE_NAME, 0);
+        }
+    }
+
+    #[Test]
+    public function it_rolls_back_when_title_attribute_content_type_does_not_match_the_title(): void
+    {
+        $this->writer->write($this->preparedCatalog());
+
+        $this->expectException(TitleContentTypeMismatchException::class);
+
+        try {
+            $this->writer->write(new PreparedCatalogDto(
+                attributeDefinitions: [
+                    new AttributeDefinitionData(
+                        self::ATTRIBUTE_GENRES,
+                        $this->createLocalizedText('Жанры фильмов', 'Movie genres'),
+                        TitleContentType::MOVIE,
+                        AttributeValueType::ARRAY,
+                        true,
+                        false,
+                        1,
+                    ),
+                ],
+                attributeOptions: [
+                    new AttributeOptionData(
+                        self::ATTRIBUTE_GENRES,
+                        TitleContentType::MOVIE,
+                        $this->createLocalizedText(self::MOVIE_GENRE_RU, self::MOVIE_GENRE_EN),
+                    ),
+                ],
+                titleAttributes: [
+                    new TitleAttributeData(
+                        TitleCanonicalKey::createFromString(self::CANONICAL_KEY),
+                        self::ATTRIBUTE_GENRES,
+                        TitleContentType::MOVIE,
+                        AttributeValue::createFromArray([self::MOVIE_GENRE_RU]),
+                    ),
+                ],
+            ));
+        } finally {
+            $this->assertDatabaseCount(AttributeDefinition::TABLE_NAME, self::EXPECTED_DEFINITION_COUNT);
+            $this->assertDatabaseCount(AttributeOption::TABLE_NAME, self::EXPECTED_OPTION_COUNT);
+            $this->assertDatabaseCount(Title::TABLE_NAME, 1);
+            $this->assertDatabaseCount(TitleAttribute::TABLE_NAME, self::EXPECTED_TITLE_ATTRIBUTE_COUNT);
+            $this->assertDatabaseMissing(AttributeDefinition::TABLE_NAME, [
+                AttributeDefinition::FIELD_CONTENT_TYPE_CODE => TitleContentType::MOVIE->value,
+            ]);
         }
     }
 
@@ -274,6 +462,205 @@ final class CatalogBulkWriterTest extends TestCase
         $this->assertFalse($completed->{Title::FIELD_IS_INCOMPLETE});
     }
 
+    #[Test]
+    public function it_preserves_omitted_attributes_when_the_content_type_does_not_change(): void
+    {
+        $this->writer->write($this->preparedCatalog());
+
+        $this->writer->write(new PreparedCatalogDto(
+            titles: [$this->createTitleData(TitleUuid::createFromString(self::TITLE_UUID))],
+            titleAttributes: [new TitleAttributeData(
+                TitleCanonicalKey::createFromString(self::CANONICAL_KEY),
+                self::ATTRIBUTE_GENRES,
+                TitleContentType::ANIME,
+                AttributeValue::createFromArray([self::GENRE_DRAMA_RU]),
+            )],
+        ));
+
+        $this->assertDatabaseCount(TitleAttribute::TABLE_NAME, 2);
+        $this->assertDatabaseHas(TitleAttribute::TABLE_NAME, [TitleAttribute::FIELD_SEARCHABLE_TEXT => self::STUDIO_NAME]);
+    }
+
+    #[Test]
+    public function it_persists_packed_english_studios_and_reimports_without_duplicates(): void
+    {
+        $input = new CatalogPackInput(
+            titles: [
+                $this->packTitle(self::CANONICAL_KEY, [LocalizedText::create(null, 'Sunrise'), LocalizedText::create(null, 'Bones')]),
+                $this->packTitle(self::SECOND_CANONICAL_KEY, [$this->createLocalizedText('Sunrise')]),
+            ],
+            attributeDefinitions: [(new ImportAttributeRegistry)->definition(TitleContentType::ANIME, self::ATTRIBUTE_STUDIOS)],
+        );
+        $packer = new CatalogPacker;
+
+        $this->writer->write($packer->pack($input));
+        $originalIds = DB::table(Title::TABLE_NAME)->orderBy(Title::FIELD_ID)->pluck(Title::FIELD_UUID)->all();
+        $this->writer->write($packer->pack($input));
+
+        $this->assertSame($originalIds, DB::table(Title::TABLE_NAME)->orderBy(Title::FIELD_ID)->pluck(Title::FIELD_UUID)->all());
+        $this->assertDatabaseCount(Title::TABLE_NAME, 2);
+        $this->assertDatabaseCount(AttributeDefinition::TABLE_NAME, 1);
+        $this->assertDatabaseCount(AttributeOption::TABLE_NAME, 2);
+        $this->assertDatabaseCount(TitleAttribute::TABLE_NAME, 2);
+        $this->assertDatabaseHas(AttributeOption::TABLE_NAME, [
+            AttributeOption::FIELD_VALUE_RU => 'Sunrise',
+            AttributeOption::FIELD_VALUE_EN => 'Sunrise',
+        ]);
+        $title = Title::query()->where(Title::FIELD_CANONICAL_KEY, self::CANONICAL_KEY)->firstOrFail();
+        $attribute = $title->attributes()->firstOrFail();
+        $this->assertSame(['Sunrise', 'Bones'], $attribute->value_array);
+        $this->assertNull($attribute->value_text);
+        $this->assertSame('Sunrise Bones', $attribute->searchable_text);
+        $this->assertNull($title->duration);
+    }
+
+    #[Test]
+    public function it_uses_seeded_import_types_when_packing_without_incoming_definitions(): void
+    {
+        $this->seed(AttributeDefinitionSeeder::class);
+        $before = DB::table(AttributeDefinition::TABLE_NAME)->orderBy('id')->pluck('id')->all();
+        DB::table(AttributeDefinition::TABLE_NAME)->where('code', self::ATTRIBUTE_STUDIOS)->update([
+            AttributeDefinition::FIELD_NAME_RU => 'Ручная подпись',
+            AttributeDefinition::FIELD_IS_FILTERABLE => true,
+        ]);
+        $this->seed(AttributeDefinitionSeeder::class);
+
+        $this->writer->write((new CatalogPacker)->pack(new CatalogPackInput(
+            titles: [$this->packTitle(self::CANONICAL_KEY, [
+                $this->createLocalizedText('Gainax'),
+                $this->createLocalizedText('Tatsunoko Production'),
+            ])],
+            attributeDefinitions: [],
+        )));
+
+        $this->assertSame($before, DB::table(AttributeDefinition::TABLE_NAME)->orderBy('id')->pluck('id')->all());
+        $this->assertDatabaseCount(AttributeDefinition::TABLE_NAME, count((new ImportAttributeRegistry)->definitions()));
+        $this->assertDatabaseHas(AttributeDefinition::TABLE_NAME, [
+            AttributeDefinition::FIELD_CONTENT_TYPE_CODE => TitleContentType::ANIME->value,
+            AttributeDefinition::FIELD_CODE => self::ATTRIBUTE_STUDIOS,
+            AttributeDefinition::FIELD_VALUE_TYPE => AttributeValueType::ARRAY->value,
+            AttributeDefinition::FIELD_NAME_RU => 'Ручная подпись',
+            AttributeDefinition::FIELD_IS_FILTERABLE => true,
+        ]);
+        $this->assertSame(['Gainax', 'Tatsunoko Production'], TitleAttribute::query()->firstOrFail()->value_array);
+    }
+
+    #[Test]
+    public function it_refuses_to_relabel_legacy_studios_during_seeding_without_a_data_migration(): void
+    {
+        $this->writer->write(new PreparedCatalogDto(attributeDefinitions: [new AttributeDefinitionData(
+            self::ATTRIBUTE_STUDIOS,
+            $this->createLocalizedText('Студии', 'Studios'),
+            TitleContentType::ANIME,
+            AttributeValueType::STRING,
+            false,
+            false,
+            5,
+        )]));
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Run the data migrations before seeding');
+
+        try {
+            $this->seed(AttributeDefinitionSeeder::class);
+        } finally {
+            $this->assertDatabaseCount(AttributeDefinition::TABLE_NAME, 1);
+            $this->assertDatabaseHas(AttributeDefinition::TABLE_NAME, [
+                AttributeDefinition::FIELD_CODE => self::ATTRIBUTE_STUDIOS,
+                AttributeDefinition::FIELD_VALUE_TYPE => AttributeValueType::STRING->value,
+            ]);
+        }
+    }
+
+    #[Test]
+    public function it_saves_the_provider_fixture_through_evaluation_resolution_and_packing(): void
+    {
+        $this->seed(AttributeDefinitionSeeder::class);
+        $rawMapper = new ShikimoriTitleMapper;
+        $mapper = app(ProviderTitleToCandidateMapper::class);
+        $evaluator = app(TitleCandidateEvaluator::class);
+        $candidates = [];
+        $flagged = [];
+        $demographicCandidate = null;
+
+        foreach (file(base_path('static/Fixtures/Shikimori/animes.ndjson')) as $line) {
+            $candidate = $mapper->map($rawMapper->map(json_decode($line, true, 512, JSON_THROW_ON_ERROR)));
+            $decision = $evaluator->decide($candidate);
+            if ($decision->isRejected()) {
+                continue;
+            }
+            $candidates[] = $candidate;
+            $flagged[$candidate->externalId] = $decision->isFlagged();
+            if ($candidate->externalId === '8687') {
+                $demographicCandidate = $candidate;
+            }
+        }
+        self::assertCount(266, $candidates);
+        $resolution = app(TitleKeyResolver::class)->resolve($candidates);
+        $registry = new ImportAttributeRegistry;
+        $titles = [];
+        foreach ($resolution->resolved as $entry) {
+            $candidate = $entry->candidate;
+            $titles[] = new CatalogTitlePackData(
+                canonicalKey: $entry->key,
+                title: $candidate->title,
+                description: $candidate->description,
+                releaseYear: $candidate->releaseYear,
+                durationMinutes: $candidate->durationMinutes,
+                contentType: $candidate->type,
+                status: $candidate->status,
+                posterUrl: $candidate->posterUrl,
+                bannerUrl: $candidate->bannerUrl,
+                isIncomplete: $flagged[$candidate->externalId],
+                attributes: array_map(fn ($attribute) => new CatalogAttributePackData(
+                    $attribute->code, $registry->definition($candidate->type, $attribute->code)->valueType, $attribute->values,
+                ), $candidate->attributes),
+            );
+        }
+        $packed = (new CatalogPacker)->pack(new CatalogPackInput($titles, []));
+        $this->writer->write($packed);
+        $ids = Title::query()->orderBy('id')->pluck('uuid')->all();
+        $this->writer->write($packed);
+        self::assertSame($ids, Title::query()->orderBy('id')->pluck('uuid')->all());
+        $this->assertDatabaseCount(Title::TABLE_NAME, count($resolution->resolved));
+        self::assertNotNull($demographicCandidate);
+        $key = app(TitleCanonicalKeyFactory::class)->create($demographicCandidate);
+        $title = Title::query()->where('canonical_key', $key->getValue())->firstOrFail();
+        $definition = AttributeDefinition::query()->where('code', 'target_audience')->firstOrFail();
+        self::assertSame(['Детское', 'Сёнен'], $title->attributes()->where('attribute_id', $definition->id)->firstOrFail()->value_array);
+    }
+
+
+    /**
+     * @throws BindingResolutionException
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->createCatalogSchema();
+        $this->writer = $this->app->make(CatalogBulkWriterContract::class);
+    }
+
+
+    /** @param list<LocalizedText> $studios */
+    private function packTitle(string $key, array $studios): CatalogTitlePackData
+    {
+        $definition = (new ImportAttributeRegistry)->definition(TitleContentType::ANIME, self::ATTRIBUTE_STUDIOS);
+
+        return new CatalogTitlePackData(
+            canonicalKey: TitleCanonicalKey::createFromString($key),
+            title: $this->createLocalizedText(self::TITLE_RU, self::TITLE_EN),
+            description: $this->createLocalizedText('Описание', 'Description'),
+            releaseYear: self::RELEASE_YEAR,
+            durationMinutes: null,
+            contentType: TitleContentType::ANIME,
+            status: TitleStatus::RELEASED,
+            posterUrl: 'https://example.test/poster.jpg',
+            bannerUrl: null,
+            isIncomplete: false,
+            attributes: [new CatalogAttributePackData(self::ATTRIBUTE_STUDIOS, $definition->valueType, $studios)],
+        );
+    }
 
     private function preparedCatalog(
         string $titleRu = self::TITLE_RU,
@@ -300,52 +687,66 @@ final class CatalogBulkWriterTest extends TestCase
                     self::ATTRIBUTE_STUDIOS,
                     $this->createLocalizedText('Студия', 'Studio'),
                     TitleContentType::ANIME,
-                    AttributeValueType::STRING,
+                    AttributeValueType::ARRAY,
                     false,
                     false,
                     2,
                 ),
             ],
             attributeOptions: [
-                new AttributeOptionData(self::ATTRIBUTE_GENRES, $this->createLocalizedText(self::GENRE_ACTION_RU, $optionValueEn)),
-                new AttributeOptionData(self::ATTRIBUTE_STUDIOS, $this->createLocalizedText(self::STUDIO_NAME, $studioOptionEn)),
+                new AttributeOptionData(
+                    self::ATTRIBUTE_GENRES,
+                    TitleContentType::ANIME,
+                    $this->createLocalizedText(self::GENRE_ACTION_RU, $optionValueEn),
+                ),
+                new AttributeOptionData(
+                    self::ATTRIBUTE_STUDIOS,
+                    TitleContentType::ANIME,
+                    $this->createLocalizedText(self::STUDIO_NAME, $studioOptionEn),
+                ),
             ],
             titleAttributes: [
                 new TitleAttributeData(
                     $canonicalKey,
                     self::ATTRIBUTE_GENRES,
+                    TitleContentType::ANIME,
                     AttributeValue::createFromArray([self::GENRE_ACTION_RU, self::GENRE_DRAMA_RU]),
                 ),
                 new TitleAttributeData(
                     $canonicalKey,
                     self::ATTRIBUTE_STUDIOS,
-                    AttributeValue::createFromText($studioName),
+                    TitleContentType::ANIME,
+                    AttributeValue::createFromArray([$studioName]),
                 ),
             ],
         );
     }
 
     private function createTitleData(
-        TitleUuid $uuid,
-        string    $titleRu = self::TITLE_RU,
-        string    $titleEn = self::TITLE_EN,
-        string    $canonicalKey = self::CANONICAL_KEY,
-        ?int      $releaseYear = self::RELEASE_YEAR,
-        bool      $isIncomplete = false,
+        TitleUuid        $uuid,
+        string           $titleRu = self::TITLE_RU,
+        string           $titleEn = self::TITLE_EN,
+        string           $canonicalKey = self::CANONICAL_KEY,
+        ?int             $releaseYear = self::RELEASE_YEAR,
+        bool             $isIncomplete = false,
+        TitleContentType $type = TitleContentType::ANIME,
     ): TitleData {
         return new TitleData(
-            $uuid,
-            TitleCanonicalKey::createFromString($canonicalKey),
-            $this->createLocalizedText($titleRu, $titleEn),
-            $this->createLocalizedText('Описание', 'Description'),
-            'Короткий сюжет',
-            Duration::createFromMinutes(self::DURATION_MINUTES),
-            ReleaseYear::createFromYear($releaseYear),
-            TitleContentType::ANIME,
-            TitleStatus::RELEASED,
-            'https://example.test/poster.jpg',
-            'https://example.test/banner.jpg',
-            $isIncomplete,
+            uuid: $uuid,
+            canonicalKey: TitleCanonicalKey::createFromString($canonicalKey),
+            title: $this->createLocalizedText($titleRu, $titleEn),
+            description: $this->createLocalizedText('Описание', 'Description'),
+            shortPlotRu: 'Короткий сюжет',
+            duration: Duration::createFromMinutes(self::DURATION_MINUTES),
+            releaseYear: ReleaseYear::createFromYear($releaseYear),
+            type: $type,
+            status: TitleStatus::RELEASED,
+            posterKey: null,
+            posterThumbKey: null,
+            bannerKey: null,
+            posterSourceHash: null,
+            bannerSourceHash: null,
+            isIncomplete: $isIncomplete,
         );
     }
 
@@ -362,7 +763,11 @@ final class CatalogBulkWriterTest extends TestCase
         Schema::create(AttributeDefinition::TABLE_NAME, function (Blueprint $table): void {
             $table->id();
             $table->string(AttributeDefinition::FIELD_CONTENT_TYPE_CODE);
-            $table->string(AttributeDefinition::FIELD_CODE)->unique();
+            $table->string(AttributeDefinition::FIELD_CODE);
+            $table->unique([
+                AttributeDefinition::FIELD_CONTENT_TYPE_CODE,
+                AttributeDefinition::FIELD_CODE,
+            ]);
             $table->string(AttributeDefinition::FIELD_NAME_RU);
             $table->string(AttributeDefinition::FIELD_NAME_EN);
             $table->string(AttributeDefinition::FIELD_VALUE_TYPE);
@@ -385,8 +790,11 @@ final class CatalogBulkWriterTest extends TestCase
             $table->unsignedSmallInteger(Title::FIELD_RELEASE_YEAR)->nullable();
             $table->string(Title::FIELD_TYPE);
             $table->string(Title::FIELD_STATUS);
-            $table->string(Title::FIELD_POSTER_URL)->nullable();
-            $table->string(Title::FIELD_BANNER_URL)->nullable();
+            $table->string(Title::FIELD_POSTER_KEY)->nullable();
+            $table->string(Title::FIELD_POSTER_THUMB_KEY)->nullable();
+            $table->string(Title::FIELD_BANNER_KEY)->nullable();
+            $table->char(Title::FIELD_POSTER_SOURCE_HASH, 64)->nullable();
+            $table->char(Title::FIELD_BANNER_SOURCE_HASH, 64)->nullable();
             $table->decimal(Title::FIELD_RATING_AVG, 3)->default(0);
             $table->unsignedInteger(Title::FIELD_RATING_COUNT)->default(0);
             $table->text(Title::FIELD_EMBEDDING)->nullable();

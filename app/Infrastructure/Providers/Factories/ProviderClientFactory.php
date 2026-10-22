@@ -17,7 +17,7 @@ use RuntimeException;
 final readonly class ProviderClientFactory implements ProviderClientFactoryContract
 {
     /**
-     * @param  array<string, array<string, class-string<ProviderClientContract>>>  $clients
+     * @param  array<string, class-string<ProviderClientContract>|array<string, class-string<ProviderClientContract>>>  $clients
      * @param  list<string>  $enabled
      */
     public function __construct(
@@ -25,28 +25,23 @@ final readonly class ProviderClientFactory implements ProviderClientFactoryContr
         private array     $clients,
         private array     $enabled,
         private bool      $isProduction,
-    ) {}
+    ) {
+        foreach ($this->enabled as $source) {
+            $this->resolveClass($this->toSource($source));
+        }
+    }
 
     /**
      * @throws BindingResolutionException
      */
-    public function make(
-        ProviderSource     $source,
-        ProviderDataSource $dataSource = ProviderDataSource::Api,
-    ): ProviderClientContract {
-        $class = $this->clients[$source->value][$dataSource->value]
-            ?? throw new InvalidArgumentException(
-                "No [$dataSource->value] client registered for provider [$source->value].",
-            );
-
-        if ($class === MockProviderClient::class && $this->isProduction) {
-            throw new RuntimeException('MockProviderClient is not allowed in production.');
-        }
-
-        return $this->container->make($class);
+    public function make(ProviderSource $source, ProviderDataSource $dataSource = ProviderDataSource::Api): ProviderClientContract
+    {
+        return $this->container->make($this->resolveClass($source, $dataSource));
     }
 
     /**
+     * @return array<string, ProviderClientContract>
+     *
      * @throws BindingResolutionException
      */
     public function enabled(): array
@@ -54,17 +49,42 @@ final readonly class ProviderClientFactory implements ProviderClientFactoryContr
         $clients = [];
 
         foreach ($this->enabled as $source) {
-            $clients[$source] = $this->make($this->toSource($source), ProviderDataSource::Api);
+            $clients[$source] = $this->make($this->toSource($source));
         }
 
         return $clients;
     }
 
+    /**
+     * @return list<ProviderSource>
+     */
     public function getEnabledSources(): array
     {
         return array_map($this->toSource(...), $this->enabled);
     }
 
+
+    /**
+     * @return class-string<ProviderClientContract>
+     */
+    private function resolveClass(ProviderSource $source, ProviderDataSource $dataSource = ProviderDataSource::Api): string
+    {
+        $class = $this->clients[$source->value]
+            ?? throw new InvalidArgumentException("No client registered for provider [$source->value].");
+
+        $class = is_array($class) ? ($class[$dataSource->value] ?? null)
+            : ($dataSource === ProviderDataSource::Api ? $class : null);
+
+        if ($class === null) {
+            throw new InvalidArgumentException("No [$dataSource->value] client registered for provider [$source->value].");
+        }
+
+        if ($class === MockProviderClient::class && $this->isProduction) {
+            throw new RuntimeException('MockProviderClient is not allowed in production.');
+        }
+
+        return $class;
+    }
 
     private function toSource(string $source): ProviderSource
     {

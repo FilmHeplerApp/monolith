@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Infrastructure\Import\Sinks;
 
 use App\Application\Import\Contracts\CandidateSinkContract;
+use App\Domain\Import\DTOs\FilterDecision;
 use App\Domain\Import\DTOs\TitleCandidate;
-use App\Domain\Import\ValueObjects\FilterDecision;
 use Illuminate\Support\Facades\Log;
 
 final class LogCandidateSink implements CandidateSinkContract
@@ -21,5 +21,9 @@ final class LogCandidateSink implements CandidateSinkContract
         ]);
     }
 
+    public function flush(): void {}
+
     public function finish(): void {}
+
+    public function abort(): void {}
 }

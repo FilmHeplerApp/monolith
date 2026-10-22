@@ -28,12 +28,6 @@ return [
         'min_release_year' => filled(env('IMPORT_MIN_RELEASE_YEAR'))
             ? (int) env('IMPORT_MIN_RELEASE_YEAR')
             : null,
-        'min_provider_score' => filled(env('IMPORT_MIN_PROVIDER_SCORE'))
-            ? (float) env('IMPORT_MIN_PROVIDER_SCORE')
-            : null,
-        'min_provider_score_count' => filled(env('IMPORT_MIN_PROVIDER_SCORE_COUNT'))
-            ? (int) env('IMPORT_MIN_PROVIDER_SCORE_COUNT')
-            : null,
     ],
     'checkpoint_every' => (int) env('IMPORT_CHECKPOINT_EVERY', 50),
 ];

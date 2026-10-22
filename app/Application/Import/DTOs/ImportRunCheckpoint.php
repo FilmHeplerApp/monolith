@@ -11,6 +11,5 @@ final readonly class ImportRunCheckpoint
         public int            $checkpoint,
         public ImportCounters $counters,
         public ?int           $limit,
-    ) {
-    }
+    ) {}
 }

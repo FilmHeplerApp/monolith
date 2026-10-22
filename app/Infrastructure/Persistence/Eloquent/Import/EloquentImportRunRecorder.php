@@ -13,7 +13,9 @@ use App\Domain\Import\Enums\ImportRunStatus;
 use App\Domain\Import\Enums\RejectionReason;
 use App\Infrastructure\Persistence\Eloquent\Models\Import\ImportRejection;
 use App\Infrastructure\Persistence\Eloquent\Models\Import\ImportRun;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
+use RuntimeException;
 
 final class EloquentImportRunRecorder implements ImportRunRecorderContract
 {
@@ -60,6 +62,13 @@ final class EloquentImportRunRecorder implements ImportRunRecorderContract
             );
         }
 
+        if ($run->checkpoint > 0 && (
+            ($dataSource === ProviderDataSource::Dump && $run->getAttribute(ImportRun::FIELD_SNAPSHOT_ID) === null)
+            || ($dataSource === ProviderDataSource::Api && $this->processedIds($run->getKey()) === [])
+        )) {
+            throw new RuntimeException('Legacy import checkpoint cannot be resumed safely. Start without --resume.');
+        }
+
         $run->update([
             ImportRun::FIELD_STATUS => ImportRunStatus::Running,
             ImportRun::FIELD_FINISHED_AT => null,
@@ -69,9 +78,28 @@ final class EloquentImportRunRecorder implements ImportRunRecorderContract
         return $this->checkpoint($run);
     }
 
-    public function progress(int $runId, ImportCounters $counters, int $checkpoint): void
+    public function progress(int $runId, ImportCounters $counters, int $checkpoint, array $processedIds = []): void
     {
-        $this->update($runId, $counters, $checkpoint);
+        DB::transaction(function () use ($runId, $counters, $checkpoint, $processedIds): void {
+            $this->rememberIds($runId, $processedIds);
+            $this->update($runId, $counters, $checkpoint);
+        });
+    }
+
+    public function processedIds(int $runId): array
+    {
+        return DB::table('import_processed_titles')->where('import_run_id', $runId)->pluck('external_id')->all();
+    }
+
+    public function bindSnapshot(int $runId, string $snapshotId): void
+    {
+        $stored = DB::table(ImportRun::TABLE_NAME)->where(ImportRun::FIELD_ID, $runId)->value(ImportRun::FIELD_SNAPSHOT_ID);
+
+        if ($stored !== null && $stored !== $snapshotId) {
+            throw new RuntimeException('The dump snapshot changed. Start a new import without --resume.');
+        }
+
+        DB::table(ImportRun::TABLE_NAME)->where(ImportRun::FIELD_ID, $runId)->update([ImportRun::FIELD_SNAPSHOT_ID => $snapshotId]);
     }
 
     public function rejection(
@@ -90,13 +118,16 @@ final class EloquentImportRunRecorder implements ImportRunRecorderContract
         );
     }
 
-    public function complete(int $runId, ImportCounters $counters, int $checkpoint): void
+    public function complete(int $runId, ImportCounters $counters, int $checkpoint, array $processedIds = []): void
     {
-        $this->update($runId, $counters, $checkpoint, [
-            ImportRun::FIELD_STATUS => ImportRunStatus::Completed,
-            ImportRun::FIELD_FINISHED_AT => now(),
-            ImportRun::FIELD_ERROR_MESSAGE => null,
-        ]);
+        DB::transaction(function () use ($runId, $counters, $checkpoint, $processedIds): void {
+            $this->rememberIds($runId, $processedIds);
+            $this->update($runId, $counters, $checkpoint, [
+                ImportRun::FIELD_STATUS => ImportRunStatus::Completed,
+                ImportRun::FIELD_FINISHED_AT => now(),
+                ImportRun::FIELD_ERROR_MESSAGE => null,
+            ]);
+        });
     }
 
     public function fail(int $runId, ImportCounters $counters, int $checkpoint, string $message): void
@@ -108,6 +139,17 @@ final class EloquentImportRunRecorder implements ImportRunRecorderContract
         ]);
     }
 
+
+    /** @param list<string> $ids */
+    private function rememberIds(int $runId, array $ids): void
+    {
+        foreach (array_chunk(array_unique($ids), 500) as $chunk) {
+            DB::table('import_processed_titles')->insertOrIgnore(array_map(
+                static fn (string $id): array => ['import_run_id' => $runId, 'external_id' => $id],
+                $chunk,
+            ));
+        }
+    }
 
     /** @param array<string, mixed> $extra */
     private function update(

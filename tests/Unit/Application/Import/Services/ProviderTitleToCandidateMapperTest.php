@@ -11,6 +11,7 @@ use App\Application\Import\Exceptions\ProviderTitleMappingException;
 use App\Application\Import\Services\ProviderTitleNormalizer;
 use App\Application\Import\Services\ProviderTitleToCandidateMapper;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
+use App\Domain\Catalog\Enums\Title\TitleFormat;
 use App\Domain\Catalog\Enums\Title\TitleStatus;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use App\Domain\Import\Enums\RejectionReason;
@@ -42,17 +43,9 @@ final class ProviderTitleToCandidateMapperTest extends TestCase
     }
 
     #[Test]
-    public function it_rejects_promotional_shikimori_entries(): void
+    public function it_keeps_promotional_formats_for_the_evaluator(): void
     {
-        $this->expectException(ProviderTitleMappingException::class);
-
-        try {
-            $this->mapper()->map($this->title(type: 'pv'));
-        } catch (ProviderTitleMappingException $exception) {
-            self::assertSame(RejectionReason::UNSUPPORTED_TYPE, $exception->reason);
-
-            throw $exception;
-        }
+        self::assertSame(TitleFormat::PV, $this->mapper()->map($this->title(format: TitleFormat::PV))->format);
     }
 
     #[Test]
@@ -99,16 +92,18 @@ final class ProviderTitleToCandidateMapperTest extends TestCase
         }
     }
 
+
     private function mapper(): ProviderTitleToCandidateMapper
     {
         return new ProviderTitleToCandidateMapper(new ProviderTitleNormalizer);
     }
 
     private function title(
-        string $type = 'tv',
-        string $status = 'anons',
-        ?int   $durationMinutes = 24,
-        ?float $rating = 9.1,
+        string       $type = 'anime',
+        string       $status = 'announced',
+        ?int         $durationMinutes = 24,
+        ?float       $rating = 9.1,
+        ?TitleFormat $format = TitleFormat::TV,
     ): ProviderTitle {
         return new ProviderTitle(
             source: ProviderSource::Shikimori,
@@ -131,6 +126,7 @@ final class ProviderTitleToCandidateMapperTest extends TestCase
             bannerUrl: null,
             type: $type,
             status: $status,
+            format: $format,
         );
     }
 }

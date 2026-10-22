@@ -7,22 +7,23 @@ namespace Tests\Feature\Infrastructure\Providers\Shikimori;
 use App\Application\Import\DTOs\ProviderTaxonomyItem;
 use App\Application\Import\DTOs\ProviderTitle;
 use App\Application\Import\Enums\ProviderSource;
+use App\Application\Import\Services\ProviderTitleToCandidateMapper;
+use App\Domain\Catalog\Enums\Title\TitleFormat;
+use App\Domain\Import\Services\TitleCandidateEvaluator;
+use App\Domain\Import\Services\TitleCanonicalKeyFactory;
 use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriProviderClient;
+use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 use InvalidArgumentException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use RuntimeException;
 use Tests\TestCase;
 
 final class ShikimoriProviderClientTest extends TestCase
 {
-    protected function setUp(): void
-    {
-        parent::setUp();
-        Sleep::fake();
-    }
-
     #[Test]
     public function it_maps_a_raw_anime_row_to_a_provider_title(): void
     {
@@ -43,7 +44,8 @@ final class ShikimoriProviderClientTest extends TestCase
         self::assertSame(24, $title->durationMinutes);
         self::assertEqualsWithDelta(9.1, $title->rating, 0.0001);
         self::assertSame(15, $title->ratingCount);
-        self::assertSame('tv', $title->type);
+        self::assertSame('anime', $title->type);
+        self::assertSame(TitleFormat::TV, $title->format);
         self::assertSame('released', $title->status);
         self::assertSame('https://cdn.local/5114.jpg', $title->posterUrl);
         self::assertNull($title->bannerUrl);
@@ -70,13 +72,13 @@ final class ShikimoriProviderClientTest extends TestCase
     }
 
     #[Test]
-    public function it_treats_zero_score_as_no_rating(): void
+    public function it_preserves_zero_score(): void
     {
         $row = $this->animeRow();
         $row['score'] = '0.0';
         Http::fake(['*' => Http::response(['data' => ['animes' => [$row]]])]);
 
-        self::assertNull(iterator_to_array($this->client()->fetchTitles(limit: 1))[0]->rating);
+        self::assertSame(0.0, iterator_to_array($this->client()->fetchTitles(limit: 1))[0]->rating);
     }
 
     #[Test]
@@ -151,6 +153,88 @@ final class ShikimoriProviderClientTest extends TestCase
 
         $this->client()->fetchTitles(offset: -1);
     }
+
+    #[Test]
+    #[DataProvider('formats')]
+    public function it_maps_formats_before_applying_the_shared_business_rules(?string $format, bool $rejected): void
+    {
+        $row = [...$this->animeRow(), 'kind' => $format, 'score' => '0.0', 'duration' => 0];
+        Http::fake(['*' => Http::response(['data' => ['animes' => [$row]]])]);
+        $providerTitle = iterator_to_array($this->client()->fetchTitles(1))[0];
+        $candidate = app(ProviderTitleToCandidateMapper::class)->map($providerTitle);
+        self::assertSame('anime', $providerTitle->type);
+        self::assertSame($format === null ? null : TitleFormat::tryFrom($format), $candidate->format);
+        self::assertSame(0.0, $candidate->providerScore);
+        self::assertNull($candidate->durationMinutes);
+        self::assertSame($rejected, app(TitleCandidateEvaluator::class)->decide($candidate)->isRejected());
+    }
+
+    public static function formats(): array
+    {
+        $cases = [[null, false], ['future-format', false]];
+        foreach (TitleFormat::cases() as $format) {
+            $cases[] = [$format->value, in_array($format->value, ['pv', 'cm', 'music'], true)];
+        }
+
+        return $cases;
+    }
+
+    #[Test]
+    public function it_preserves_tv_and_movie_as_distinct_canonical_keys(): void
+    {
+        $mapper = app(ProviderTitleToCandidateMapper::class);
+        $rawMapper = new ShikimoriTitleMapper;
+        $factory = app(TitleCanonicalKeyFactory::class);
+        $tv = $mapper->map($rawMapper->map([...$this->animeRow(), 'kind' => 'tv']));
+        $movie = $mapper->map($rawMapper->map([...$this->animeRow(), 'kind' => 'movie']));
+        self::assertNotSame($factory->create($tv)->getValue(), $factory->create($movie)->getValue());
+    }
+
+    #[Test]
+    #[DataProvider('invalidResponses')]
+    public function it_rejects_malformed_anime_lists(array $data): void
+    {
+        Http::fake(['*' => Http::response(['data' => $data])]);
+        $this->expectException(RuntimeException::class);
+        iterator_to_array($this->client()->fetchTitles());
+    }
+
+    public static function invalidResponses(): array
+    {
+        return [[[]], [['animes' => null]], [['animes' => 'invalid']], [['animes' => ['id' => '1']]], [['animes' => [[]]]], [['animes' => [['id' => '']]]]];
+    }
+
+    #[Test]
+    public function it_rejects_a_repeated_non_empty_page(): void
+    {
+        config()->set('shikimori.page_size', 2);
+        $page = ['data' => ['animes' => [$this->animeRow('1'), $this->animeRow('2')]]];
+        Http::fakeSequence()->push($page)->push($page);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('repeated anime page');
+        iterator_to_array($this->client()->fetchTitles(null));
+    }
+
+    #[Test]
+    public function it_retries_an_empty_page_before_ending_the_catalog(): void
+    {
+        config()->set('shikimori.page_size', 2);
+        Http::fakeSequence()
+            ->push(['data' => ['animes' => [$this->animeRow('1'), $this->animeRow('2')]]])
+            ->push(['data' => ['animes' => []]])
+            ->push(['data' => ['animes' => [$this->animeRow('3')]]]);
+        $titles = iterator_to_array($this->client()->fetchTitles(null));
+        self::assertSame(['1', '2', '3'], array_column($titles, 'externalId'));
+        Http::assertSentCount(3);
+    }
+
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Sleep::fake();
+    }
+
 
     private function client(): ShikimoriProviderClient
     {

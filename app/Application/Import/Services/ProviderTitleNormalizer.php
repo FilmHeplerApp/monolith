@@ -18,8 +18,8 @@ final readonly class ProviderTitleNormalizer
             return null;
         }
 
-        $text = preg_replace('/\[\/?[a-zA-Z][^\]]*]/u', '', $raw) ?? $raw;
-        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = preg_replace('/\[\/?[a-zA-Z][^\]]*]/u', '', $text) ?? $text;
         $text = strip_tags($text);
         $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
         $text = trim($text);
@@ -33,15 +33,12 @@ final readonly class ProviderTitleNormalizer
 
     public function normalizeLocalizedDescription(?LocalizedText $description): ?LocalizedText
     {
-        if ($description === null) {
-            return null;
-        }
-
-        return LocalizedText::create(
+        return $description === null ? null : LocalizedText::create(
             $this->normalizeDescription($description->getRu()),
             $this->normalizeDescription($description->getEn()),
         );
     }
+
 
     private function truncate(string $text): string
     {
@@ -49,7 +46,7 @@ final readonly class ProviderTitleNormalizer
             return $text;
         }
 
-        $cut = mb_substr($text, 0, $this->maxDescriptionLength);
+        $cut = mb_substr($text, 0, $this->maxDescriptionLength - 1);
         $lastSpace = mb_strrpos($cut, ' ');
 
         if ($lastSpace !== false) {

@@ -18,13 +18,20 @@ interface ImportRunRecorderContract
         ?int               $limit,
     ): ImportRunCheckpoint;
 
+    /** The caller holds ImportRunLockContract for this provider/source throughout the run. */
     public function resume(
         ProviderSource     $provider,
         ProviderDataSource $dataSource,
         ?int               $limit,
     ): ?ImportRunCheckpoint;
 
-    public function progress(int $runId, ImportCounters $counters, int $checkpoint): void;
+    /** @param list<string> $processedIds */
+    public function progress(int $runId, ImportCounters $counters, int $checkpoint, array $processedIds = []): void;
+
+    /** @return list<string> */
+    public function processedIds(int $runId): array;
+
+    public function bindSnapshot(int $runId, string $snapshotId): void;
 
     /** @param array<string, mixed> $context */
     public function rejection(
@@ -34,7 +41,8 @@ interface ImportRunRecorderContract
         array           $context = [],
     ): void;
 
-    public function complete(int $runId, ImportCounters $counters, int $checkpoint): void;
+    /** @param list<string> $processedIds */
+    public function complete(int $runId, ImportCounters $counters, int $checkpoint, array $processedIds = []): void;
 
     public function fail(int $runId, ImportCounters $counters, int $checkpoint, string $message): void;
 }
