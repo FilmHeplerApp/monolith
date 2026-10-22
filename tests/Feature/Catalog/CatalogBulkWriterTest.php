@@ -10,6 +10,11 @@ use App\Application\Catalog\DTOs\AttributeOptionData;
 use App\Application\Catalog\DTOs\PreparedCatalogDto;
 use App\Application\Catalog\DTOs\TitleAttributeData;
 use App\Application\Catalog\DTOs\TitleData;
+use App\Application\Import\DTOs\CatalogAttributePackData;
+use App\Application\Import\DTOs\CatalogPackInput;
+use App\Application\Import\DTOs\CatalogTitlePackData;
+use App\Application\Import\Services\CatalogPacker;
+use App\Application\Import\Services\ImportAttributeRegistry;
 use App\Domain\Catalog\Enums\AttributeDefinition\AttributeValueType;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\Enums\Title\TitleStatus;
@@ -27,12 +32,14 @@ use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeDefinition;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeOption;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\Title;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\TitleAttribute;
+use Database\Seeders\AttributeDefinitionSeeder;
 use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use RuntimeException;
 use Tests\TestCase;
 
 final class CatalogBulkWriterTest extends TestCase
@@ -117,7 +124,8 @@ final class CatalogBulkWriterTest extends TestCase
             ->where(TitleAttribute::FIELD_ATTRIBUTE_ID, $studios->{AttributeDefinition::FIELD_ID})
             ->firstOrFail();
 
-        $this->assertSame(self::STUDIO_NAME, $studioValue->{TitleAttribute::FIELD_VALUE_TEXT});
+        $this->assertSame([self::STUDIO_NAME], $studioValue->{TitleAttribute::FIELD_VALUE_ARRAY});
+        $this->assertNull($studioValue->{TitleAttribute::FIELD_VALUE_TEXT});
         $this->assertSame(self::STUDIO_NAME, $studioValue->{TitleAttribute::FIELD_SEARCHABLE_TEXT});
     }
 
@@ -148,7 +156,6 @@ final class CatalogBulkWriterTest extends TestCase
         ]);
 
         $this->assertDatabaseHas(TitleAttribute::TABLE_NAME, [
-            TitleAttribute::FIELD_VALUE_TEXT => 'Studio Pierrot',
             TitleAttribute::FIELD_SEARCHABLE_TEXT => 'Studio Pierrot',
         ]);
     }
@@ -466,7 +473,7 @@ final class CatalogBulkWriterTest extends TestCase
                 TitleCanonicalKey::createFromString(self::SECOND_CANONICAL_KEY),
                 self::ATTRIBUTE_STUDIOS,
                 TitleContentType::ANIME,
-                AttributeValue::createFromText(self::STUDIO_NAME),
+                AttributeValue::createFromArray([self::STUDIO_NAME]),
             )],
         ));
 
@@ -584,7 +591,97 @@ final class CatalogBulkWriterTest extends TestCase
         ));
 
         $this->assertDatabaseCount(TitleAttribute::TABLE_NAME, 2);
-        $this->assertDatabaseHas(TitleAttribute::TABLE_NAME, [TitleAttribute::FIELD_VALUE_TEXT => self::STUDIO_NAME]);
+        $this->assertDatabaseHas(TitleAttribute::TABLE_NAME, [TitleAttribute::FIELD_SEARCHABLE_TEXT => self::STUDIO_NAME]);
+    }
+
+    #[Test]
+    public function it_persists_packed_english_studios_and_reimports_without_duplicates(): void
+    {
+        $input = new CatalogPackInput(
+            titles: [
+                $this->packTitle(self::CANONICAL_KEY, [LocalizedText::create(null, 'Sunrise'), LocalizedText::create(null, 'Bones')]),
+                $this->packTitle(self::SECOND_CANONICAL_KEY, [$this->createLocalizedText('Sunrise')]),
+            ],
+            attributeDefinitions: [(new ImportAttributeRegistry)->definition(TitleContentType::ANIME, self::ATTRIBUTE_STUDIOS)],
+        );
+        $packer = new CatalogPacker;
+
+        $this->writer->write($packer->pack($input));
+        $originalIds = DB::table(Title::TABLE_NAME)->orderBy(Title::FIELD_ID)->pluck(Title::FIELD_UUID)->all();
+        $this->writer->write($packer->pack($input));
+
+        $this->assertSame($originalIds, DB::table(Title::TABLE_NAME)->orderBy(Title::FIELD_ID)->pluck(Title::FIELD_UUID)->all());
+        $this->assertDatabaseCount(Title::TABLE_NAME, 2);
+        $this->assertDatabaseCount(AttributeDefinition::TABLE_NAME, 1);
+        $this->assertDatabaseCount(AttributeOption::TABLE_NAME, 2);
+        $this->assertDatabaseCount(TitleAttribute::TABLE_NAME, 2);
+        $this->assertDatabaseHas(AttributeOption::TABLE_NAME, [
+            AttributeOption::FIELD_VALUE_RU => 'Sunrise',
+            AttributeOption::FIELD_VALUE_EN => 'Sunrise',
+        ]);
+        $title = Title::query()->where(Title::FIELD_CANONICAL_KEY, self::CANONICAL_KEY)->firstOrFail();
+        $attribute = $title->attributes()->firstOrFail();
+        $this->assertSame(['Sunrise', 'Bones'], $attribute->value_array);
+        $this->assertNull($attribute->value_text);
+        $this->assertSame('Sunrise Bones', $attribute->searchable_text);
+        $this->assertNull($title->duration);
+    }
+
+    #[Test]
+    public function it_uses_seeded_import_types_when_packing_without_incoming_definitions(): void
+    {
+        $this->seed(AttributeDefinitionSeeder::class);
+        $before = DB::table(AttributeDefinition::TABLE_NAME)->orderBy('id')->pluck('id')->all();
+        DB::table(AttributeDefinition::TABLE_NAME)->where('code', self::ATTRIBUTE_STUDIOS)->update([
+            AttributeDefinition::FIELD_NAME_RU => 'Ручная подпись',
+            AttributeDefinition::FIELD_IS_FILTERABLE => true,
+        ]);
+        $this->seed(AttributeDefinitionSeeder::class);
+
+        $this->writer->write((new CatalogPacker)->pack(new CatalogPackInput(
+            titles: [$this->packTitle(self::CANONICAL_KEY, [
+                $this->createLocalizedText('Gainax'),
+                $this->createLocalizedText('Tatsunoko Production'),
+            ])],
+            attributeDefinitions: [],
+        )));
+
+        $this->assertSame($before, DB::table(AttributeDefinition::TABLE_NAME)->orderBy('id')->pluck('id')->all());
+        $this->assertDatabaseCount(AttributeDefinition::TABLE_NAME, count((new ImportAttributeRegistry)->definitions()));
+        $this->assertDatabaseHas(AttributeDefinition::TABLE_NAME, [
+            AttributeDefinition::FIELD_CONTENT_TYPE_CODE => TitleContentType::ANIME->value,
+            AttributeDefinition::FIELD_CODE => self::ATTRIBUTE_STUDIOS,
+            AttributeDefinition::FIELD_VALUE_TYPE => AttributeValueType::ARRAY->value,
+            AttributeDefinition::FIELD_NAME_RU => 'Ручная подпись',
+            AttributeDefinition::FIELD_IS_FILTERABLE => true,
+        ]);
+        $this->assertSame(['Gainax', 'Tatsunoko Production'], TitleAttribute::query()->firstOrFail()->value_array);
+    }
+
+    #[Test]
+    public function it_refuses_to_relabel_legacy_studios_during_seeding_without_a_data_migration(): void
+    {
+        $this->writer->write(new PreparedCatalogDto(attributeDefinitions: [new AttributeDefinitionData(
+            self::ATTRIBUTE_STUDIOS,
+            $this->createLocalizedText('Студии', 'Studios'),
+            TitleContentType::ANIME,
+            AttributeValueType::STRING,
+            false,
+            false,
+            5,
+        )]));
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Run the data migrations before seeding');
+
+        try {
+            $this->seed(AttributeDefinitionSeeder::class);
+        } finally {
+            $this->assertDatabaseCount(AttributeDefinition::TABLE_NAME, 1);
+            $this->assertDatabaseHas(AttributeDefinition::TABLE_NAME, [
+                AttributeDefinition::FIELD_CODE => self::ATTRIBUTE_STUDIOS,
+                AttributeDefinition::FIELD_VALUE_TYPE => AttributeValueType::STRING->value,
+            ]);
+        }
     }
 
 
@@ -599,6 +696,26 @@ final class CatalogBulkWriterTest extends TestCase
         $this->writer = $this->app->make(CatalogBulkWriterContract::class);
     }
 
+
+    /** @param list<LocalizedText> $studios */
+    private function packTitle(string $key, array $studios): CatalogTitlePackData
+    {
+        $definition = (new ImportAttributeRegistry)->definition(TitleContentType::ANIME, self::ATTRIBUTE_STUDIOS);
+
+        return new CatalogTitlePackData(
+            canonicalKey: TitleCanonicalKey::createFromString($key),
+            title: $this->createLocalizedText(self::TITLE_RU, self::TITLE_EN),
+            description: $this->createLocalizedText('Описание', 'Description'),
+            releaseYear: self::RELEASE_YEAR,
+            durationMinutes: null,
+            contentType: TitleContentType::ANIME,
+            status: TitleStatus::RELEASED,
+            posterUrl: 'https://example.test/poster.jpg',
+            bannerUrl: null,
+            isIncomplete: false,
+            attributes: [new CatalogAttributePackData(self::ATTRIBUTE_STUDIOS, $definition->valueType, $studios)],
+        );
+    }
 
     private function preparedCatalog(
         string $titleRu = self::TITLE_RU,
@@ -625,7 +742,7 @@ final class CatalogBulkWriterTest extends TestCase
                     self::ATTRIBUTE_STUDIOS,
                     $this->createLocalizedText('Студия', 'Studio'),
                     TitleContentType::ANIME,
-                    AttributeValueType::STRING,
+                    AttributeValueType::ARRAY,
                     false,
                     false,
                     2,
@@ -654,7 +771,7 @@ final class CatalogBulkWriterTest extends TestCase
                     $canonicalKey,
                     self::ATTRIBUTE_STUDIOS,
                     TitleContentType::ANIME,
-                    AttributeValue::createFromText($studioName),
+                    AttributeValue::createFromArray([$studioName]),
                 ),
             ],
         );
@@ -700,7 +817,7 @@ final class CatalogBulkWriterTest extends TestCase
         $this->assertDatabaseCount(TitleAttribute::TABLE_NAME, self::EXPECTED_TITLE_ATTRIBUTE_COUNT);
         $this->assertDatabaseCount(AttributeDefinition::TABLE_NAME, self::EXPECTED_DEFINITION_COUNT);
         $this->assertDatabaseCount(AttributeOption::TABLE_NAME, self::EXPECTED_OPTION_COUNT);
-        $this->assertDatabaseHas(TitleAttribute::TABLE_NAME, [TitleAttribute::FIELD_VALUE_TEXT => self::STUDIO_NAME]);
+        $this->assertDatabaseHas(TitleAttribute::TABLE_NAME, [TitleAttribute::FIELD_SEARCHABLE_TEXT => self::STUDIO_NAME]);
     }
 
     private function createTitleData(

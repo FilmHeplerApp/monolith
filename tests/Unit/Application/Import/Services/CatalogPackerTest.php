@@ -16,6 +16,7 @@ use App\Domain\Catalog\Enums\Title\TitleUpdatedBy;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use App\Domain\Catalog\ValueObjects\Title\TitleCanonicalKey;
 use LogicException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
@@ -36,12 +37,12 @@ final class CatalogPackerTest extends TestCase
                         $this->text('Драма', 'Drama'),
                         $this->text('Экшен', 'Action'),
                     ]),
-                    $this->attribute('studios', [$this->text('Pierrot', 'Pierrot')], AttributeValueType::STRING),
+                    $this->attribute('studios', [$this->text('Pierrot', 'Pierrot')], AttributeValueType::ARRAY),
                 ],
             )],
             attributeDefinitions: [
                 $this->definition('genres', AttributeValueType::ARRAY, 1),
-                $this->definition('studios', AttributeValueType::STRING, 2, isFilterable: false),
+                $this->definition('studios', AttributeValueType::ARRAY, 2, isFilterable: false),
             ],
         ));
 
@@ -85,7 +86,7 @@ final class CatalogPackerTest extends TestCase
 
         self::assertSame(['Экшен', 'Драма'], $packed->titleAttributes[0]->value->getArray());
         self::assertSame(TitleContentType::ANIME, $packed->titleAttributes[0]->contentTypeCode);
-        self::assertSame('Pierrot', $packed->titleAttributes[1]->value->getText());
+        self::assertSame(['Pierrot'], $packed->titleAttributes[1]->value->getArray());
         self::assertSame(TitleContentType::ANIME, $packed->titleAttributes[1]->contentTypeCode);
     }
 
@@ -202,11 +203,11 @@ final class CatalogPackerTest extends TestCase
     public function it_rejects_an_attribute_value_type_that_disagrees_with_a_definition(): void
     {
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessage('Attribute [anime:studios] value type [array] does not match [string] in one catalog pack.');
+        $this->expectExceptionMessage('Attribute [anime:pace] value type [array] does not match [string] in one catalog pack.');
 
         (new CatalogPacker)->pack(new CatalogPackInput(
-            titles: [$this->title(attributes: [$this->attribute('studios', [$this->text('Pierrot')])])],
-            attributeDefinitions: [$this->definition('studios', AttributeValueType::STRING, 2)],
+            titles: [$this->title(attributes: [$this->attribute('pace', [$this->text('fast')])])],
+            attributeDefinitions: [$this->definition('pace', AttributeValueType::STRING, 2)],
         ));
     }
 
@@ -247,13 +248,13 @@ final class CatalogPackerTest extends TestCase
     public function it_rejects_several_values_for_a_string_attribute(): void
     {
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessage('Attribute [anime:studios] of type [string] must contain exactly one value.');
+        $this->expectExceptionMessage('Attribute [anime:pace] of type [string] must contain exactly one value.');
 
         (new CatalogPacker)->pack(new CatalogPackInput(
             titles: [$this->title(attributes: [
-                $this->attribute('studios', [$this->text('Pierrot'), $this->text('Bones')], AttributeValueType::STRING),
+                $this->attribute('pace', [$this->text('fast'), $this->text('slow')], AttributeValueType::STRING),
             ])],
-            attributeDefinitions: [$this->definition('studios', AttributeValueType::STRING, 2)],
+            attributeDefinitions: [$this->definition('pace', AttributeValueType::STRING, 2)],
         ));
     }
 
@@ -261,14 +262,14 @@ final class CatalogPackerTest extends TestCase
     public function it_rejects_a_repeated_string_attribute(): void
     {
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessage('Attribute [anime:studios] is declared twice for canonical key [naruto].');
+        $this->expectExceptionMessage('Attribute [anime:pace] is declared twice for canonical key [naruto].');
 
         (new CatalogPacker)->pack(new CatalogPackInput(
             titles: [$this->title(attributes: [
-                $this->attribute('studios', [$this->text('Pierrot')], AttributeValueType::STRING),
-                $this->attribute('studios', [$this->text('Bones')], AttributeValueType::STRING),
+                $this->attribute('pace', [$this->text('fast')], AttributeValueType::STRING),
+                $this->attribute('pace', [$this->text('slow')], AttributeValueType::STRING),
             ])],
-            attributeDefinitions: [$this->definition('studios', AttributeValueType::STRING, 2)],
+            attributeDefinitions: [$this->definition('pace', AttributeValueType::STRING, 2)],
         ));
     }
 
@@ -277,8 +278,8 @@ final class CatalogPackerTest extends TestCase
     {
         $packed = (new CatalogPacker)->pack(new CatalogPackInput(
             titles: [$this->title(attributes: [
-                $this->attribute('studios', [$this->text('Pierrot')], AttributeValueType::STRING),
-                $this->attribute('studios', [$this->text('Pierrot')], AttributeValueType::STRING),
+                $this->attribute('pace', [$this->text('fast')], AttributeValueType::STRING),
+                $this->attribute('pace', [$this->text('fast')], AttributeValueType::STRING),
                 $this->attribute('score', [$this->text('8.5')], AttributeValueType::NUMBER),
                 $this->attribute('score', [$this->text('8.50')], AttributeValueType::NUMBER),
                 $this->attribute('ongoing', [$this->text('true')], AttributeValueType::BOOLEAN),
@@ -288,11 +289,11 @@ final class CatalogPackerTest extends TestCase
         ));
 
         self::assertCount(3, $packed->titleAttributes);
-        self::assertSame('Pierrot', $packed->titleAttributes[0]->value->getText());
+        self::assertSame('fast', $packed->titleAttributes[0]->value->getText());
         self::assertSame(8.5, $packed->titleAttributes[1]->value->getNumber());
         self::assertTrue($packed->titleAttributes[2]->value->getBoolean());
         self::assertSame(
-            ['Pierrot'],
+            ['fast'],
             array_map(static fn ($option) => $option->value->getRu(), $packed->attributeOptions),
         );
     }
@@ -449,9 +450,37 @@ final class CatalogPackerTest extends TestCase
             attributeDefinitions: [],
         ));
 
-        self::assertNull($packed->attributeOptions[0]->value->getRu());
+        self::assertSame('Action', $packed->attributeOptions[0]->value->getRu());
         self::assertSame('Action', $packed->attributeOptions[0]->value->getEn());
         self::assertSame(['Action'], $packed->titleAttributes[0]->value->getArray());
+    }
+
+    #[Test]
+    #[DataProvider('fallbackOptionValues')]
+    public function it_deduplicates_fallback_values_and_fills_missing_translations(array $values, string $expectedEn): void
+    {
+        $packed = (new CatalogPacker)->pack(new CatalogPackInput(
+            titles: [$this->title(attributes: [$this->attribute('studios', array_map(
+                fn (array $value): LocalizedText => $this->text(...$value),
+                $values,
+            ))])],
+            attributeDefinitions: [],
+        ));
+
+        self::assertCount(1, $packed->attributeOptions);
+        self::assertSame('Sunrise', $packed->attributeOptions[0]->value->getRu());
+        self::assertSame($expectedEn, $packed->attributeOptions[0]->value->getEn());
+        self::assertSame(['Sunrise'], $packed->titleAttributes[0]->value->getArray());
+    }
+
+    public static function fallbackOptionValues(): array
+    {
+        return [
+            'english first' => [[[null, 'Sunrise'], ['Sunrise', null]], 'Sunrise'],
+            'russian first' => [[['Sunrise', null], [null, 'Sunrise']], 'Sunrise'],
+            'missing translation is enriched' => [[['Sunrise', null], ['Sunrise', 'Sunrise Studio']], 'Sunrise Studio'],
+            'first known translation is retained' => [[['Sunrise', 'Sunrise Studio'], ['Sunrise', 'Other translation']], 'Sunrise Studio'],
+        ];
     }
 
     #[Test]

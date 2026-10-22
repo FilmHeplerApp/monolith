@@ -16,6 +16,5 @@ final readonly class CatalogAttributePackData
         public string             $code,
         public AttributeValueType $valueType,
         public array              $values,
-    ) {
-    }
+    ) {}
 }

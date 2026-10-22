@@ -235,17 +235,18 @@ final readonly class CatalogPacker
         LocalizedText    $value,
         array            &$options,
     ): void {
-        $ru = $value->getRu();
-        $key = $this->definitionKey($contentType, $code) . "\0" . ($ru ?? "\0" . (string)$value->getEn());
+        $ru = $value->getPreferred() ?? throw new LogicException('Attribute option has no display value.');
+        $key = $this->definitionKey($contentType, $code) . "\0" . $ru;
 
-        if (isset($options[$key])) {
+        if (isset($options[$key]) && ($options[$key]->value->getEn() !== null || $value->getEn() === null)) {
             return;
         }
 
         $options[$key] = new AttributeOptionData(
             attributeCode: $code,
             contentTypeCode: $contentType,
-            value: $value,
+            value: LocalizedText::create($ru, $value->getEn())
+                ?? throw new LogicException('Attribute option has no display value.'),
         );
     }
 

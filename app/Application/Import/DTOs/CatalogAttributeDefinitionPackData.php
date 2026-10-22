@@ -18,6 +18,5 @@ final readonly class CatalogAttributeDefinitionPackData
         public bool               $isFilterable,
         public bool               $isRequired,
         public int                $order,
-    ) {
-    }
+    ) {}
 }

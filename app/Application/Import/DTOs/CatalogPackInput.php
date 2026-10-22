@@ -13,6 +13,5 @@ final readonly class CatalogPackInput
     public function __construct(
         public array $titles,
         public array $attributeDefinitions,
-    ) {
-    }
+    ) {}
 }

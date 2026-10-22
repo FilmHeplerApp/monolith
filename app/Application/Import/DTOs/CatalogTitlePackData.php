@@ -26,6 +26,5 @@ final readonly class CatalogTitlePackData
         public ?string           $bannerUrl,
         public bool              $isIncomplete,
         public array             $attributes,
-    ) {
-    }
+    ) {}
 }
