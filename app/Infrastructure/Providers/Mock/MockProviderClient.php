@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Infrastructure\Providers\Mock;
 
 use App\Application\Import\Contracts\ProviderClientContract;
+use App\Application\Import\DTOs\ProviderTaxonomyItem;
 use App\Application\Import\DTOs\ProviderTitle;
 use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\Exceptions\ProviderException;
@@ -16,9 +17,7 @@ final class MockProviderClient implements ProviderClientContract
 {
     /** @var list<ProviderTitle> */
     private array $titles;
-
     private ?ProviderException $failure = null;
-
     private int $failAfter = 0;
 
 
@@ -33,13 +32,17 @@ final class MockProviderClient implements ProviderClientContract
         return ProviderSource::Mock;
     }
 
-    public function fetchTitles(int $limit = 50): Generator
+    public function fetchTitles(?int $limit = 50, int $offset = 0): Generator
     {
-        if ($limit < 1) {
-            throw new InvalidArgumentException("Fetch limit must be >= 1, got {$limit}.");
+        if ($limit !== null && $limit < 1) {
+            throw new InvalidArgumentException("Fetch limit must be >= 1 or null, got {$limit}.");
         }
 
-        return $this->iterateTitles($limit);
+        if ($offset < 0) {
+            throw new InvalidArgumentException("Fetch offset must be >= 0, got {$offset}.");
+        }
+
+        return $this->iterateTitles($limit, $offset);
     }
 
     public function fetchTitleByExternalId(string $externalId): ?ProviderTitle
@@ -50,7 +53,7 @@ final class MockProviderClient implements ProviderClientContract
 
         return array_find(
             $this->titles,
-            static fn(ProviderTitle $title): bool => $title->externalId === $externalId,
+            static fn (ProviderTitle $title): bool => $title->externalId === $externalId,
         );
     }
 
@@ -81,12 +84,12 @@ final class MockProviderClient implements ProviderClientContract
 
 
     /** @return Generator<int, ProviderTitle> */
-    private function iterateTitles(int $limit): Generator
+    private function iterateTitles(?int $limit, int $offset): Generator
     {
         $yielded = 0;
 
-        foreach ($this->titles as $title) {
-            if ($yielded >= $limit) {
+        foreach (array_slice($this->titles, $offset) as $title) {
+            if ($limit !== null && $yielded >= $limit) {
                 return;
             }
 
@@ -97,6 +100,24 @@ final class MockProviderClient implements ProviderClientContract
             yield $title;
             $yielded++;
         }
+    }
+
+    /** @return list<ProviderTaxonomyItem> */
+    private static function taxonomy(string ...$names): array
+    {
+        return array_map(
+            static fn (string $name): ProviderTaxonomyItem => new ProviderTaxonomyItem('genre', null, $name),
+            $names,
+        );
+    }
+
+    /** @return list<ProviderTaxonomyItem> */
+    private static function studios(string ...$names): array
+    {
+        return array_map(
+            static fn (string $name): ProviderTaxonomyItem => new ProviderTaxonomyItem('studio', null, $name),
+            $names,
+        );
     }
 
     /** @return list<ProviderTitle> */
@@ -121,8 +142,10 @@ final class MockProviderClient implements ProviderClientContract
                 descriptionRu: 'Два брата ищут философский камень, чтобы вернуть тела.',
                 descriptionEn: 'Two brothers search for the Philosopher Stone to restore their bodies.',
                 genres: ['action', 'adventure', 'drama'],
+                studios: ['Bones'],
                 year: 2009,
                 rating: 9.1,
+                ratingCount: 100000,
                 posterUrl: 'https://mock.local/posters/5114.jpg',
             ),
             self::fixture(
@@ -131,8 +154,10 @@ final class MockProviderClient implements ProviderClientContract
                 titleEn: 'Cowboy Bebop',
                 descriptionRu: 'Команда охотников за головами бороздит Солнечную систему.',
                 genres: ['action', 'sci-fi'],
+                studios: ['Sunrise'],
                 year: 1998,
                 rating: 8.8,
+                ratingCount: 75000,
                 posterUrl: 'https://mock.local/posters/1.jpg',
             ),
             self::fixture(
@@ -141,8 +166,10 @@ final class MockProviderClient implements ProviderClientContract
                 titleEn: 'Steins;Gate',
                 descriptionRu: 'Группа друзей случайно изобретает способ отправлять сообщения в прошлое.',
                 genres: ['sci-fi', 'thriller'],
+                studios: ['White Fox'],
                 year: 2011,
                 rating: 9.0,
+                ratingCount: 90000,
                 posterUrl: 'https://mock.local/posters/9253.jpg',
             ),
             self::fixture(
@@ -151,8 +178,10 @@ final class MockProviderClient implements ProviderClientContract
                 titleEn: 'Jujutsu Kaisen',
                 descriptionRu: 'Старшеклассник глотает проклятый артефакт и попадает в школу магов.',
                 genres: ['action', 'fantasy'],
+                studios: ['MAPPA'],
                 year: 2023,
                 rating: 8.6,
+                ratingCount: null,
                 posterUrl: 'https://mock.local/posters/52991.jpg',
                 status: 'ongoing',
             ),
@@ -169,9 +198,11 @@ final class MockProviderClient implements ProviderClientContract
                 titleEn: 'Bocchi the Rock!',
                 descriptionRu: null,
                 genres: ['music', 'comedy'],
+                studios: ['CloverWorks'],
                 year: 2022,
                 durationMinutes: null,
                 rating: null,
+                ratingCount: null,
                 posterUrl: 'https://mock.local/posters/48926.jpg',
             ),
             self::fixture(
@@ -183,6 +214,7 @@ final class MockProviderClient implements ProviderClientContract
                 year: 1975,
                 durationMinutes: null,
                 rating: null,
+                ratingCount: null,
             ),
             self::fixture(
                 externalId: '58567',
@@ -193,6 +225,7 @@ final class MockProviderClient implements ProviderClientContract
                 year: null,
                 durationMinutes: null,
                 rating: null,
+                ratingCount: null,
                 status: 'announced',
             ),
             self::fixture(
@@ -204,6 +237,7 @@ final class MockProviderClient implements ProviderClientContract
                 year: null,
                 durationMinutes: null,
                 rating: null,
+                ratingCount: null,
             ),
         ];
     }
@@ -263,7 +297,10 @@ final class MockProviderClient implements ProviderClientContract
         );
     }
 
-    /** @param list<string> $genres */
+    /**
+     * @param  list<string>  $genres
+     * @param  list<string>  $studios
+     */
     private static function fixture(
         string  $externalId,
         ?string $titleRu = 'Тестовый тайтл',
@@ -271,9 +308,11 @@ final class MockProviderClient implements ProviderClientContract
         ?string $descriptionRu = 'Тестовое описание.',
         ?string $descriptionEn = null,
         array   $genres = ['test'],
+        array   $studios = [],
         ?int    $year = 2024,
         ?int    $durationMinutes = 24,
         ?float  $rating = 7.5,
+        ?int    $ratingCount = 100,
         ?string $posterUrl = null,
         ?string $bannerUrl = null,
         string  $type = 'anime',
@@ -284,10 +323,12 @@ final class MockProviderClient implements ProviderClientContract
             externalId: $externalId,
             title: LocalizedText::create($titleRu, $titleEn),
             description: LocalizedText::create($descriptionRu, $descriptionEn),
-            genres: $genres,
+            genres: self::taxonomy(...$genres),
+            studios: self::studios(...$studios),
             year: $year,
             durationMinutes: $durationMinutes,
             rating: $rating,
+            ratingCount: $ratingCount,
             posterUrl: $posterUrl,
             bannerUrl: $bannerUrl,
             type: $type,

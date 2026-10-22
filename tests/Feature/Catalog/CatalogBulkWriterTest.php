@@ -15,6 +15,7 @@ use App\Application\Import\DTOs\CatalogPackInput;
 use App\Application\Import\DTOs\CatalogTitlePackData;
 use App\Application\Import\Services\CatalogPacker;
 use App\Application\Import\Services\ImportAttributeRegistry;
+use App\Application\Import\Services\ProviderTitleToCandidateMapper;
 use App\Domain\Catalog\Enums\AttributeDefinition\AttributeValueType;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\Enums\Title\TitleStatus;
@@ -25,12 +26,16 @@ use App\Domain\Catalog\ValueObjects\Title\ReleaseYear;
 use App\Domain\Catalog\ValueObjects\Title\TitleCanonicalKey;
 use App\Domain\Catalog\ValueObjects\Title\TitleUuid;
 use App\Domain\Catalog\ValueObjects\TitleAttribute\AttributeValue;
+use App\Domain\Import\Services\TitleCandidateEvaluator;
+use App\Domain\Import\Services\TitleCanonicalKeyFactory;
+use App\Domain\Import\Services\TitleKeyResolver;
 use App\Infrastructure\Persistence\Eloquent\Bulk\Catalog\TitleContentTypeMismatchException;
 use App\Infrastructure\Persistence\Eloquent\Bulk\Catalog\UnresolvedCatalogReferenceException;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeDefinition;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeOption;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\Title;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\TitleAttribute;
+use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
 use Database\Seeders\AttributeDefinitionSeeder;
 use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Database\Schema\Blueprint;
@@ -564,6 +569,64 @@ final class CatalogBulkWriterTest extends TestCase
                 AttributeDefinition::FIELD_VALUE_TYPE => AttributeValueType::STRING->value,
             ]);
         }
+    }
+
+    #[Test]
+    public function it_saves_the_provider_fixture_through_evaluation_resolution_and_packing(): void
+    {
+        $this->seed(AttributeDefinitionSeeder::class);
+        $rawMapper = new ShikimoriTitleMapper;
+        $mapper = app(ProviderTitleToCandidateMapper::class);
+        $evaluator = app(TitleCandidateEvaluator::class);
+        $candidates = [];
+        $flagged = [];
+        $demographicCandidate = null;
+
+        foreach (file(base_path('static/Fixtures/Shikimori/animes.ndjson')) as $line) {
+            $candidate = $mapper->map($rawMapper->map(json_decode($line, true, 512, JSON_THROW_ON_ERROR)));
+            $decision = $evaluator->decide($candidate);
+            if ($decision->isRejected()) {
+                continue;
+            }
+            $candidates[] = $candidate;
+            $flagged[$candidate->externalId] = $decision->isFlagged();
+            if ($candidate->externalId === '8687') {
+                $demographicCandidate = $candidate;
+            }
+        }
+        self::assertCount(266, $candidates);
+        $resolution = app(TitleKeyResolver::class)->resolve($candidates);
+        $registry = new ImportAttributeRegistry;
+        $titles = [];
+        foreach ($resolution->resolved as $entry) {
+            $candidate = $entry->candidate;
+            $titles[] = new CatalogTitlePackData(
+                canonicalKey: $entry->key,
+                title: $candidate->title,
+                description: $candidate->description,
+                releaseYear: $candidate->releaseYear,
+                durationMinutes: $candidate->durationMinutes,
+                contentType: $candidate->type,
+                status: $candidate->status,
+                posterUrl: $candidate->posterUrl,
+                bannerUrl: $candidate->bannerUrl,
+                isIncomplete: $flagged[$candidate->externalId],
+                attributes: array_map(fn ($attribute) => new CatalogAttributePackData(
+                    $attribute->code, $registry->definition($candidate->type, $attribute->code)->valueType, $attribute->values,
+                ), $candidate->attributes),
+            );
+        }
+        $packed = (new CatalogPacker)->pack(new CatalogPackInput($titles, []));
+        $this->writer->write($packed);
+        $ids = Title::query()->orderBy('id')->pluck('uuid')->all();
+        $this->writer->write($packed);
+        self::assertSame($ids, Title::query()->orderBy('id')->pluck('uuid')->all());
+        $this->assertDatabaseCount(Title::TABLE_NAME, count($resolution->resolved));
+        self::assertNotNull($demographicCandidate);
+        $key = app(TitleCanonicalKeyFactory::class)->create($demographicCandidate);
+        $title = Title::query()->where('canonical_key', $key->getValue())->firstOrFail();
+        $definition = AttributeDefinition::query()->where('code', 'target_audience')->firstOrFail();
+        self::assertSame(['Детское', 'Сёнен'], $title->attributes()->where('attribute_id', $definition->id)->firstOrFail()->value_array);
     }
 
 

@@ -1,104 +1,102 @@
-# План: запуск сбора данных + упаковка в сейвер
+# План: запуск сбора данных и подключение упаковщика
 
-Живой документ на две задачи. Идентификаторы кода — на английском, пояснения — на русском.
+## Состояние после объединения с main (2026-10-22)
 
-## 0. Контекст и состояние (2026-09-21)
+`3db98b5` содержит оркестратор. Фильтрация, резолвер ключей, `CatalogPacker`,
+сейвер и обработка изображений уже приняты в main. Общие классы не дублируются:
+`TitleCandidateEvaluator`, `DTOs/FilterDecision`, `TitleCanonicalKeyFactory`,
+`TitleKeyResolver` остаются единственными доменными реализациями.
 
-Кросс-ревью в команде: PR #4 (абстракции) и PR #10 (фильтр+Shikimori) ещё не приняты вторым разработчиком, поэтому в `main` их нет. Обходной путь: **Задача 1 реализуется на ветке `3db98b5`**, куда уже влиты обе нужные ветки.
+Задача оркестратора: клиент → `ProviderTitleToCandidateMapper` → evaluator → sink,
+учёт прогонов и безопасное возобновление. По умолчанию `LogCandidateSink` выводит
+принятых и помеченных кандидатов в лог; запись каталога и запуск media jobs
+подключаются отдельной реализацией sink. `completed` означает завершение этого
+этапа, а не сохранение строк каталога. Запуск синхронный через `import:run`.
+Плановый запуск и очередь остаются следующим этапом.
 
-Состояние `3db98b5` (проверено):
+## Границы адаптеров
 
-| Компонент | Источник | На `3db98b5`? |
-|---|---|---|
-| Абстракции: `ProviderClientContract`, `ProviderClientFactory(+Contract)`, `MockProviderClient`, `ProviderTitle`, `ProviderSource`, `config/import.php` | #4 | ✓ влито |
-| Фильтр: `TitleCandidateEvaluator`, `Rules/*`, `TitleCandidate`, `CandidateAttribute`, `TitleKeyFactory`, `FilterDecision`, `ProviderTitleNormalizer` | #10 | ✓ влито |
-| Shikimori low-level: `ShikimoriGraphQLClient`, `ShikimoriConfig`, `config/shikimori.php`, `shikimori:dump`, `shikimori:build-fixture` | #10 | ✓ влито |
-| Сейвер: `CatalogBulkWriterContract`, `PreparedCatalogDto` (+`TitleData/...Data`), `CatalogBulkWriter`, Entities, VO `TitleCanonicalKey/TitleUuid/ReleaseYear` | main | ✓ |
+- `ProviderTitle.type` — внутренний тип контента; формат хранится отдельно в `format`.
+- Shikimori mapper переводит `kind` в `TitleFormat`, `anons` в `announced`,
+  нулевую длительность в null. Оценка 0 остаётся 0; null означает отсутствие.
+- Общий mapper не проверяет имена поставщиков. Он нормализует описания,
+  проверяет внутренние значения и группирует таксономию в `CandidateAttribute`.
+- PV/CM/MUSIC отклоняет `ExcludedTitleFormatRule`. Неизвестный формат null допускается.
+- Популярность не ограничивает импорт. Сохранены правила и нормализатор из main.
+- Фабрика поддерживает выбор API/dump и прежнюю плоскую конфигурацию API-клиентов.
+  Проверка активных поставщиков и запрет mock в production сохранены.
 
-Итого вход конвейера и сейвер на месте — Задачу 1 можно делать прямо здесь.
+## Блокировка и возобновление
 
-## 1. Стратегия веток
-- **Задача 1** — ветка `3db98b5` (интеграция уже сделана).
-- **Задача 2** — ветвить от `main` и в начале влить #4, #10 **и ветку Задачи 1** (или ветвить прямо от `3db98b5` после того, как Задача 1 там готова). После каждого merge: `composer dump-autoload` + `php artisan test`.
-- Когда #4/#10 наконец примут и вольют в `main` — при желании перебазировать/переслить, но блокировать разработку этим не нужно.
+Перед созданием или возобновлением прогона захватывается блокировка по паре
+provider/data source. В PostgreSQL это advisory session lock: он общий для
+процессов и освобождается при завершении соединения, без фиксированного TTL.
+Блокировка удерживается отдельным непостоянным PDO-соединением: переподключение
+рабочего соединения не снимает её. Перед flush/finish и подтверждением позиции
+проверяется исходная сессия без автоматического reconnect. При её потере worker
+останавливается и не переписывает статус прогона, которым уже мог завладеть другой worker.
+Локальный повторный захват той же блокировки также запрещён. SQLite в тестах
+использует cache lock. Все пути выхода освобождают блокировку.
 
----
+Для API числовая позиция ненадёжна: удаление записи сдвигает страницы. При resume
+чтение начинается с начала, уже подтверждённые external ID пропускаются по журналу
+`import_processed_titles`. Журнал хранит только идентификаторы, не тела тайтлов.
+Изменение состава API не приводит к пропуску оставшихся записей из-за offset.
+Это не снимок удалённого API: записи, исчезнувшие до чтения, восстановить нельзя,
+а подтверждённые записи обновляются следующим новым прогоном.
 
-## Задача 1 — Процесс запуска сбора данных (ветка `3db98b5`)
+Дамп читается под `shikimori_dump.lock` с `LOCK_SH | LOCK_NB`. При работающем writer
+импорт сразу завершается ошибкой. Используется только префикс `bytes` из валидного
+`shikimori_anime.checkpoint`, проверяются границы строк и количество записей.
+Целые и оборванные строки после границы игнорируются. SHA-256 содержимого
+зафиксированного префикса вместе с bytes/titles хранится в `import_runs.snapshot_id`.
+Количество строк проверяется при вычислении отпечатка до выдачи первого кандидата,
+включая ограниченный запуск с `--limit`.
+Замена снимка между запусками требует нового прогона. Для неизменяемого снимка
+возобновление использует offset. Справочник жанров отдельно не читается:
+таксономия уже включена в каждую строку аниме и защищена той же блокировкой.
 
-### Цель
-Надёжный возобновляемый процесс: тянем тайтлы от поставщика → нормализуем → фильтруем → на выходе поток принятых `TitleCandidate` в sink (для Задачи 2). Плюс учёт прогонов.
+Старые ненулевые чекпоинты без журнала API или отпечатка дампа нельзя продолжать
+безопасно: команда просит запустить новый импорт без `--resume`.
 
-### Что создаём (по шагам, итерациями: этап → тест → дальше)
+## Подтверждение результата sink
 
-**Шаг 1. `ShikimoriProviderClient implements ProviderClientContract` — ✅ завершён**
-`app/Infrastructure/Providers/Shikimori/Clients/ShikimoriProviderClient.php`. Оборачивает `ShikimoriGraphQLClient`. Это ACL-граница Shikimori: сырую GraphQL-строку мапит в `ProviderTitle`.
-- `source(): ProviderSource::Shikimori`
-- `fetchTitles(?int $limit = null, int $offset = 0): Generator` — постранично (page_size из `ShikimoriConfig`), стриминг и resume через offset; на каждой странице сырые строки → `ProviderTitle`.
-- `fetchTitleByExternalId(string): ?ProviderTitle`
-- Зарегистрировать в `config/import.php` API- и dump-клиенты по паре provider/data source.
+`consume()` может буферизовать кандидатов. `flush()` подтверждает запись всей
+накопленной пачки; `finish()` подтверждает хвост и завершает sink; `abort()`
+удаляет неподтверждённый буфер, сохраняя уже записанные данные.
 
-**Шаг 2. Mapper `ProviderTitle → TitleCandidate` — ✅ завершён**
-`app/Application/Import/Services/ProviderTitleToCandidateMapper.php`. Провайдеронезависимый. Описание через `ProviderTitleNormalizer`; `genres`/`studios` → `CandidateAttribute[]`; type/status → Catalog-enums; `year → releaseYear`.
+Чекпоинт, журнал ID и счётчики фиксируются только после успешного flush/finish.
+При ошибке сохраняется последняя подтверждённая позиция и её счётчики. Ошибка
+завершения или записи отчёта не подменяет исходное исключение. Отказы записываются
+как аудит попыток; повторный отказ обновляет существующую запись.
 
-**Шаг 3. Учёт прогонов — ✅ завершён**
-Миграции `import_runs` (provider, started/finished_at, status, счётчики fetched/accepted/flagged/rejected) и `import_rejections` (import_run_id, external_id, reason, context json) + модели + порт `ImportRunRecorder` (Application) и реализация (Infrastructure).
+Счётчик fetched здесь означает число подтверждённо классифицированных записей,
+а не количество строк в HTTP-ответах; fetched = accepted + flagged + rejected.
 
-**Шаг 4. Use-case `ImportTitlesFromProvider` — ✅ завершён**
-`app/Application/Import/UseCases/ImportTitlesFromProvider.php`: резолвит клиента через `ProviderClientFactory` → стримит `fetchTitles()` → mapper → `TitleCandidateEvaluator::decide()` → маршрутизация accept/flag/reject → счётчики + запись reject-причин → принятые кандидаты в `CandidateSink` (интерфейс; в Задаче 1 — лог/коллектор, в Задаче 2 — упаковщик).
+Гарантия доставки — at least once. Между успешной записью sink и записью чекпоинта
+возможен сбой; поэтому сохраняющий sink обязан быть идемпотентным. Существующий
+CatalogBulkWriter использует upsert. `flush()` и `finish()` должны быть безопасны
+при отсутствии буфера. Нельзя продвигать позицию в `consume()` до записи пачки.
 
-**Шаг 5. Команда `import:run` — ✅ завершён**
-`app/Interfaces/Console/Commands/RunImportCommand.php` — `import:run {provider=shikimori} {--source=api|dump} {--limit=} {--resume}`, вызывает use-case. Вывод в консоль — на английском (memory-правило).
+## Стыковка с упаковщиком
 
-### Дизайн-решение «как запускать правильно»
-- Два источника: `--source=api` (живой Shikimori) и `--source=dump` (реплей NDJSON-дампа — `DumpReplayProviderClient`, для dev/CI без сети). Дамп-команда уже есть.
-- ~24k тайтлов / ~479 страниц → стриминг генераторами, чекпоинт/резюм (`--resume`), никакого «всё в память».
-- Синхронно (старт) → Horizon-очередь (когда конвейер стабилен). Horizon уже поднят.
-- Наблюдаемость: `import_runs` на каждый прогон, reject-причины в `import_rejections`.
+- Ключи назначает `TitleKeyResolver`; сохраняется каждая запись из resolved,
+  коллизии остаются отчётом для ручного разбора.
+- Формат доходит до фабрики ключей: TV и MOVIE с одинаковым годом/названием различимы.
+- Типы атрибутов берутся из `ImportAttributeRegistry`, не угадываются по значениям.
+- Studios и target_audience — ARRAY. Несколько демографий встречаются в реальном
+  дампе (включая тайтл 8687 в фикстуре); выбор первого значения теряет информацию.
+- Миграция `2026_10_22_100000` переводит только anime:target_audience в ARRAY,
+  сохраняет ID/опции/связи, не разбивает строку по запятым, откатывается атомарно
+  при неоднозначных данных. Обратное преобразование допускает только одно значение.
+- До запуска импорта выполняются миграции и при необходимости сидирование.
+- Буферизованный сохраняющий sink, external_ids и запуск jobs изображений остаются
+  отдельным этапом. Обычные URL не пишутся в колонки ключей хранилища.
 
-### DoD Задачи 1
-`import:run --source=dump` прогоняет фикстурный дамп end-to-end без сети: на выходе поток принятых `TitleCandidate` в sink, учёт прогона пишется. Unit (mapper, use-case на `MockProviderClient`, `ShikimoriProviderClient` на фикстуре) + Feature (команда) зелёные, Pint зелёный.
+## Проверки
 
-### Фактическое состояние (2026-09-24) — ✅ задача завершена
-- API и NDJSON dump работают через общий `ProviderClientContract`; `limit` и `offset` поддерживают возобновление.
-- `ProviderTitle` сохраняет жанры, темы, демографию, студии и количество оценок в едином формате.
-- `ProviderTitleToCandidateMapper` нормализует описание, type/status и строит `CandidateAttribute[]`.
-- `import_runs` хранит статус, счётчики и checkpoint; `import_rejections` хранит причину и контекст.
-- `ImportTitlesFromProvider` маршрутизирует accepted/flagged/rejected и пишет checkpoint порциями.
-- `import:run {provider} --source=api|dump --limit= --resume` работает синхронно.
-- Eloquent-модели прогонов используют Laravel 13 `#[Fillable]`, константы полей, enum/immutable casts и строгую проверку mass assignment вне production.
-- `ImportCounters` сохраняет инвариант `fetched = accepted + flagged + rejected`; состояние изменяется только атомарными методами результата обработки.
-- `ImportRunStatus` размещён в Domain, а Shikimori-специфичный mapper — в `Infrastructure/Providers/Shikimori/Mappers`.
-- Контейнерные bindings модуля импорта изолированы в `Infrastructure/ServiceProviders/ImportServiceProvider`.
-- Feature-тест без сети прогоняет все 286 записей фикстуры; отдельно проверен resume после checkpoint.
-- Полный suite: 132 теста, 345 assertions. Все изменённые PHP-файлы проходят Pint.
-
----
-
-## Задача 2 — Упаковка и отправка в сейвер (отдельная ветка)
-
-### Цель
-Принятые `TitleCandidate[]` → `PreparedCatalogDto` → `CatalogBulkWriterContract::write()`.
-
-### Шаги
-1. Идентичность: `TitleKeyFactory → TitleCanonicalKey`; `TitleUuid` детерминированно из canonical key либо UUIDv7 (решить); `external_ids` (миграция + модель).
-2. Упаковщик `app/Application/Import/Services/PreparedCatalogAssembler.php`: `TitleCandidate → TitleData` (uuid, canonicalKey, LocalizedText title/description, Duration, type/status, poster/banner, updatedBy, releaseYear, isIncomplete).
-3. Сборщик таксономии: `CandidateAttribute[]` → `AttributeDefinitionData[]` + `AttributeOptionData[]` + `TitleAttributeData[]` с дедупликацией по всему батчу.
-4. Сборка `PreparedCatalogDto` + вызов `CatalogBulkWriterContract::write()` батчами, в транзакции, идемпотентно.
-5. Состыковка: реализовать `CandidateSink`, который батчит кандидатов → упаковщик → writer. Полный поток: collect → filter → pack → save.
-
-### Координация со вторым разработчиком (сейвер)
-- **Якорь upsert = `canonical_key`** (не `uuid`!), иначе правки на стороне поставщика плодят дубли. Либо `TitleUuid` детерминированный из canonical_key.
-- `external_ids` — согласовать, кто заполняет и как передаём в writer.
-- `isIncomplete`/`releaseYear` уже в сущности Title — убедиться, что `TitleData` их принимает.
-
-### DoD Задачи 2
-Фикстурный дамп проходит весь путь до строк в БД каталога; повторный прогон идемпотентен (upsert по canonical key). Unit (упаковщик, дедуп таксономии) + Feature (конвейер → `CatalogBulkWriter` → ассерты в БД, тест идемпотентности) зелёные.
-
----
-
-## Открытые вопросы
-1. `TitleUuid`: детерминированный из canonical_key или UUIDv7? (Задача 2, согласовать.)
-2. Якорь upsert = canonical_key. (Координация.)
-3. `external_ids` — миграция и кто заполняет. (Задача 2.)
-4. Sync vs Horizon-очередь — решено: задача 1 запускается синхронно; очередь остаётся будущим улучшением.
+Общий suite включает принятые в main тесты. Добавлены регрессии на ошибки flush
+и finish, изменение состава API при resume, конкурирующий запуск, замену дампа,
+неподтверждённый хвост, повреждённые ответы и повтор страниц, сохранение нулевых
+оценок, форматы и миграцию демографии. Feature-тест проводит все допустимые записи
+фикстуры через mapper/evaluator/resolver/packer/writer и повторяет upsert без дублей.

@@ -5,18 +5,17 @@ declare(strict_types=1);
 namespace App\Application\Import\DTOs;
 
 use App\Application\Import\Enums\ProviderSource;
+use App\Domain\Catalog\Enums\Title\TitleFormat;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 
 final readonly class ProviderTitle
 {
-    /**
-     * @param  list<string>  $genres
-     */
     public function __construct(
         public ProviderSource $source,
         public string         $externalId,
         public ?LocalizedText $title,
         public ?LocalizedText $description,
+        /** @var list<ProviderTaxonomyItem> */
         public array          $genres,
         public ?int           $year,
         public ?int           $durationMinutes,
@@ -25,6 +24,9 @@ final readonly class ProviderTitle
         public ?string        $bannerUrl,
         public string         $type,
         public string         $status,
-    ) {
-    }
+        public ?TitleFormat   $format = null,
+        /** @var list<ProviderTaxonomyItem> */
+        public array          $studios = [],
+        public ?int           $ratingCount = null,
+    ) {}
 }

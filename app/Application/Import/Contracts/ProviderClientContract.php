@@ -22,7 +22,7 @@ interface ProviderClientContract
      *
      * @throws ProviderException Raised while iterating.
      */
-    public function fetchTitles(int $limit = 50): Generator;
+    public function fetchTitles(?int $limit = 50, int $offset = 0): Generator;
 
     /**
      * Returns the first title with this external id, or null when the provider has none.

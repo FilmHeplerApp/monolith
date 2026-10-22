@@ -20,7 +20,7 @@ final readonly class ImportAttributeRegistry
             $this->create('genres', 'Жанры', 'Genres', AttributeValueType::ARRAY, true, 1),
             $this->create('moods', 'Настроение', 'Moods', AttributeValueType::ARRAY, true, 2),
             $this->create('tags', 'Теги', 'Tags', AttributeValueType::ARRAY, true, 3),
-            $this->create('target_audience', 'Целевая аудитория', 'Target audience', AttributeValueType::STRING, true, 4),
+            $this->create('target_audience', 'Целевая аудитория', 'Target audience', AttributeValueType::ARRAY, true, 4),
             $this->create('studios', 'Студии', 'Studios', AttributeValueType::ARRAY, false, 5),
             $this->create('pace', 'Темп', 'Pace', AttributeValueType::STRING, true, 6),
         ];

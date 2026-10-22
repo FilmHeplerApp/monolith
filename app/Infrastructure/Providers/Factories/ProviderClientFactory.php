@@ -6,6 +6,7 @@ namespace App\Infrastructure\Providers\Factories;
 
 use App\Application\Import\Contracts\ProviderClientContract;
 use App\Application\Import\Contracts\ProviderClientFactoryContract;
+use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
 use App\Infrastructure\Providers\Mock\MockProviderClient;
 use Illuminate\Contracts\Container\BindingResolutionException;
@@ -16,7 +17,7 @@ use RuntimeException;
 final readonly class ProviderClientFactory implements ProviderClientFactoryContract
 {
     /**
-     * @param  array<string, class-string<ProviderClientContract>>  $clients
+     * @param  array<string, class-string<ProviderClientContract>|array<string, class-string<ProviderClientContract>>>  $clients
      * @param  list<string>  $enabled
      */
     public function __construct(
@@ -33,9 +34,9 @@ final readonly class ProviderClientFactory implements ProviderClientFactoryContr
     /**
      * @throws BindingResolutionException
      */
-    public function make(ProviderSource $source): ProviderClientContract
+    public function make(ProviderSource $source, ProviderDataSource $dataSource = ProviderDataSource::Api): ProviderClientContract
     {
-        return $this->container->make($this->resolveClass($source));
+        return $this->container->make($this->resolveClass($source, $dataSource));
     }
 
     /**
@@ -66,10 +67,17 @@ final readonly class ProviderClientFactory implements ProviderClientFactoryContr
     /**
      * @return class-string<ProviderClientContract>
      */
-    private function resolveClass(ProviderSource $source): string
+    private function resolveClass(ProviderSource $source, ProviderDataSource $dataSource = ProviderDataSource::Api): string
     {
         $class = $this->clients[$source->value]
             ?? throw new InvalidArgumentException("No client registered for provider [$source->value].");
+
+        $class = is_array($class) ? ($class[$dataSource->value] ?? null)
+            : ($dataSource === ProviderDataSource::Api ? $class : null);
+
+        if ($class === null) {
+            throw new InvalidArgumentException("No [$dataSource->value] client registered for provider [$source->value].");
+        }
 
         if ($class === MockProviderClient::class && $this->isProduction) {
             throw new RuntimeException('MockProviderClient is not allowed in production.');

@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace App\Application\Import\Services;
 
+use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
+
 final readonly class ProviderTitleNormalizer
 {
     public function __construct(
         private int $maxDescriptionLength = 1000,
-    ) {
-    }
+    ) {}
 
     public function normalizeDescription(?string $raw): ?string
     {
@@ -28,6 +29,14 @@ final readonly class ProviderTitleNormalizer
         }
 
         return $this->truncate($text);
+    }
+
+    public function normalizeLocalizedDescription(?LocalizedText $description): ?LocalizedText
+    {
+        return $description === null ? null : LocalizedText::create(
+            $this->normalizeDescription($description->getRu()),
+            $this->normalizeDescription($description->getEn()),
+        );
     }
 
 
