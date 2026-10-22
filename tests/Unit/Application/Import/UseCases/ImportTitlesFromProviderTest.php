@@ -112,6 +112,8 @@ final class ImportTitlesFromProviderTest extends TestCase
                 {
                     return $work();
                 }
+
+                public function assertOwned(): void {}
             },
             checkpointEvery: 1,
         );

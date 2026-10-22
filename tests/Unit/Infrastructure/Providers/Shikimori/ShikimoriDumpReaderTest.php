@@ -108,6 +108,18 @@ final class ShikimoriDumpReaderTest extends TestCase
         return array_map(static fn ($value) => [$value], ['missing', 'version', 'negative', 'short_file', 'boundary', 'wrong_count']);
     }
 
+    #[Test]
+    public function it_checks_row_count_before_yielding_even_with_a_limit(): void
+    {
+        CommittedShikimoriDump::create($this->directory, "{\"id\":\"1\"}\n{\"id\":\"2\"}\n");
+        $metadata = json_decode(file_get_contents($this->directory.'/shikimori_anime.checkpoint'), true, 512, JSON_THROW_ON_ERROR);
+        $metadata['titles'] = 1;
+        file_put_contents($this->directory.'/shikimori_anime.checkpoint', json_encode($metadata));
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('row count does not match');
+        iterator_to_array((new DumpReplayProviderClient(new ShikimoriTitleMapper, $this->path))->fetchTitles(1));
+    }
+
 
     protected function setUp(): void
     {

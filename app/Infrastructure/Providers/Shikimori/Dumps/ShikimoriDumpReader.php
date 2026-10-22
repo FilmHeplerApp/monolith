@@ -74,6 +74,7 @@ final class ShikimoriDumpReader
             $hash = hash_init('sha256');
             hash_update($hash, json_encode([$this->bytes, $this->titles], JSON_THROW_ON_ERROR));
             $remaining = $this->bytes;
+            $lineCount = 0;
 
             while ($remaining > 0) {
                 $chunk = fread($this->stream, min(8192, $remaining));
@@ -83,7 +84,12 @@ final class ShikimoriDumpReader
                 }
 
                 hash_update($hash, $chunk);
+                $lineCount += substr_count($chunk, "\n");
                 $remaining -= strlen($chunk);
+            }
+
+            if ($lineCount !== $this->titles) {
+                throw new RuntimeException('Anime dump row count does not match its checkpoint.');
             }
 
             if (!rewind($this->stream)) {

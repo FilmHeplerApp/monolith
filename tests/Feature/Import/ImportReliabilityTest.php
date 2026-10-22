@@ -17,6 +17,7 @@ use App\Domain\Import\DTOs\TitleCandidate;
 use App\Infrastructure\Persistence\Eloquent\Import\EloquentImportRunRecorder;
 use App\Infrastructure\Providers\Mock\MockProviderClient;
 use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
+use Closure;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use PHPUnit\Framework\Attributes\Test;
@@ -187,6 +188,35 @@ final class ImportReliabilityTest extends TestCase
         } catch (ProviderUnavailableException $caught) {
             self::assertSame($original, $caught);
         }
+    }
+
+    #[Test]
+    public function it_does_not_flush_or_change_run_state_after_losing_the_lock(): void
+    {
+        $this->bindClient($this->client('1', '2'));
+        $sink = $this->sink();
+        $this->app->instance(ImportRunLockContract::class, new class implements ImportRunLockContract
+        {
+            public function synchronized(ProviderSource $provider, ProviderDataSource $source, Closure $work): mixed
+            {
+                return $work();
+            }
+
+            public function assertOwned(): void
+            {
+                throw new RuntimeException('Simulated ownership loss');
+            }
+        });
+        try {
+            $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api, 2);
+            self::fail('A worker without its lock must stop.');
+        } catch (RuntimeException $exception) {
+            self::assertSame('Simulated ownership loss', $exception->getMessage());
+        }
+        self::assertSame([], $sink->saved);
+        self::assertSame([], $sink->pending);
+        $this->assertDatabaseHas('import_runs', ['checkpoint' => 0, 'status' => 'running']);
+        $this->assertDatabaseCount('import_processed_titles', 0);
     }
 
 

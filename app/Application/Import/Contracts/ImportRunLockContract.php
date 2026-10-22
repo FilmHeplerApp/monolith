@@ -17,4 +17,7 @@ interface ImportRunLockContract
      * @return T
      */
     public function synchronized(ProviderSource $provider, ProviderDataSource $source, Closure $work): mixed;
+
+    /** Fail if the current callback no longer owns its lock. */
+    public function assertOwned(): void;
 }

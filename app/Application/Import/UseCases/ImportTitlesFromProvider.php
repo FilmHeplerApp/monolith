@@ -107,7 +107,9 @@ final readonly class ImportTitlesFromProvider
                     }
 
                     if (count($pendingIds) >= max(1, $this->checkpointEvery)) {
+                        $this->lock->assertOwned();
                         $this->sink->flush();
+                        $this->lock->assertOwned();
                         $this->recorder->progress($run->runId, $counters, $checkpoint, $pendingIds);
                         $committedCounters = clone $counters;
                         $committedCheckpoint = $checkpoint;
@@ -116,7 +118,9 @@ final readonly class ImportTitlesFromProvider
                 }
             }
 
+            $this->lock->assertOwned();
             $this->sink->finish();
+            $this->lock->assertOwned();
             $this->recorder->complete($run->runId, $counters, $checkpoint, $pendingIds);
         } catch (Throwable $exception) {
             try {
@@ -126,6 +130,7 @@ final readonly class ImportTitlesFromProvider
             }
 
             try {
+                $this->lock->assertOwned();
                 $this->recorder->fail($run->runId, $committedCounters, $committedCheckpoint, $exception->getMessage());
             } catch (Throwable $recordError) {
                 Log::error('Failed to record the import failure.', ['exception' => $recordError, 'original_exception' => $exception]);
