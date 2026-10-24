@@ -8,12 +8,6 @@ use App\Domain\Users\Exceptions\InvalidUserValueException;
 
 final readonly class Email
 {
-    private function __construct(
-        private string $value,
-    ) {
-    }
-
-
     public static function createFromString(string $value): self
     {
         $normalized = strtolower(trim($value));
@@ -37,5 +31,11 @@ final readonly class Email
     public function __toString(): string
     {
         return $this->value;
+    }
+
+
+    private function __construct(
+        private string $value,
+    ) {
     }
 }

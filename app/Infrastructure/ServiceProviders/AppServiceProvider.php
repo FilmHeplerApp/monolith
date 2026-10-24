@@ -8,6 +8,8 @@ use App\Application\Import\Contracts\ProviderClientFactoryContract;
 use App\Application\Media\Contracts\ImageCompressorContract;
 use App\Application\Media\Contracts\ImageDownloaderContract;
 use App\Application\Media\Contracts\ImageStorageContract;
+use App\Domain\Users\Repositories\UserPreferenceRepository;
+use App\Domain\Users\Repositories\UserRepository;
 use App\Infrastructure\Media\Compression\GdImageCompressor;
 use App\Infrastructure\Media\Compression\ImageCompressor;
 use App\Infrastructure\Media\Compression\SpecImageCompressor;
@@ -17,6 +19,8 @@ use App\Infrastructure\Media\Download\PublicHostResolver;
 use App\Infrastructure\Media\Storage\S3ImageStorage;
 use App\Infrastructure\Persistence\Eloquent\Bulk\Catalog\CatalogBulkWriter;
 use App\Infrastructure\Persistence\Eloquent\Repositories\Catalog\EloquentTitleRepository;
+use App\Infrastructure\Persistence\Eloquent\Repositories\Users\EloquentUserPreferenceRepository;
+use App\Infrastructure\Persistence\Eloquent\Repositories\Users\EloquentUserRepository;
 use App\Infrastructure\Providers\Factories\ProviderClientFactory;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -45,6 +49,14 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(
             TitleRepositoryContract::class,
             EloquentTitleRepository::class,
+        );
+        $this->app->bind(
+            UserRepository::class,
+            EloquentUserRepository::class,
+        );
+        $this->app->bind(
+            UserPreferenceRepository::class,
+            EloquentUserPreferenceRepository::class,
         );
         $this->app->singleton(
             ImageManagerInterface::class,

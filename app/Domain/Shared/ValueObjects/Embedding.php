@@ -2,21 +2,14 @@
 
 declare(strict_types=1);
 
-namespace App\Domain\Catalog\ValueObjects\Title;
+namespace App\Domain\Shared\ValueObjects;
 
-use App\Domain\Catalog\Exceptions\InvalidCatalogValueException;
+use App\Domain\Shared\Exceptions\InvalidEmbeddingException;
 
 final readonly class Embedding
 {
     public const int DIMENSION = 1536;
 
-    /**
-     * @param list<float> $vector
-     */
-    private function __construct(
-        private array $vector,
-    ) {
-    }
 
     /**
      * @param list<float|int>|null $vector
@@ -28,10 +21,10 @@ final readonly class Embedding
         }
 
         if (count($vector) !== self::DIMENSION) {
-            throw InvalidCatalogValueException::invalidEmbeddingDimension(self::DIMENSION, count($vector));
+            throw InvalidEmbeddingException::invalidDimension(self::DIMENSION, count($vector));
         }
 
-        return new self(array_map(static fn (float|int $value): float => (float) $value, $vector));
+        return new self(array_map(static fn(float|int $value): float => (float)$value, $vector));
     }
 
     /**
@@ -40,5 +33,14 @@ final readonly class Embedding
     public function getVector(): array
     {
         return $this->vector;
+    }
+
+
+    /**
+     * @param list<float> $vector
+     */
+    private function __construct(
+        private array $vector,
+    ) {
     }
 }
