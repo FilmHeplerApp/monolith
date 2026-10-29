@@ -300,7 +300,7 @@ final class MockProviderClientTest extends TestCase
             externalId: 'custom-1',
             title: LocalizedText::create('Свой тайтл', 'Custom title'),
             description: null,
-            genres: [new ProviderTaxonomyItem('genre', 'Свой', 'custom')],
+            genres: [new ProviderTaxonomyItem('genres', 'Свой', 'custom')],
             year: 2020,
             durationMinutes: 100,
             rating: 6.0,
@@ -335,9 +335,6 @@ final class MockProviderClientTest extends TestCase
     }
 
 
-    /**
-     * @return array<string, ProviderTitle>
-     */
     private function defaultTitlesByExternalId(): array
     {
         $titles = [];

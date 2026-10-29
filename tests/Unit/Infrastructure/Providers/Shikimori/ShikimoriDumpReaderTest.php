@@ -4,14 +4,16 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Infrastructure\Providers\Shikimori;
 
-use App\Infrastructure\Providers\Shikimori\Clients\DumpReplayProviderClient;
-use App\Infrastructure\Providers\Shikimori\Dumps\ShikimoriDumpReader;
+use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriDumpReplayProviderClient;
 use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
+use JsonException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Random\RandomException;
 use RuntimeException;
 use Tests\Support\CommittedShikimoriDump;
+use Throwable;
 
 final class ShikimoriDumpReaderTest extends TestCase
 {
@@ -23,7 +25,7 @@ final class ShikimoriDumpReaderTest extends TestCase
     public function it_ignores_whole_and_partial_rows_after_the_committed_boundary(): void
     {
         file_put_contents($this->path, "{\"id\":\"2\"}\n{\"id\":", FILE_APPEND);
-        $client = new DumpReplayProviderClient(new ShikimoriTitleMapper, $this->path);
+        $client = new ShikimoriDumpReplayProviderClient(new ShikimoriTitleMapper, CommittedShikimoriDump::reader($this->path));
 
         self::assertSame(['1'], array_map(fn ($title) => $title->externalId, iterator_to_array($client->fetchTitles(null))));
     }
@@ -33,7 +35,7 @@ final class ShikimoriDumpReaderTest extends TestCase
     {
         $lock = fopen($this->directory.'/shikimori_dump.lock', 'c+b');
         flock($lock, LOCK_EX | LOCK_NB);
-        $reader = new ShikimoriDumpReader($this->path);
+        $reader = CommittedShikimoriDump::reader($this->path);
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('dump is running');
 
@@ -47,7 +49,7 @@ final class ShikimoriDumpReaderTest extends TestCase
     #[Test]
     public function it_holds_the_snapshot_lock_and_releases_it_when_the_limit_is_reached(): void
     {
-        $client = new DumpReplayProviderClient(new ShikimoriTitleMapper, $this->path);
+        $client = new ShikimoriDumpReplayProviderClient(new ShikimoriTitleMapper, CommittedShikimoriDump::reader($this->path));
         $client->snapshotId();
         $writer = fopen($this->directory.'/shikimori_dump.lock', 'c+b');
 
@@ -61,10 +63,14 @@ final class ShikimoriDumpReaderTest extends TestCase
         }
     }
 
+    /**
+     * @throws Throwable
+     * @throws JsonException
+     */
     #[Test]
     public function it_fingerprints_committed_content_and_ignores_uncommitted_appends(): void
     {
-        $reader = new ShikimoriDumpReader($this->path);
+        $reader = CommittedShikimoriDump::reader($this->path);
         $first = $reader->snapshotId();
         $reader->close();
         file_put_contents($this->path, '{"id":"2"}', FILE_APPEND);
@@ -91,7 +97,7 @@ final class ShikimoriDumpReaderTest extends TestCase
         if ($change !== 'missing') {
             file_put_contents($this->directory.'/shikimori_anime.checkpoint', json_encode($checkpoint));
         }
-        $reader = new ShikimoriDumpReader($this->path);
+        $reader = CommittedShikimoriDump::reader($this->path);
         try {
             iterator_to_array($reader->rows());
             self::fail('Invalid snapshot must fail.');
@@ -108,6 +114,9 @@ final class ShikimoriDumpReaderTest extends TestCase
         return array_map(static fn ($value) => [$value], ['missing', 'version', 'negative', 'short_file', 'boundary', 'wrong_count']);
     }
 
+    /**
+     * @throws JsonException
+     */
     #[Test]
     public function it_checks_row_count_before_yielding_even_with_a_limit(): void
     {
@@ -117,10 +126,34 @@ final class ShikimoriDumpReaderTest extends TestCase
         file_put_contents($this->directory.'/shikimori_anime.checkpoint', json_encode($metadata));
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('row count does not match');
-        iterator_to_array((new DumpReplayProviderClient(new ShikimoriTitleMapper, $this->path))->fetchTitles(1));
+        iterator_to_array(new ShikimoriDumpReplayProviderClient(new ShikimoriTitleMapper, CommittedShikimoriDump::reader($this->path))->fetchTitles(1));
     }
 
 
+    /**
+     * @throws Throwable
+     * @throws JsonException
+     */
+    #[Test]
+    public function it_rejects_continuing_a_generator_after_its_reader_is_closed(): void
+    {
+        CommittedShikimoriDump::create($this->directory, "{\"id\":\"1\"}\n{\"id\":\"2\"}\n");
+        $reader = CommittedShikimoriDump::reader($this->path);
+        $rows = $reader->rows();
+
+        self::assertSame(['id' => '1'], $rows->current());
+        $reader->close();
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Dump stream is not open.');
+        $rows->next();
+    }
+
+
+    /**
+     * @throws RandomException
+     * @throws JsonException
+     */
     protected function setUp(): void
     {
         $this->directory = sys_get_temp_dir().'/dump-reader-'.bin2hex(random_bytes(8));

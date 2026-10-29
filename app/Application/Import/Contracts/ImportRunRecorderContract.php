@@ -4,45 +4,28 @@ declare(strict_types=1);
 
 namespace App\Application\Import\Contracts;
 
-use App\Application\Import\DTOs\ImportCounters;
+use App\Application\Import\DTOs\ImportBatch;
 use App\Application\Import\DTOs\ImportRunCheckpoint;
 use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
-use App\Domain\Import\Enums\RejectionReason;
+use Closure;
 
 interface ImportRunRecorderContract
 {
-    public function start(
-        ProviderSource     $provider,
-        ProviderDataSource $dataSource,
-        ?int               $limit,
+    public function start(ProviderSource $provider, ProviderDataSource $dataSource, ?int $limit): ImportRunCheckpoint;
+
+    public function resume(ProviderSource $provider, ProviderDataSource $dataSource, ?int $limit): ?ImportRunCheckpoint;
+
+    public function commit(
+        ImportRunCheckpoint $run,
+        ImportBatch         $batch,
+        Closure             $write,
+        bool                $complete = false,
     ): ImportRunCheckpoint;
 
-    /** The caller holds ImportRunLockContract for this provider/source throughout the run. */
-    public function resume(
-        ProviderSource     $provider,
-        ProviderDataSource $dataSource,
-        ?int               $limit,
-    ): ?ImportRunCheckpoint;
-
-    /** @param list<string> $processedIds */
-    public function progress(int $runId, ImportCounters $counters, int $checkpoint, array $processedIds = []): void;
-
-    /** @return list<string> */
     public function processedIds(int $runId): array;
 
-    public function bindSnapshot(int $runId, string $snapshotId): void;
+    public function bindSnapshot(ImportRunCheckpoint $run, string $snapshotId): void;
 
-    /** @param array<string, mixed> $context */
-    public function rejection(
-        int             $runId,
-        string          $externalId,
-        RejectionReason $reason,
-        array           $context = [],
-    ): void;
-
-    /** @param list<string> $processedIds */
-    public function complete(int $runId, ImportCounters $counters, int $checkpoint, array $processedIds = []): void;
-
-    public function fail(int $runId, ImportCounters $counters, int $checkpoint, string $message): void;
+    public function fail(ImportRunCheckpoint $run, string $message): void;
 }

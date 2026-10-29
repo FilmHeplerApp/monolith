@@ -6,19 +6,23 @@ namespace App\Infrastructure\Providers\Shikimori\Dumps;
 
 use Generator;
 use RuntimeException;
+use Throwable;
 
 final class ShikimoriDumpReader
 {
-    /** @var resource|null */
     private $lock = null;
-    /** @var resource|null */
+
     private $stream = null;
     private int $bytes = 0;
     private int $titles = 0;
     private ?string $fingerprint = null;
 
 
-    public function __construct(private readonly string $path) {}
+    public function __construct(
+        private readonly string $path,
+        private readonly string $checkpointPath,
+        private readonly string $lockPath,
+    ) {}
 
     public function snapshotId(): string
     {
@@ -27,13 +31,13 @@ final class ShikimoriDumpReader
         }
 
         try {
-            $this->lock = @fopen(dirname($this->path).'/shikimori_dump.lock', 'c+b');
+            $this->lock = @fopen($this->lockPath, 'c+b');
 
             if ($this->lock === false || !flock($this->lock, LOCK_SH | LOCK_NB)) {
                 throw new RuntimeException('Shikimori dump is running or its lock is not readable.');
             }
 
-            $metadata = @file_get_contents(dirname($this->path).'/shikimori_anime.checkpoint');
+            $metadata = @file_get_contents($this->checkpointPath);
             if ($metadata === false) {
                 throw new RuntimeException('Dump checkpoint is not readable. Run shikimori:dump first.');
             }
@@ -97,14 +101,18 @@ final class ShikimoriDumpReader
             }
 
             return $this->fingerprint = hash_final($hash);
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             $this->close();
 
             throw $exception;
         }
     }
 
-    /** @return Generator<int, array<string, mixed>> */
+
+    /**
+     * @throws Throwable
+     * @throws JsonException
+     */
     public function rows(int $offset = 0): Generator
     {
         $this->snapshotId();
@@ -117,7 +125,13 @@ final class ShikimoriDumpReader
         $count = 0;
 
         while ($remaining > 0) {
-            $line = fgets($this->stream, $remaining + 1);
+            $stream = $this->stream;
+
+            if (!is_resource($stream)) {
+                throw new RuntimeException('Dump stream is not open.');
+            }
+
+            $line = fgets($stream, $remaining + 1);
 
             if ($line === false || $line === '' || !str_ends_with($line, "\n")) {
                 throw new RuntimeException('Cannot read a complete committed NDJSON record.');

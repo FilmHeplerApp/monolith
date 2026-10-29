@@ -51,10 +51,8 @@ final readonly class ShikimoriProviderClient implements ProviderClientContract
     }
 
 
-    /** @return Generator<int, ProviderTitle> */
     private function iterateTitles(?int $limit, int $offset, int $pageSize): Generator
     {
-
         $page = intdiv($offset, $pageSize) + 1;
         $skip = $offset % $pageSize;
         $yielded = 0;
@@ -99,7 +97,6 @@ final readonly class ShikimoriProviderClient implements ProviderClientContract
         return $this->rows($this->client->query($this->animeQuery(), ['page' => $page, 'limit' => $pageSize]));
     }
 
-    /** @return list<array<string, mixed>> */
     private function rows(array $data): array
     {
         $rows = $data['animes'] ?? null;

@@ -93,6 +93,29 @@ final class ProviderTitleToCandidateMapperTest extends TestCase
     }
 
 
+    #[Test]
+    public function it_accepts_internal_attribute_codes_without_provider_specific_mapping(): void
+    {
+        $original = $this->title();
+        $title = new ProviderTitle(
+            source: ProviderSource::Mock,
+            externalId: $original->externalId,
+            title: $original->title,
+            description: $original->description,
+            genres: [new ProviderTaxonomyItem('directors', null, 'Example director')],
+            year: $original->year,
+            durationMinutes: $original->durationMinutes,
+            rating: $original->rating,
+            posterUrl: $original->posterUrl,
+            bannerUrl: null,
+            type: 'movie',
+            status: 'released',
+        );
+
+        self::assertSame('directors', $this->mapper()->map($title)->attributes[0]->code);
+    }
+
+
     private function mapper(): ProviderTitleToCandidateMapper
     {
         return new ProviderTitleToCandidateMapper(new ProviderTitleNormalizer);
@@ -114,19 +137,19 @@ final class ProviderTitleToCandidateMapperTest extends TestCase
                 '<p>Hero <strong>description</strong>.</p>',
             ),
             genres: [
-                new ProviderTaxonomyItem('genre', 'Экшен', 'Action'),
-                new ProviderTaxonomyItem('demographic', 'Сёнен', 'Shounen'),
+                new ProviderTaxonomyItem('genres', 'Экшен', 'Action'),
+                new ProviderTaxonomyItem('target_audience', 'Сёнен', 'Shounen'),
             ],
-            studios: [new ProviderTaxonomyItem('studio', null, 'Bones')],
             year: 2009,
             durationMinutes: $durationMinutes,
             rating: $rating,
-            ratingCount: 1500,
             posterUrl: 'https://example.test/poster.jpg',
             bannerUrl: null,
             type: $type,
             status: $status,
             format: $format,
+            studios: [new ProviderTaxonomyItem('studios', null, 'Bones')],
+            ratingCount: 1500,
         );
     }
 }

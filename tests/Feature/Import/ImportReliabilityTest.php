@@ -107,7 +107,7 @@ final class ImportReliabilityTest extends TestCase
     public function it_refuses_a_changed_dump_snapshot_on_resume(): void
     {
         $path = CommittedShikimoriDump::create($this->directory, json_encode($this->row('1'))."\n");
-        config()->set('shikimori.dump_path', $path);
+        CommittedShikimoriDump::configure($path);
         $this->sink(failFinish: true);
 
         try {
@@ -220,6 +220,80 @@ final class ImportReliabilityTest extends TestCase
     }
 
 
+    #[Test]
+    public function it_does_not_persist_rejections_from_a_batch_that_never_committed(): void
+    {
+        $mapper = new ShikimoriTitleMapper;
+        $client = new MockProviderClient([
+            $mapper->map(['id' => '1', 'status' => 'released']),
+            $mapper->map($this->row('2')),
+        ]);
+        $client->failWith(new ProviderUnavailableException(ProviderSource::Mock), 1);
+        $this->bindClient($client);
+        $this->sink();
+
+        try {
+            $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+            self::fail('The provider failure must stop the batch.');
+        } catch (ProviderUnavailableException) {
+            $this->assertDatabaseCount('import_rejections', 0);
+            $this->assertDatabaseCount('import_processed_titles', 0);
+            $this->assertDatabaseHas('import_runs', ['checkpoint' => 0, 'rejected' => 0]);
+        }
+
+        $this->bindClient($this->client('1', '2'));
+        $sink = $this->sink();
+        $result = $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api, resume: true);
+
+        self::assertSame(['1', '2'], $sink->saved);
+        self::assertSame(2, $result->counters->accepted);
+        self::assertSame(0, $result->counters->rejected);
+        $this->assertDatabaseCount('import_rejections', 0);
+    }
+
+
+    #[Test]
+    public function it_returns_a_completed_run_on_resume_without_replaying_the_provider(): void
+    {
+        $this->bindClient($this->client('1'));
+        $this->sink();
+        $first = $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+
+        $client = $this->client('1');
+        $client->failWith(new ProviderUnavailableException(ProviderSource::Mock));
+        $this->bindClient($client);
+        $sink = $this->sink();
+        $resumed = $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api, resume: true);
+
+        self::assertTrue($resumed->resumed);
+        self::assertSame($first->runId, $resumed->runId);
+        self::assertSame([], $sink->saved);
+        $this->assertDatabaseCount('import_runs', 1);
+    }
+
+
+    #[Test]
+    public function it_rejects_repeated_identities_in_a_dump_before_delivering_them_twice(): void
+    {
+        config()->set('import.checkpoint_every', 1);
+        $line = json_encode($this->row('1'), JSON_THROW_ON_ERROR)."\n";
+        $path = CommittedShikimoriDump::create($this->directory, $line.$line);
+        CommittedShikimoriDump::configure($path);
+        $sink = $this->sink();
+
+        try {
+            $this->importer()->execute(ProviderSource::Shikimori, ProviderDataSource::Dump);
+            self::fail('A snapshot with repeated identities must fail.');
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString('repeated provider identity', $exception->getMessage());
+        }
+
+        self::assertSame(['1'], $sink->saved);
+        $this->assertDatabaseHas('import_runs', ['checkpoint' => 1, 'accepted' => 1, 'status' => 'failed']);
+        $this->assertDatabaseCount('import_processed_titles', 1);
+    }
+
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -228,6 +302,7 @@ final class ImportReliabilityTest extends TestCase
             '2026_09_24_000002_create_import_rejections_table.php',
             '2026_10_22_105000_add_snapshot_id_to_import_runs_table.php',
             '2026_10_22_110000_create_import_processed_titles_table.php',
+            '2026_10_29_090000_add_owner_token_to_import_runs.php',
         ] as $name) {
             (require database_path('migrations/'.$name))->up();
         }

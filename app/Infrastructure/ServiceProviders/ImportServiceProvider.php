@@ -8,6 +8,7 @@ use App\Application\Import\Contracts\CandidateSinkContract;
 use App\Application\Import\Contracts\ImportRunLockContract;
 use App\Application\Import\Contracts\ImportRunRecorderContract;
 use App\Application\Import\Contracts\ProviderClientFactoryContract;
+use App\Application\Import\Services\ImportTitleStreamFactory;
 use App\Application\Import\Services\ProviderTitleToCandidateMapper;
 use App\Application\Import\UseCases\ImportTitlesFromProvider;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
@@ -17,7 +18,7 @@ use App\Domain\Import\Rules\ExcludedTitleFormatRule;
 use App\Domain\Import\Rules\HasAnyTitleRule;
 use App\Domain\Import\Rules\MinReleaseYearRule;
 use App\Domain\Import\Services\TitleCandidateEvaluator;
-use App\Infrastructure\Import\Locks\DatabaseImportRunLock;
+use App\Infrastructure\Import\Locks\PostgresImportRunLock;
 use App\Infrastructure\Import\Sinks\LogCandidateSink;
 use App\Infrastructure\Persistence\Eloquent\Import\EloquentImportRunRecorder;
 use App\Infrastructure\Providers\Factories\ProviderClientFactory;
@@ -37,7 +38,7 @@ final class ImportServiceProvider extends ServiceProvider
                 isProduction: $app->isProduction(),
             ),
         );
-        $this->app->bind(ImportRunLockContract::class, DatabaseImportRunLock::class);
+        $this->app->bind(ImportRunLockContract::class, PostgresImportRunLock::class);
         $this->app->bind(ImportRunRecorderContract::class, EloquentImportRunRecorder::class);
         $this->app->bind(CandidateSinkContract::class, LogCandidateSink::class);
 
@@ -67,7 +68,7 @@ final class ImportServiceProvider extends ServiceProvider
         $this->app->bind(
             ImportTitlesFromProvider::class,
             static fn (Application $app): ImportTitlesFromProvider => new ImportTitlesFromProvider(
-                clients: $app->make(ProviderClientFactoryContract::class),
+                streams: new ImportTitleStreamFactory($app->make(ProviderClientFactoryContract::class), $app->make(ImportRunRecorderContract::class)),
                 mapper: $app->make(ProviderTitleToCandidateMapper::class),
                 filter: $app->make(TitleCandidateEvaluator::class),
                 recorder: $app->make(ImportRunRecorderContract::class),

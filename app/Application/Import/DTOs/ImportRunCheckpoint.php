@@ -11,5 +11,7 @@ final readonly class ImportRunCheckpoint
         public int            $checkpoint,
         public ImportCounters $counters,
         public ?int           $limit,
+        public string         $ownerToken,
+        public bool           $completed = false,
     ) {}
 }

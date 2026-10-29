@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Application\Import\Services;
 
-use App\Application\Import\DTOs\ProviderTaxonomyItem;
 use App\Application\Import\DTOs\ProviderTitle;
 use App\Application\Import\Exceptions\ProviderTitleMappingException;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
@@ -94,13 +93,13 @@ final readonly class ProviderTitleToCandidateMapper
             );
     }
 
-    /** @return list<CandidateAttribute> */
+
     private function mapAttributes(ProviderTitle $title): array
     {
         $grouped = [];
 
         foreach ([...$title->genres, ...$title->studios] as $item) {
-            $code = $this->attributeCode($item);
+            $code = $item->attributeCode;
             $value = LocalizedText::create($item->nameRu, $item->nameEn);
 
             if ($value === null) {
@@ -118,16 +117,5 @@ final readonly class ProviderTitleToCandidateMapper
         }
 
         return $attributes;
-    }
-
-    private function attributeCode(ProviderTaxonomyItem $item): string
-    {
-        return match ($item->kind) {
-            'genre' => 'genres',
-            'demographic' => 'target_audience',
-            'theme' => 'tags',
-            'studio' => 'studios',
-            default => 'tags',
-        };
     }
 }

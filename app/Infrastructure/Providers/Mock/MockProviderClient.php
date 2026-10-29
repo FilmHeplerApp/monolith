@@ -15,13 +15,11 @@ use InvalidArgumentException;
 
 final class MockProviderClient implements ProviderClientContract
 {
-    /** @var list<ProviderTitle> */
     private array $titles;
     private ?ProviderException $failure = null;
     private int $failAfter = 0;
 
 
-    /** @param list<ProviderTitle>|null $titles */
     public function __construct(?array $titles = null)
     {
         $this->titles = $titles ?? self::defaultFixtures();
@@ -57,13 +55,7 @@ final class MockProviderClient implements ProviderClientContract
         );
     }
 
-    /**
-     * Fail the stream after this many successful yields.
-     *
-     * Offset 0 means the provider is already down: {@see fetchTitleByExternalId()} throws the same
-     * exception, and {@see fetchTitles()} throws on the first iteration step. A positive offset
-     * leaves lookup working until iteration reaches the failure.
-     */
+
     public function failWith(ProviderException $exception, int $afterItems = 0): void
     {
         $available = count($this->titles);
@@ -83,7 +75,6 @@ final class MockProviderClient implements ProviderClientContract
     }
 
 
-    /** @return Generator<int, ProviderTitle> */
     private function iterateTitles(?int $limit, int $offset): Generator
     {
         $yielded = 0;
@@ -102,25 +93,25 @@ final class MockProviderClient implements ProviderClientContract
         }
     }
 
-    /** @return list<ProviderTaxonomyItem> */
+
     private static function taxonomy(string ...$names): array
     {
         return array_map(
-            static fn (string $name): ProviderTaxonomyItem => new ProviderTaxonomyItem('genre', null, $name),
+            static fn (string $name): ProviderTaxonomyItem => new ProviderTaxonomyItem('genres', null, $name),
             $names,
         );
     }
 
-    /** @return list<ProviderTaxonomyItem> */
+
     private static function studios(string ...$names): array
     {
         return array_map(
-            static fn (string $name): ProviderTaxonomyItem => new ProviderTaxonomyItem('studio', null, $name),
+            static fn (string $name): ProviderTaxonomyItem => new ProviderTaxonomyItem('studios', null, $name),
             $names,
         );
     }
 
-    /** @return list<ProviderTitle> */
+
     private static function defaultFixtures(): array
     {
         return [
@@ -131,7 +122,7 @@ final class MockProviderClient implements ProviderClientContract
         ];
     }
 
-    /** @return list<ProviderTitle> */
+
     private static function completeFixtures(): array
     {
         return [
@@ -188,7 +179,7 @@ final class MockProviderClient implements ProviderClientContract
         ];
     }
 
-    /** @return list<ProviderTitle> */
+
     private static function incompleteFixtures(): array
     {
         return [
@@ -242,7 +233,7 @@ final class MockProviderClient implements ProviderClientContract
         ];
     }
 
-    /** @return list<ProviderTitle> */
+
     private static function invalidFixtures(): array
     {
         return [
@@ -297,10 +288,7 @@ final class MockProviderClient implements ProviderClientContract
         );
     }
 
-    /**
-     * @param  list<string>  $genres
-     * @param  list<string>  $studios
-     */
+
     private static function fixture(
         string  $externalId,
         ?string $titleRu = 'Тестовый тайтл',
@@ -324,15 +312,15 @@ final class MockProviderClient implements ProviderClientContract
             title: LocalizedText::create($titleRu, $titleEn),
             description: LocalizedText::create($descriptionRu, $descriptionEn),
             genres: self::taxonomy(...$genres),
-            studios: self::studios(...$studios),
             year: $year,
             durationMinutes: $durationMinutes,
             rating: $rating,
-            ratingCount: $ratingCount,
             posterUrl: $posterUrl,
             bannerUrl: $bannerUrl,
             type: $type,
             status: $status,
+            studios: self::studios(...$studios),
+            ratingCount: $ratingCount,
         );
     }
 }

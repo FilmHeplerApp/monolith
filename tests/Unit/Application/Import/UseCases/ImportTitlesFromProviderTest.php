@@ -8,11 +8,13 @@ use App\Application\Import\Contracts\CandidateSinkContract;
 use App\Application\Import\Contracts\ImportRunLockContract;
 use App\Application\Import\Contracts\ImportRunRecorderContract;
 use App\Application\Import\Contracts\ProviderClientContract;
+use App\Application\Import\DTOs\ImportBatch;
 use App\Application\Import\DTOs\ImportCounters;
 use App\Application\Import\DTOs\ImportRunCheckpoint;
 use App\Application\Import\DTOs\ProviderTitle;
 use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
+use App\Application\Import\Services\ImportTitleStreamFactory;
 use App\Application\Import\Services\ProviderTitleNormalizer;
 use App\Application\Import\Services\ProviderTitleToCandidateMapper;
 use App\Application\Import\UseCases\ImportTitlesFromProvider;
@@ -29,13 +31,9 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use Tests\Support\SingleProviderClientFactory;
-use Throwable;
 
 final class ImportTitlesFromProviderTest extends TestCase
 {
-    /**
-     * @throws Throwable
-     */
     #[Test]
     public function it_routes_candidates_and_records_the_run(): void
     {
@@ -67,15 +65,13 @@ final class ImportTitlesFromProviderTest extends TestCase
         self::assertSame(4, $recorder->checkpoint);
     }
 
-    /**
-     * @throws Throwable
-     */
+
     #[Test]
     public function it_resumes_from_the_recorded_checkpoint(): void
     {
         $client = new MockProviderClient([$this->title('1'), $this->title('2')]);
         $recorder = new InMemoryImportRunRecorder(
-            new ImportRunCheckpoint(10, 1, new ImportCounters(fetched: 1, accepted: 1), 2),
+            new ImportRunCheckpoint(10, 1, new ImportCounters(fetched: 1, accepted: 1), 2, 'owner'),
         );
         $sink = new CollectingCandidateSink;
 
@@ -101,7 +97,7 @@ final class ImportTitlesFromProviderTest extends TestCase
         CollectingCandidateSink   $sink,
     ): ImportTitlesFromProvider {
         return new ImportTitlesFromProvider(
-            clients: new SingleProviderClientFactory($client),
+            streams: new ImportTitleStreamFactory(new SingleProviderClientFactory($client), $recorder),
             mapper: new ProviderTitleToCandidateMapper(new ProviderTitleNormalizer),
             filter: new TitleCandidateEvaluator([new HasAnyTitleRule, new CompletenessRule]),
             recorder: $recorder,
@@ -147,7 +143,6 @@ final class ImportTitlesFromProviderTest extends TestCase
 
 final class InMemoryImportRunRecorder implements ImportRunRecorderContract
 {
-    /** @var list<array{external_id: string, reason: RejectionReason, context: array<string, mixed>}> */
     public array $rejections = [];
     public bool $completed = false;
     public int $checkpoint = 0;
@@ -160,7 +155,7 @@ final class InMemoryImportRunRecorder implements ImportRunRecorderContract
         ProviderDataSource $dataSource,
         ?int               $limit,
     ): ImportRunCheckpoint {
-        return new ImportRunCheckpoint(1, 0, new ImportCounters, $limit);
+        return new ImportRunCheckpoint(1, 0, new ImportCounters, $limit, 'owner');
     }
 
     public function resume(
@@ -171,9 +166,16 @@ final class InMemoryImportRunRecorder implements ImportRunRecorderContract
         return $this->resumable;
     }
 
-    public function progress(int $runId, ImportCounters $counters, int $checkpoint, array $processedIds = []): void
+    public function commit(ImportRunCheckpoint $run, ImportBatch $batch, Closure $write, bool $complete = false): ImportRunCheckpoint
     {
-        $this->checkpoint = $checkpoint;
+        $write();
+        foreach ($batch->rejections as $rejection) {
+            $this->rejections[] = ['external_id' => $rejection->externalId, 'reason' => $rejection->reason, 'context' => $rejection->context];
+        }
+        $this->checkpoint = $batch->checkpoint;
+        $this->completed = $complete;
+
+        return new ImportRunCheckpoint($run->runId, $batch->checkpoint, $batch->counters, $run->limit, $run->ownerToken);
     }
 
     public function processedIds(int $runId): array
@@ -181,36 +183,17 @@ final class InMemoryImportRunRecorder implements ImportRunRecorderContract
         return $this->resumable === null ? [] : ['1'];
     }
 
-    public function bindSnapshot(int $runId, string $snapshotId): void {}
+    public function bindSnapshot(ImportRunCheckpoint $run, string $snapshotId): void {}
 
-    public function rejection(
-        int             $runId,
-        string          $externalId,
-        RejectionReason $reason,
-        array           $context = [],
-    ): void {
-        $this->rejections[] = [
-            'external_id' => $externalId,
-            'reason' => $reason,
-            'context' => $context,
-        ];
-    }
-
-    public function complete(int $runId, ImportCounters $counters, int $checkpoint, array $processedIds = []): void
-    {
-        $this->completed = true;
-        $this->checkpoint = $checkpoint;
-    }
-
-    public function fail(int $runId, ImportCounters $counters, int $checkpoint, string $message): void
+    public function fail(ImportRunCheckpoint $run, string $message): void
     {
         throw new RuntimeException("Import unexpectedly failed: {$message}");
     }
+
 }
 
 final class CollectingCandidateSink implements CandidateSinkContract
 {
-    /** @var list<array{candidate: TitleCandidate, decision: FilterDecision}> */
     public array $items = [];
 
 

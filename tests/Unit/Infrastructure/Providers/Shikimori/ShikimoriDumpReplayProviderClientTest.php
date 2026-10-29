@@ -5,14 +5,16 @@ declare(strict_types=1);
 namespace Tests\Unit\Infrastructure\Providers\Shikimori;
 
 use App\Application\Import\DTOs\ProviderTitle;
-use App\Infrastructure\Providers\Shikimori\Clients\DumpReplayProviderClient;
+use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriDumpReplayProviderClient;
 use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
 use InvalidArgumentException;
+use JsonException;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Random\RandomException;
 use Tests\Support\CommittedShikimoriDump;
 
-final class DumpReplayProviderClientTest extends TestCase
+final class ShikimoriDumpReplayProviderClientTest extends TestCase
 {
     private string $directory;
 
@@ -53,6 +55,10 @@ final class DumpReplayProviderClientTest extends TestCase
     }
 
 
+    /**
+     * @throws RandomException
+     * @throws JsonException
+     */
     protected function setUp(): void
     {
         parent::setUp();
@@ -70,11 +76,11 @@ final class DumpReplayProviderClientTest extends TestCase
     }
 
 
-    private function client(): DumpReplayProviderClient
+    private function client(): ShikimoriDumpReplayProviderClient
     {
-        return new DumpReplayProviderClient(
+        return new ShikimoriDumpReplayProviderClient(
             new ShikimoriTitleMapper,
-            $this->directory.'/shikimori_anime.ndjson',
+            CommittedShikimoriDump::reader($this->directory.'/shikimori_anime.ndjson'),
         );
     }
 }

@@ -8,15 +8,13 @@ use App\Application\Import\Contracts\ImportRunLockContract;
 use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
 use Closure;
-use Illuminate\Cache\Lock as CacheLock;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use PDO;
 use RuntimeException;
 use Throwable;
 
-final class DatabaseImportRunLock implements ImportRunLockContract
+final class PostgresImportRunLock implements ImportRunLockContract
 {
     private static array $active = [];
     private ?Closure $checkOwner = null;
@@ -32,26 +30,10 @@ final class DatabaseImportRunLock implements ImportRunLockContract
         $previous = $this->checkOwner;
 
         if ($connection->getDriverName() !== 'pgsql') {
-            // SQLite tests use the configured cache lock; PostgreSQL uses a dedicated session.
-            $lock = Cache::lock($key);
-            if (!$lock instanceof CacheLock) {
-                throw new RuntimeException('The SQLite import lock requires a Laravel cache lock.');
-            }
-            if (!$lock->get()) {
-                throw new RuntimeException('Another import for this provider and source is already running.');
-            }
-            self::$active[$key] = true;
-            $this->checkOwner = static fn (): bool => $lock->isOwnedByCurrentProcess();
-            try {
-                return $work();
-            } finally {
-                $this->checkOwner = $previous;
-                unset(self::$active[$key]);
-                $lock->release();
-            }
+            throw new RuntimeException('PostgresImportRunLock requires a PostgreSQL connection.');
         }
 
-        // Do not tie the lock to the data connection, which Laravel can transparently reconnect.
+
         $name = 'import_lock_'.bin2hex(random_bytes(8));
         $config = $connection->getConfig();
         $config['name'] = $name;
@@ -67,7 +49,7 @@ final class DatabaseImportRunLock implements ImportRunLockContract
                 throw new RuntimeException('Another import for this provider and source is already running.');
             }
             self::$active[$key] = true;
-            // Native PDO intentionally never reconnects a lost lock session.
+
             $this->checkOwner = static fn (): bool => in_array($pdo->query('SELECT 1')->fetchColumn(), [1, '1'], true);
 
             return $work();

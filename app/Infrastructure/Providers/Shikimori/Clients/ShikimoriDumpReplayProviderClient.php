@@ -12,16 +12,14 @@ use App\Infrastructure\Providers\Shikimori\Dumps\ShikimoriDumpReader;
 use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
 use Generator;
 use InvalidArgumentException;
+use Throwable;
 
-final class DumpReplayProviderClient implements ProviderClientContract, ProviderSnapshotContract
+final readonly class ShikimoriDumpReplayProviderClient implements ProviderClientContract, ProviderSnapshotContract
 {
-    private readonly ShikimoriDumpReader $reader;
-
-
-    public function __construct(private readonly ShikimoriTitleMapper $mapper, string $path)
-    {
-        $this->reader = new ShikimoriDumpReader($path);
-    }
+    public function __construct(
+        private ShikimoriTitleMapper $mapper,
+        private ShikimoriDumpReader  $reader,
+    ) {}
 
     public function source(): ProviderSource
     {
@@ -59,7 +57,9 @@ final class DumpReplayProviderClient implements ProviderClientContract, Provider
     }
 
 
-    /** @return Generator<int, ProviderTitle> */
+    /** @return Generator<int, ProviderTitle>
+     * @throws Throwable
+     */
     private function iterateTitles(?int $limit, int $offset): Generator
     {
         try {

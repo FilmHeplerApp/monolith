@@ -13,9 +13,10 @@ use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 
 final readonly class ShikimoriTitleMapper
 {
-    /** @param array<string, mixed> $row */
     public function map(array $row): ProviderTitle
     {
+        $status = strtolower(trim((string) ($row['status'] ?? '')));
+
         return new ProviderTitle(
             source: ProviderSource::Shikimori,
             externalId: (string) ($row['id'] ?? ''),
@@ -28,29 +29,30 @@ final readonly class ShikimoriTitleMapper
                 null,
             ),
             genres: $this->mapTaxonomy($row['genres'] ?? []),
-            studios: $this->mapStudios($row['studios'] ?? []),
             year: $this->nullableInt(data_get($row, 'airedOn.year') ?? data_get($row, 'releasedOn.year')),
             durationMinutes: $this->nullablePositiveInt($row['duration'] ?? null),
             rating: $this->nullableFloat($row['score'] ?? null),
-            ratingCount: $this->ratingCount($row['scoresStats'] ?? []),
             posterUrl: $this->cleanString(data_get($row, 'poster.originalUrl')),
             bannerUrl: null,
             type: TitleContentType::ANIME->value,
-            status: ($row['status'] ?? '') === 'anons' ? 'announced' : (string) ($row['status'] ?? ''),
+            status: $status === 'anons' ? 'announced' : $status,
             format: TitleFormat::tryFrom(strtolower(trim((string) ($row['kind'] ?? '')))),
+            studios: $this->mapStudios($row['studios'] ?? []),
+            ratingCount: $this->ratingCount($row['scoresStats'] ?? []),
         );
     }
 
 
-    /**
-     * @param  list<array<string, mixed>>  $items
-     * @return list<ProviderTaxonomyItem>
-     */
     private function mapTaxonomy(array $items): array
     {
         return array_values(array_map(
             fn (array $item): ProviderTaxonomyItem => new ProviderTaxonomyItem(
-                kind: (string) ($item['kind'] ?? 'genre'),
+                attributeCode: match (strtolower(trim((string) ($item['kind'] ?? 'genre')))) {
+                    'genre' => 'genres',
+                    'demographic' => 'target_audience',
+                    'theme' => 'tags',
+                    default => 'tags',
+                },
                 nameRu: $this->cleanString($item['russian'] ?? null),
                 nameEn: $this->cleanString($item['name'] ?? null),
             ),
@@ -58,15 +60,12 @@ final readonly class ShikimoriTitleMapper
         ));
     }
 
-    /**
-     * @param  list<array<string, mixed>>  $studios
-     * @return list<ProviderTaxonomyItem>
-     */
+
     private function mapStudios(array $studios): array
     {
         return array_values(array_map(
             fn (array $studio): ProviderTaxonomyItem => new ProviderTaxonomyItem(
-                kind: 'studio',
+                attributeCode: 'studios',
                 nameRu: null,
                 nameEn: $this->cleanString($studio['name'] ?? null),
             ),
@@ -74,7 +73,7 @@ final readonly class ShikimoriTitleMapper
         ));
     }
 
-    /** @param list<array<string, mixed>> $stats */
+
     private function ratingCount(array $stats): ?int
     {
         if ($stats === []) {

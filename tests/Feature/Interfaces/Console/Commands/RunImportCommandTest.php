@@ -10,13 +10,14 @@ use App\Application\Import\Enums\ProviderSource;
 use App\Domain\Import\DTOs\FilterDecision;
 use App\Domain\Import\DTOs\TitleCandidate;
 use App\Domain\Import\Enums\ImportRunStatus;
-use App\Infrastructure\Providers\Shikimori\Dumps\ShikimoriDumpReader;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
+use JsonException;
 use PHPUnit\Framework\Attributes\Test;
+use Random\RandomException;
 use Tests\Support\CommittedShikimoriDump;
 use Tests\TestCase;
 
@@ -58,7 +59,7 @@ final class RunImportCommandTest extends TestCase
             'status' => ImportRunStatus::Failed->value,
             'limit' => 4,
             'checkpoint' => 2,
-            'snapshot_id' => (new ShikimoriDumpReader($this->dumpDirectory.'/shikimori_anime.ndjson'))->snapshotId(),
+            'snapshot_id' => (CommittedShikimoriDump::reader($this->dumpDirectory.'/shikimori_anime.ndjson'))->snapshotId(),
             'fetched' => 2,
             'accepted' => 2,
             'flagged' => 0,
@@ -67,6 +68,11 @@ final class RunImportCommandTest extends TestCase
             'finished_at' => now(),
             'created_at' => now(),
             'updated_at' => now(),
+        ]);
+
+        DB::table('import_processed_titles')->insert([
+            ['import_run_id' => $runId, 'external_id' => '1'],
+            ['import_run_id' => $runId, 'external_id' => '6'],
         ]);
 
         $this->artisan('import:run', [
@@ -112,6 +118,10 @@ final class RunImportCommandTest extends TestCase
     }
 
 
+    /**
+     * @throws RandomException
+     * @throws JsonException
+     */
     protected function setUp(): void
     {
         parent::setUp();
@@ -119,7 +129,7 @@ final class RunImportCommandTest extends TestCase
 
         $this->dumpDirectory = sys_get_temp_dir().'/shikimori-command-'.bin2hex(random_bytes(8));
         $path = CommittedShikimoriDump::create($this->dumpDirectory, file_get_contents(base_path('static/Fixtures/Shikimori/animes.ndjson')));
-        config()->set('shikimori.dump_path', $path);
+        CommittedShikimoriDump::configure($path);
         config()->set('import.filter.allowed_types', ['anime']);
         config()->set('import.filter.min_release_year', null);
         config()->set('import.filter.min_provider_score', null);
@@ -148,6 +158,7 @@ final class RunImportCommandTest extends TestCase
             $table->string('data_source');
             $table->string('status');
             $table->char('snapshot_id', 64)->nullable();
+            $table->char('owner_token', 32)->nullable();
             $table->unsignedInteger('limit')->nullable();
             $table->unsignedInteger('checkpoint')->default(0);
             $table->unsignedInteger('fetched')->default(0);
@@ -180,7 +191,6 @@ final class RunImportCommandTest extends TestCase
 
 final class CommandCandidateSink implements CandidateSinkContract
 {
-    /** @var list<array{candidate: TitleCandidate, decision: FilterDecision}> */
     public array $items = [];
 
 

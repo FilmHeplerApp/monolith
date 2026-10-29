@@ -4,7 +4,7 @@ use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Infrastructure\Providers\Mock\MockProviderClient;
-use App\Infrastructure\Providers\Shikimori\Clients\DumpReplayProviderClient;
+use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriDumpReplayProviderClient;
 use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriProviderClient;
 
 return [
@@ -19,8 +19,17 @@ return [
             ],
             ProviderSource::Shikimori->value => [
                 ProviderDataSource::Api->value => ShikimoriProviderClient::class,
-                ProviderDataSource::Dump->value => DumpReplayProviderClient::class,
+                ProviderDataSource::Dump->value => ShikimoriDumpReplayProviderClient::class,
             ],
+        ],
+    ],
+    'dumps' => [
+        ProviderSource::Shikimori->value => [
+            'disk' => env('SHIKIMORI_DUMP_DISK', 'local'),
+            'data' => env('SHIKIMORI_DUMP_DATA_PATH', 'import/shikimori_anime.ndjson'),
+            'checkpoint' => env('SHIKIMORI_DUMP_CHECKPOINT_PATH', 'import/shikimori_anime.checkpoint'),
+            'lock' => env('SHIKIMORI_DUMP_LOCK_PATH', 'import/shikimori_dump.lock'),
+            'taxonomy' => env('SHIKIMORI_DUMP_TAXONOMY_PATH', 'import/shikimori_genres.ndjson'),
         ],
     ],
     'filter' => [

@@ -18,7 +18,7 @@ final class RunImportCommand extends Command
         {provider=shikimori : Provider name}
         {--source=api : Data source (api or dump)}
         {--limit= : Maximum total number of titles for this run}
-        {--resume : Resume the latest incomplete matching run}';
+        {--resume : Continue the latest matching run or return its completed result}';
     protected $description = 'Collect, normalize and filter titles from a provider';
 
 

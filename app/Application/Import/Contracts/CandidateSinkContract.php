@@ -11,11 +11,9 @@ interface CandidateSinkContract
 {
     public function consume(TitleCandidate $candidate, FilterDecision $decision): void;
 
-    /** Commit all consumed candidates. On failure the caller replays from its last committed checkpoint. */
     public function flush(): void;
 
     public function finish(): void;
 
-    /** Discard uncommitted candidates after a failed run. Must preserve already committed output. */
     public function abort(): void;
 }

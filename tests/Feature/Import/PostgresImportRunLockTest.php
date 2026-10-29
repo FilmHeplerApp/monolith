@@ -7,10 +7,12 @@ namespace Tests\Feature\Import;
 use App\Application\Import\Contracts\ImportRunLockContract;
 use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
-use Illuminate\Database\Connection;
+use App\Infrastructure\Import\Locks\PostgresImportRunLock;
+use Illuminate\Database\ConnectionInterface;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
+use Random\RandomException;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -18,7 +20,7 @@ use Tests\TestCase;
 final class PostgresImportRunLockTest extends TestCase
 {
     private string $peerName;
-    private Connection $peer;
+    private ConnectionInterface $peer;
 
 
     #[Test]
@@ -63,12 +65,17 @@ final class PostgresImportRunLockTest extends TestCase
     }
 
 
+    /**
+     * @throws \ReflectionException
+     * @throws RandomException
+     */
     protected function setUp(): void
     {
         parent::setUp();
         if (DB::getDriverName() !== 'pgsql') {
             self::markTestSkipped('This regression requires PostgreSQL sessions.');
         }
+        $this->app->bind(ImportRunLockContract::class, PostgresImportRunLock::class);
         $this->peerName = 'import_lock_test_peer_'.bin2hex(random_bytes(8));
         $this->peer = DB::connectUsing($this->peerName, DB::connection()->getConfig());
     }

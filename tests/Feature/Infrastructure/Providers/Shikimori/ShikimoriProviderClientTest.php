@@ -50,11 +50,11 @@ final class ShikimoriProviderClientTest extends TestCase
         self::assertSame('https://cdn.local/5114.jpg', $title->posterUrl);
         self::assertNull($title->bannerUrl);
         self::assertEquals(
-            [new ProviderTaxonomyItem('genre', 'Экшен', 'Action')],
+            [new ProviderTaxonomyItem('genres', 'Экшен', 'Action')],
             $title->genres,
         );
         self::assertEquals(
-            [new ProviderTaxonomyItem('studio', null, 'Bones')],
+            [new ProviderTaxonomyItem('studios', null, 'Bones')],
             $title->studios,
         );
     }
@@ -241,7 +241,7 @@ final class ShikimoriProviderClientTest extends TestCase
         return app(ShikimoriProviderClient::class);
     }
 
-    /** @return array<string, mixed> */
+
     private function animeRow(string $id = '5114'): array
     {
         return [
