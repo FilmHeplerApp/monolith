@@ -306,7 +306,7 @@ snapshot с учётом сохранённых записей.
 | `airedOn.year` | `titles.release_year` | Для `dedup_key` |
 | `poster.originalUrl` | `titles.poster_url` | Абсолютный URL |
 | `genres[kind=genre]` | атрибут `genres` | 22 значения, RU+EN готовые |
-| `genres[kind=demographic]` | атрибут `target_audience` | 5 значений |
+| `genres[kind=demographic]` | атрибут `target_audience` (ARRAY) | Несколько категорий сохраняются; миграция `2026_10_22_100000` |
 | `genres[kind=theme]` | атрибут `tags` | 53 значения |
 | `studios[].name` | атрибут `studios` | ARRAY (решение 3.4) |
 | `updatedAt` | `external_ids.last_synced_at` | |

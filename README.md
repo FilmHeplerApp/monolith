@@ -152,6 +152,27 @@ Check that the bucket accepts a write:
 docker compose exec app php artisan filmhelper:probe-image-storage
 ```
 
+## Provider Import
+
+Run migrations before using the importer. Enable the intended providers with
+IMPORT_PROVIDERS=shikimori.
+
+    docker compose exec app php artisan shikimori:dump
+    docker compose exec app php artisan import:run shikimori --source=dump --limit=100
+    docker compose exec app php artisan import:run shikimori --source=dump --limit=100 --resume
+
+A completed run is returned unchanged by --resume. Omit --resume to start a new
+run. An omitted limit imports the complete source.
+
+Dump files, checkpoint, lock, disk and optional taxonomy are configured together
+under import.dumps.<provider>. The SHIKIMORI_DUMP_* variables in .env.example
+override defaults. Writer, replay reader and fixture builder share this configuration.
+
+The default sink logs accepted and flagged candidates after a successful batch
+commit. Saving the catalog and dispatching media jobs require a saving sink.
+Rejections, processed identities and checkpoints are committed atomically.
+See [the orchestrator documentation](docs/tasks/filter_data_from_providers/Import_collection_and_packing_plan.md).
+
 ## Images
 
 Poster, banner, and avatar processing runs on the `images` queue. Horizon `supervisor-2` consumes that queue only (`memory` 256, `timeout` 180, `tries` 3, two processes locally and four in production). `supervisor-1` stays on `default` and does not take `images` jobs.

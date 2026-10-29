@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace App\Interfaces\Console\Commands;
 
+use App\Infrastructure\Import\Dumps\DumpLocation;
 use Generator;
 use Illuminate\Console\Command;
-use Illuminate\Filesystem\FilesystemAdapter;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -21,16 +22,6 @@ use Throwable;
 )]
 final class BuildShikimoriFixtureCommand extends Command
 {
-    private const string DUMP_DISK = 'local';
-
-    private const string DUMP_ANIME_PATH = 'import/shikimori_anime.ndjson';
-
-    private const string DUMP_GENRES_PATH = 'import/shikimori_genres.ndjson';
-
-    private const string CHECKPOINT_PATH = 'import/shikimori_anime.checkpoint';
-
-    private const string LOCK_PATH = 'import/shikimori_dump.lock';
-
     private const int MIN_TITLES = 250;
 
     private const string FIXTURE_DIR = 'static/Fixtures/Shikimori';
@@ -41,9 +32,13 @@ final class BuildShikimoriFixtureCommand extends Command
         $lock = null;
 
         try {
-            $disk = Storage::disk(self::DUMP_DISK);
+            $location = DumpLocation::fromConfig('shikimori');
+            $disk = Storage::disk($location->disk);
+            if ($location->taxonomy === null) {
+                throw new RuntimeException('Shikimori taxonomy dump is not configured.');
+            }
 
-            foreach ([self::DUMP_ANIME_PATH, self::DUMP_GENRES_PATH, self::CHECKPOINT_PATH] as $file) {
+            foreach ([$location->data, $location->taxonomy, $location->checkpoint] as $file) {
                 if (!$disk->exists($file)) {
                     $this->error("Dump not found: $file. At first: php artisan shikimori:dump");
 
@@ -51,7 +46,7 @@ final class BuildShikimoriFixtureCommand extends Command
                 }
             }
 
-            $lock = @fopen($disk->path(self::LOCK_PATH), 'c+b');
+            $lock = @fopen($disk->path($location->lock), 'c+b');
 
             if ($lock === false) {
                 throw new RuntimeException('Cannot open the dump lock.');
@@ -61,9 +56,9 @@ final class BuildShikimoriFixtureCommand extends Command
                 throw new RuntimeException('Shikimori dump is running. Try building the fixture after it finishes.');
             }
 
-            $checkpoint = $this->checkpoint($disk);
-            $selected = $this->select($disk->path(self::DUMP_ANIME_PATH), $checkpoint['bytes'], $checkpoint['titles']);
-            $genres = iterator_to_array($this->streamNdjson($disk->path(self::DUMP_GENRES_PATH)));
+            $checkpoint = $this->checkpoint($disk, $location);
+            $selected = $this->select($disk->path($location->data), $checkpoint['bytes'], $checkpoint['titles']);
+            $genres = iterator_to_array($this->streamNdjson($disk->path($location->taxonomy)));
 
             if ($genres === []) {
                 throw new RuntimeException('Insufficient dump data: genres are empty. Run shikimori:dump again.');
@@ -101,9 +96,9 @@ final class BuildShikimoriFixtureCommand extends Command
     /**
      * @throws JsonException
      */
-    private function checkpoint(FilesystemAdapter $disk): array
+    private function checkpoint(Filesystem $disk, DumpLocation $location): array
     {
-        $checkpoint = json_decode($disk->get(self::CHECKPOINT_PATH) ?? '', true, 512, JSON_THROW_ON_ERROR);
+        $checkpoint = json_decode($disk->get($location->checkpoint) ?? '', true, 512, JSON_THROW_ON_ERROR);
 
         if (!is_array($checkpoint) || ($checkpoint['version'] ?? null) !== 1) {
             throw new RuntimeException('Unsupported dump checkpoint. Run shikimori:dump again.');
@@ -118,9 +113,8 @@ final class BuildShikimoriFixtureCommand extends Command
         return $checkpoint;
     }
 
+
     /**
-     * @return list<array<string, mixed>>
-     *
      * @throws JsonException
      */
     private function select(string $path, int $bytes, int $expectedTitles): array
@@ -162,11 +156,7 @@ final class BuildShikimoriFixtureCommand extends Command
         return $selected;
     }
 
-    /**
-     * @return Generator<array<string, mixed>>
-     *
-     * @throws JsonException
-     */
+
     private function streamNdjson(string $path, ?int $bytes = null): Generator
     {
         $fh = @fopen($path, 'rb');
@@ -213,9 +203,7 @@ final class BuildShikimoriFixtureCommand extends Command
         }
     }
 
-    /**
-     * @return array<string, array{0: callable, 1: int}>
-     */
+
     private function getBuckets(): array
     {
         $description = static fn (array $r): string => (string) ($r['description'] ?? '');
@@ -249,11 +237,7 @@ final class BuildShikimoriFixtureCommand extends Command
         ];
     }
 
-    /**
-     * @param  list<array<string, mixed>>  $rows
-     *
-     * @throws JsonException
-     */
+
     private function writeNdjson(string $path, array $rows): void
     {
         $lines = array_map(

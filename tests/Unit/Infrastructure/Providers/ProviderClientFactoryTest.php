@@ -4,21 +4,19 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Infrastructure\Providers;
 
+use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
 use App\Infrastructure\Providers\Factories\ProviderClientFactory;
 use App\Infrastructure\Providers\Mock\MockProviderClient;
 use Illuminate\Container\Container;
-use Illuminate\Contracts\Container\BindingResolutionException;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use ReflectionException;
 use RuntimeException;
 
 final class ProviderClientFactoryTest extends TestCase
 {
-    /**
-     * @throws BindingResolutionException
-     */
     #[Test]
     public function it_makes_the_client_mapped_to_a_source(): void
     {
@@ -27,9 +25,7 @@ final class ProviderClientFactoryTest extends TestCase
         self::assertSame(MockProviderClient::class, $client::class);
     }
 
-    /**
-     * @throws BindingResolutionException
-     */
+
     #[Test]
     public function it_throws_when_no_client_is_registered_for_a_source(): void
     {
@@ -38,9 +34,7 @@ final class ProviderClientFactoryTest extends TestCase
         $this->factory()->make(ProviderSource::Shikimori);
     }
 
-    /**
-     * @throws BindingResolutionException
-     */
+
     #[Test]
     public function it_returns_enabled_clients_keyed_by_source(): void
     {
@@ -90,9 +84,7 @@ final class ProviderClientFactoryTest extends TestCase
         $this->factory(enabled: [ProviderSource::Mock->value], isProduction: true);
     }
 
-    /**
-     * @throws BindingResolutionException
-     */
+
     #[Test]
     public function it_forbids_making_the_mock_client_in_production(): void
     {
@@ -104,8 +96,33 @@ final class ProviderClientFactoryTest extends TestCase
 
 
     /**
-     * @param  list<string>  $enabled
+     * @throws ReflectionException
      */
+    #[Test]
+    public function it_normalizes_dump_only_providers_without_constructing_their_clients(): void
+    {
+        $container = new Container;
+        $created = 0;
+        $container->bind(MockProviderClient::class, function () use (&$created): MockProviderClient {
+            $created++;
+
+            return new MockProviderClient([]);
+        });
+        $factory = new ProviderClientFactory(
+            $container,
+            ['mock' => ['dump' => MockProviderClient::class]],
+            ['mock'],
+            false,
+        );
+
+        self::assertSame(0, $created);
+        $first = $factory->make(ProviderSource::Mock, ProviderDataSource::Dump);
+        $second = $factory->make(ProviderSource::Mock, ProviderDataSource::Dump);
+        self::assertSame(2, $created);
+        self::assertNotSame($first, $second);
+    }
+
+
     private function factory(array $enabled = [], bool $isProduction = false): ProviderClientFactory
     {
         return new ProviderClientFactory(

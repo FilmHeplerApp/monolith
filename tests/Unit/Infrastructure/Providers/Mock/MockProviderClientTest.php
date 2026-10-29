@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Infrastructure\Providers\Mock;
 
+use App\Application\Import\DTOs\ProviderTaxonomyItem;
 use App\Application\Import\DTOs\ProviderTitle;
 use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\Exceptions\ProviderRateLimitedException;
@@ -167,7 +168,7 @@ final class MockProviderClientTest extends TestCase
         $client = new MockProviderClient;
 
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Fetch limit must be >= 1, got 0.');
+        $this->expectExceptionMessage('Fetch limit must be >= 1 or null, got 0.');
 
         $client->fetchTitles(limit: 0);
     }
@@ -178,7 +179,7 @@ final class MockProviderClientTest extends TestCase
         $client = new MockProviderClient;
 
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Fetch limit must be >= 1, got -1.');
+        $this->expectExceptionMessage('Fetch limit must be >= 1 or null, got -1.');
 
         $client->fetchTitles(limit: -1);
     }
@@ -242,34 +243,34 @@ final class MockProviderClientTest extends TestCase
 
         self::assertNotEmpty(array_filter(
             $titles,
-            static fn(ProviderTitle $title): bool => $title->type === 'unknown',
+            static fn (ProviderTitle $title): bool => $title->type === 'unknown',
         ));
         self::assertNotEmpty(array_filter(
             $titles,
-            static fn(ProviderTitle $title): bool => $title->status === 'unknown',
+            static fn (ProviderTitle $title): bool => $title->status === 'unknown',
         ));
         self::assertNotEmpty(array_filter(
             $titles,
-            static fn(ProviderTitle $title): bool => $title->externalId === '',
+            static fn (ProviderTitle $title): bool => $title->externalId === '',
         ));
         self::assertNotEmpty(array_filter(
             $titles,
-            static fn(ProviderTitle $title): bool => $title->rating !== null
+            static fn (ProviderTitle $title): bool => $title->rating !== null
                 && ($title->rating < 0 || $title->rating > 10),
         ));
         self::assertNotEmpty(array_filter(
             $titles,
-            static fn(ProviderTitle $title): bool => $title->durationMinutes !== null
+            static fn (ProviderTitle $title): bool => $title->durationMinutes !== null
                 && $title->durationMinutes <= 0,
         ));
         self::assertNotEmpty(array_filter(
             $titles,
-            static fn(ProviderTitle $title): bool => $title->description?->getRu() !== null
+            static fn (ProviderTitle $title): bool => $title->description?->getRu() !== null
                 && $title->description->getRu() !== strip_tags($title->description->getRu()),
         ));
 
         $externalIds = array_map(
-            static fn(ProviderTitle $title): string => $title->externalId,
+            static fn (ProviderTitle $title): string => $title->externalId,
             $titles,
         );
 
@@ -280,7 +281,7 @@ final class MockProviderClientTest extends TestCase
     public function it_yields_the_duplicated_external_id_before_invalid_titles(): void
     {
         $externalIds = array_map(
-            static fn(ProviderTitle $title): string => $title->externalId,
+            static fn (ProviderTitle $title): string => $title->externalId,
             iterator_to_array(new MockProviderClient()->fetchTitles()),
         );
 
@@ -299,7 +300,7 @@ final class MockProviderClientTest extends TestCase
             externalId: 'custom-1',
             title: LocalizedText::create('Свой тайтл', 'Custom title'),
             description: null,
-            genres: ['custom'],
+            genres: [new ProviderTaxonomyItem('genres', 'Свой', 'custom')],
             year: 2020,
             durationMinutes: 100,
             rating: 6.0,
@@ -318,9 +319,22 @@ final class MockProviderClientTest extends TestCase
     }
 
 
-    /**
-     * @return array<string, ProviderTitle>
-     */
+    #[Test]
+    public function it_supports_unlimited_streams_and_offsets(): void
+    {
+        $client = new MockProviderClient;
+        self::assertSame(['9253', '52991'], array_column(iterator_to_array($client->fetchTitles(2, 2)), 'externalId'));
+        self::assertCount(count(iterator_to_array($client->fetchTitles(null))) - 1, iterator_to_array($client->fetchTitles(null, 1)));
+    }
+
+    #[Test]
+    public function it_rejects_a_negative_offset_eagerly(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        (new MockProviderClient)->fetchTitles(offset: -1);
+    }
+
+
     private function defaultTitlesByExternalId(): array
     {
         $titles = [];
