@@ -8,7 +8,6 @@ use App\Application\Import\DTOs\ProviderTitle;
 use App\Application\Import\Exceptions\ProviderTitleMappingException;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\Enums\Title\TitleStatus;
-use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use App\Domain\Catalog\ValueObjects\Title\ReleaseYear;
 use App\Domain\Import\DTOs\CandidateAttribute;
 use App\Domain\Import\DTOs\TitleCandidate;
@@ -98,9 +97,9 @@ final readonly class ProviderTitleToCandidateMapper
     {
         $grouped = [];
 
-        foreach ([...$title->genres, ...$title->studios] as $item) {
-            $code = $item->attributeCode;
-            $value = LocalizedText::create($item->nameRu, $item->nameEn);
+        foreach ($title->attributes as $attribute) {
+            $code = $attribute->code;
+            $value = $attribute->value;
 
             if ($value === null) {
                 continue;
@@ -113,7 +112,7 @@ final readonly class ProviderTitleToCandidateMapper
         $attributes = [];
 
         foreach ($grouped as $code => $values) {
-            $attributes[] = new CandidateAttribute($code, array_values($values));
+            $attributes[] = new CandidateAttribute((string) $code, array_values($values));
         }
 
         return $attributes;

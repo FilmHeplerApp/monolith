@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Infrastructure\Providers\Shikimori;
 
-use App\Application\Import\DTOs\ProviderTaxonomyItem;
+use App\Application\Import\DTOs\ProviderAttribute;
 use App\Application\Import\DTOs\ProviderTitle;
 use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\Services\ProviderTitleToCandidateMapper;
 use App\Domain\Catalog\Enums\Title\TitleFormat;
+use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use App\Domain\Import\Services\TitleCandidateEvaluator;
 use App\Domain\Import\Services\TitleCanonicalKeyFactory;
 use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriProviderClient;
@@ -50,12 +51,11 @@ final class ShikimoriProviderClientTest extends TestCase
         self::assertSame('https://cdn.local/5114.jpg', $title->posterUrl);
         self::assertNull($title->bannerUrl);
         self::assertEquals(
-            [new ProviderTaxonomyItem('genres', 'Экшен', 'Action')],
-            $title->genres,
-        );
-        self::assertEquals(
-            [new ProviderTaxonomyItem('studios', null, 'Bones')],
-            $title->studios,
+            [
+                new ProviderAttribute('genres', LocalizedText::create('Экшен', 'Action')),
+                new ProviderAttribute('studios', LocalizedText::create(null, 'Bones')),
+            ],
+            $title->attributes,
         );
     }
 

@@ -8,11 +8,12 @@ use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
 use App\Infrastructure\Providers\Factories\ProviderClientFactory;
 use App\Infrastructure\Providers\Mock\MockProviderClient;
+use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriProviderClient;
 use Illuminate\Container\Container;
 use InvalidArgumentException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use ReflectionException;
 use RuntimeException;
 
 final class ProviderClientFactoryTest extends TestCase
@@ -76,6 +77,22 @@ final class ProviderClientFactoryTest extends TestCase
     }
 
     #[Test]
+    public function it_rejects_an_enabled_provider_with_empty_registered_provider_handlers(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('No client registered for provider [mock].');
+
+        new ProviderClientFactory(
+            container: new Container,
+            clients: [
+                ProviderSource::Mock->value => [],
+            ],
+            enabled: [ProviderSource::Mock->value],
+            isProduction: false,
+        );
+    }
+
+    #[Test]
     public function it_rejects_an_enabled_mock_client_in_production_at_construction(): void
     {
         $this->expectException(RuntimeException::class);
@@ -88,16 +105,15 @@ final class ProviderClientFactoryTest extends TestCase
     #[Test]
     public function it_forbids_making_the_mock_client_in_production(): void
     {
+        $factory = $this->factory(isProduction: true);
+
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('MockProviderClient is not allowed in production.');
 
-        $this->factory(isProduction: true)->make(ProviderSource::Mock);
+        $factory->make(ProviderSource::Mock);
     }
 
 
-    /**
-     * @throws ReflectionException
-     */
     #[Test]
     public function it_normalizes_dump_only_providers_without_constructing_their_clients(): void
     {
@@ -120,6 +136,148 @@ final class ProviderClientFactoryTest extends TestCase
         $second = $factory->make(ProviderSource::Mock, ProviderDataSource::Dump);
         self::assertSame(2, $created);
         self::assertNotSame($first, $second);
+    }
+
+    #[Test]
+    public function it_allows_a_disabled_mock_registration_in_production(): void
+    {
+        $factory = new ProviderClientFactory(
+            container: new Container,
+            clients: [
+                'mock' => MockProviderClient::class,
+                'shikimori' => ShikimoriProviderClient::class,
+            ],
+            enabled: ['shikimori'],
+            isProduction: true,
+        );
+
+        self::assertSame([ProviderSource::Shikimori], $factory->getEnabledSources());
+    }
+
+    #[Test]
+    public function it_rejects_an_enabled_provider_missing_from_a_nonempty_registry(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('No client registered for provider [shikimori].');
+
+        $this->factory(enabled: ['mock', 'shikimori']);
+    }
+
+    #[Test]
+    public function it_rejects_a_forbidden_secondary_data_source_for_an_enabled_provider(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('MockProviderClient is not allowed in production.');
+
+        new ProviderClientFactory(
+            container: new Container,
+            clients: ['shikimori' => [
+                'api' => ShikimoriProviderClient::class,
+                'dump' => MockProviderClient::class,
+            ]],
+            enabled: ['shikimori'],
+            isProduction: true,
+        );
+    }
+
+    #[Test]
+    public function it_deduplicates_enabled_providers_and_preserves_their_order(): void
+    {
+        $factory = new ProviderClientFactory(
+            container: new Container,
+            clients: [
+                'mock' => MockProviderClient::class,
+                'shikimori' => ShikimoriProviderClient::class,
+            ],
+            enabled: ['shikimori', 'mock', 'shikimori', 'mock'],
+            isProduction: false,
+        );
+
+        self::assertSame([ProviderSource::Shikimori, ProviderSource::Mock], $factory->getEnabledSources());
+    }
+
+    #[Test]
+    public function it_allows_an_empty_configuration(): void
+    {
+        $factory = new ProviderClientFactory(new Container, [], [], true);
+
+        self::assertSame([], $factory->getEnabledSources());
+        self::assertSame([], $factory->enabled());
+    }
+
+    #[Test]
+    public function it_allows_empty_registrations_for_disabled_providers(): void
+    {
+        $factory = new ProviderClientFactory(new Container, ['mock' => []], [], true);
+
+        self::assertSame([], $factory->getEnabledSources());
+    }
+
+    #[Test]
+    #[DataProvider('invalidClientClasses')]
+    public function it_rejects_invalid_client_classes_even_for_disabled_providers(mixed $class): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Invalid client registered for provider [mock].');
+
+        new ProviderClientFactory(new Container, ['mock' => ['api' => $class]], [], false);
+    }
+
+    public static function invalidClientClasses(): array
+    {
+        return [
+            'null' => [null],
+            'boolean' => [false],
+            'integer' => [42],
+            'array' => [[]],
+            'unrelated class' => [\stdClass::class],
+            'missing class' => ['MissingProviderClient'],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('invalidDataSources')]
+    public function it_rejects_unknown_data_sources(int|string $dataSource): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Unknown import data source [$dataSource].");
+
+        new ProviderClientFactory(new Container, ['mock' => [$dataSource => MockProviderClient::class]], [], false);
+    }
+
+    public static function invalidDataSources(): array
+    {
+        return [
+            'unknown name' => ['unknown'],
+            'numeric key' => [0],
+        ];
+    }
+
+    #[Test]
+    public function it_rejects_an_unknown_registered_provider(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Unknown import provider [unknown].');
+
+        new ProviderClientFactory(new Container, ['unknown' => MockProviderClient::class], [], false);
+    }
+
+    #[Test]
+    public function it_rejects_a_non_string_enabled_provider(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Import provider names must be strings.');
+
+        $this->factory(enabled: [null]);
+    }
+
+    #[Test]
+    public function it_rejects_a_non_string_registered_provider(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Import provider names must be strings.');
+
+        new ProviderClientFactory(new Container, [MockProviderClient::class], [], false);
     }
 
 

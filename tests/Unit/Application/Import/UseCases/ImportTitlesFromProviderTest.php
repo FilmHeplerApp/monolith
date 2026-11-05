@@ -127,16 +127,14 @@ final class ImportTitlesFromProviderTest extends TestCase
             externalId: $externalId,
             title: LocalizedText::create($titleRu, $titleEn),
             description: LocalizedText::create($description, null),
-            genres: [],
-            studios: [],
             year: 2020,
             durationMinutes: 24,
             rating: 8.0,
-            ratingCount: 100,
             posterUrl: 'https://example.test/poster.jpg',
             bannerUrl: null,
             type: $type,
             status: 'released',
+            ratingCount: 100,
         );
     }
 }

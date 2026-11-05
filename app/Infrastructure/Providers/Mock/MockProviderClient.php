@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Infrastructure\Providers\Mock;
 
 use App\Application\Import\Contracts\ProviderClientContract;
-use App\Application\Import\DTOs\ProviderTaxonomyItem;
+use App\Application\Import\DTOs\ProviderAttribute;
 use App\Application\Import\DTOs\ProviderTitle;
 use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\Exceptions\ProviderException;
@@ -94,19 +94,10 @@ final class MockProviderClient implements ProviderClientContract
     }
 
 
-    private static function taxonomy(string ...$names): array
+    private static function attributes(string $code, string ...$names): array
     {
         return array_map(
-            static fn (string $name): ProviderTaxonomyItem => new ProviderTaxonomyItem('genres', null, $name),
-            $names,
-        );
-    }
-
-
-    private static function studios(string ...$names): array
-    {
-        return array_map(
-            static fn (string $name): ProviderTaxonomyItem => new ProviderTaxonomyItem('studios', null, $name),
+            static fn (string $name): ProviderAttribute => new ProviderAttribute($code, LocalizedText::create(null, $name)),
             $names,
         );
     }
@@ -311,7 +302,6 @@ final class MockProviderClient implements ProviderClientContract
             externalId: $externalId,
             title: LocalizedText::create($titleRu, $titleEn),
             description: LocalizedText::create($descriptionRu, $descriptionEn),
-            genres: self::taxonomy(...$genres),
             year: $year,
             durationMinutes: $durationMinutes,
             rating: $rating,
@@ -319,8 +309,11 @@ final class MockProviderClient implements ProviderClientContract
             bannerUrl: $bannerUrl,
             type: $type,
             status: $status,
-            studios: self::studios(...$studios),
             ratingCount: $ratingCount,
+            attributes: [
+                ...self::attributes('genres', ...$genres),
+                ...self::attributes('studios', ...$studios),
+            ],
         );
     }
 }

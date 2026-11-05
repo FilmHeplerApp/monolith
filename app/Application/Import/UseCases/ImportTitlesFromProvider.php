@@ -61,6 +61,9 @@ final readonly class ImportTitlesFromProvider
     }
 
 
+    /**
+     * @throws Throwable
+     */
     private function process(
         ProviderSource      $provider,
         ProviderDataSource  $dataSource,
@@ -97,7 +100,7 @@ final readonly class ImportTitlesFromProvider
                 $checkpoint++;
 
                 if (count($pendingIds) >= $this->checkpointEvery) {
-                    $run = $this->commit($run, new ImportBatch(clone $counters, $checkpoint, $pendingIds, $rejections));
+                    $run = $this->commit($run, new ImportBatch($counters, $checkpoint, $pendingIds, $rejections));
                     $pendingIds = [];
                     $rejections = [];
                 }

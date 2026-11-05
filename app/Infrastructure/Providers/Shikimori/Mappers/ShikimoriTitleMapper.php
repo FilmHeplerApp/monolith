@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Providers\Shikimori\Mappers;
 
-use App\Application\Import\DTOs\ProviderTaxonomyItem;
+use App\Application\Import\DTOs\ProviderAttribute;
 use App\Application\Import\DTOs\ProviderTitle;
 use App\Application\Import\Enums\ProviderSource;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
@@ -28,7 +28,6 @@ final readonly class ShikimoriTitleMapper
                 $this->cleanString($row['description'] ?? null),
                 null,
             ),
-            genres: $this->mapTaxonomy($row['genres'] ?? []),
             year: $this->nullableInt(data_get($row, 'airedOn.year') ?? data_get($row, 'releasedOn.year')),
             durationMinutes: $this->nullablePositiveInt($row['duration'] ?? null),
             rating: $this->nullableFloat($row['score'] ?? null),
@@ -37,8 +36,11 @@ final readonly class ShikimoriTitleMapper
             type: TitleContentType::ANIME->value,
             status: $status === 'anons' ? 'announced' : $status,
             format: TitleFormat::tryFrom(strtolower(trim((string) ($row['kind'] ?? '')))),
-            studios: $this->mapStudios($row['studios'] ?? []),
             ratingCount: $this->ratingCount($row['scoresStats'] ?? []),
+            attributes: [
+                ...$this->mapTaxonomy($row['genres'] ?? []),
+                ...$this->mapStudios($row['studios'] ?? []),
+            ],
         );
     }
 
@@ -46,15 +48,17 @@ final readonly class ShikimoriTitleMapper
     private function mapTaxonomy(array $items): array
     {
         return array_values(array_map(
-            fn (array $item): ProviderTaxonomyItem => new ProviderTaxonomyItem(
-                attributeCode: match (strtolower(trim((string) ($item['kind'] ?? 'genre')))) {
+            fn (array $item): ProviderAttribute => new ProviderAttribute(
+                code: match (strtolower(trim((string) ($item['kind'] ?? 'genre')))) {
                     'genre' => 'genres',
                     'demographic' => 'target_audience',
                     'theme' => 'tags',
                     default => 'tags',
                 },
-                nameRu: $this->cleanString($item['russian'] ?? null),
-                nameEn: $this->cleanString($item['name'] ?? null),
+                value: LocalizedText::create(
+                    $this->cleanString($item['russian'] ?? null),
+                    $this->cleanString($item['name'] ?? null),
+                ),
             ),
             $items,
         ));
@@ -64,10 +68,9 @@ final readonly class ShikimoriTitleMapper
     private function mapStudios(array $studios): array
     {
         return array_values(array_map(
-            fn (array $studio): ProviderTaxonomyItem => new ProviderTaxonomyItem(
-                attributeCode: 'studios',
-                nameRu: null,
-                nameEn: $this->cleanString($studio['name'] ?? null),
+            fn (array $studio): ProviderAttribute => new ProviderAttribute(
+                code: 'studios',
+                value: LocalizedText::create(null, $this->cleanString($studio['name'] ?? null)),
             ),
             $studios,
         ));

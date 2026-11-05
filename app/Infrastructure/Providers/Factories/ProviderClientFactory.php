@@ -25,34 +25,49 @@ final readonly class ProviderClientFactory implements ProviderClientFactoryContr
         array             $enabled,
         private bool      $isProduction,
     ) {
-        $classes = [];
-        foreach ($clients as $provider => $sources) {
+        $sources = [];
+        foreach ($enabled as $provider) {
             $source = $this->toSource($provider);
-            foreach (is_array($sources) ? $sources : [ProviderDataSource::Api->value => $sources] as $dataSource => $class) {
-                $dataSource = ProviderDataSource::tryFrom($dataSource)
+            $sources[$source->value] = $source;
+        }
+
+        $missing = $sources;
+        $classes = [];
+
+        foreach ($clients as $provider => $registrations) {
+            $source = $this->toSource($provider);
+            $isEnabled = isset($sources[$source->value]);
+            $registrations = is_array($registrations)
+                ? $registrations
+                : [ProviderDataSource::Api->value => $registrations];
+
+            foreach ($registrations as $dataSource => $class) {
+                $resolvedDataSource = (is_string($dataSource) ? ProviderDataSource::tryFrom($dataSource) : null)
                     ?? throw new InvalidArgumentException("Unknown import data source [$dataSource].");
+
                 if (!is_string($class) || !is_a($class, ProviderClientContract::class, true)) {
                     throw new InvalidArgumentException("Invalid client registered for provider [$provider].");
                 }
-                $classes[$this->key($source, $dataSource)] = $class;
-            }
-        }
-        $this->classes = $classes;
-        $this->sources = array_map($this->toSource(...), array_values(array_unique($enabled)));
 
-        foreach ($this->sources as $source) {
-            $registered = false;
-            foreach (ProviderDataSource::cases() as $dataSource) {
-                $class = $this->classes[$this->key($source, $dataSource)] ?? null;
-                if ($class !== null) {
+                if ($isEnabled) {
                     $this->assertAllowed($class);
-                    $registered = true;
                 }
+
+                $classes[$this->key($source, $resolvedDataSource)] = $class;
             }
-            if (!$registered) {
-                throw new InvalidArgumentException("No client registered for provider [$source->value].");
+
+            if ($registrations !== []) {
+                unset($missing[$source->value]);
             }
         }
+
+        if ($missing !== []) {
+            $provider = array_key_first($missing);
+            throw new InvalidArgumentException("No client registered for provider [$provider].");
+        }
+
+        $this->classes = $classes;
+        $this->sources = array_values($sources);
     }
 
     public function make(ProviderSource $source, ProviderDataSource $dataSource = ProviderDataSource::Api): ProviderClientContract
@@ -92,8 +107,12 @@ final readonly class ProviderClientFactory implements ProviderClientFactoryContr
         return $source->value."\0".$dataSource->value;
     }
 
-    private function toSource(string $source): ProviderSource
+    private function toSource(mixed $source): ProviderSource
     {
+        if (!is_string($source)) {
+            throw new InvalidArgumentException('Import provider names must be strings.');
+        }
+
         return ProviderSource::tryFrom($source)
             ?? throw new InvalidArgumentException("Unknown import provider [$source].");
     }

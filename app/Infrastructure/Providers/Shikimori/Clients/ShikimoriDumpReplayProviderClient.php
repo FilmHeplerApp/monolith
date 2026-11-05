@@ -36,6 +36,9 @@ final readonly class ShikimoriDumpReplayProviderClient implements ProviderClient
         $this->reader->close();
     }
 
+    /**
+     * @throws Throwable
+     */
     public function fetchTitles(?int $limit = 50, int $offset = 0): Generator
     {
         if (($limit !== null && $limit < 1) || $offset < 0) {

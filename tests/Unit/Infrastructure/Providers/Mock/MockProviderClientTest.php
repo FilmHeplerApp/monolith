@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Infrastructure\Providers\Mock;
 
-use App\Application\Import\DTOs\ProviderTaxonomyItem;
+use App\Application\Import\DTOs\ProviderAttribute;
 use App\Application\Import\DTOs\ProviderTitle;
 use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\Exceptions\ProviderRateLimitedException;
@@ -199,7 +199,7 @@ final class MockProviderClientTest extends TestCase
         $forgotten = $titles['30123'];
         self::assertSame('Забытое старое кино', $forgotten->title?->getRu());
         self::assertNull($forgotten->title?->getEn());
-        self::assertSame([], $forgotten->genres);
+        self::assertSame([], $forgotten->attributes);
         self::assertNull($forgotten->rating);
         self::assertNull($forgotten->durationMinutes);
 
@@ -300,7 +300,6 @@ final class MockProviderClientTest extends TestCase
             externalId: 'custom-1',
             title: LocalizedText::create('Свой тайтл', 'Custom title'),
             description: null,
-            genres: [new ProviderTaxonomyItem('genres', 'Свой', 'custom')],
             year: 2020,
             durationMinutes: 100,
             rating: 6.0,
@@ -308,6 +307,7 @@ final class MockProviderClientTest extends TestCase
             bannerUrl: null,
             type: 'anime',
             status: 'released',
+            attributes: [new ProviderAttribute('genres', LocalizedText::create('Свой', 'custom'))],
         );
 
         $client = new MockProviderClient([$custom]);

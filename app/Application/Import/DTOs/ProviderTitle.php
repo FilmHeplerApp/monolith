@@ -7,6 +7,7 @@ namespace App\Application\Import\DTOs;
 use App\Application\Import\Enums\ProviderSource;
 use App\Domain\Catalog\Enums\Title\TitleFormat;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
+use InvalidArgumentException;
 
 final readonly class ProviderTitle
 {
@@ -15,8 +16,6 @@ final readonly class ProviderTitle
         public string         $externalId,
         public ?LocalizedText $title,
         public ?LocalizedText $description,
-        /** @var list<ProviderTaxonomyItem> */
-        public array          $genres,
         public ?int           $year,
         public ?int           $durationMinutes,
         public ?float         $rating,
@@ -25,8 +24,13 @@ final readonly class ProviderTitle
         public string         $type,
         public string         $status,
         public ?TitleFormat   $format = null,
-        /** @var list<ProviderTaxonomyItem> */
-        public array          $studios = [],
         public ?int           $ratingCount = null,
-    ) {}
+        public array          $attributes = [],
+    ) {
+        foreach ($attributes as $attribute) {
+            if (!$attribute instanceof ProviderAttribute) {
+                throw new InvalidArgumentException('Provider title attributes must contain ProviderAttribute instances.');
+            }
+        }
+    }
 }
