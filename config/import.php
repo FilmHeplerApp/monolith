@@ -4,8 +4,10 @@ use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Infrastructure\Providers\Mock\MockProviderClient;
-use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriDumpReplayProviderClient;
+use App\Infrastructure\Providers\Mock\MockTitleMapper;
+use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriDumpProviderClient;
 use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriProviderClient;
+use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
 
 return [
     'providers' => [
@@ -13,13 +15,17 @@ return [
             'trim',
             explode(',', (string) env('IMPORT_PROVIDERS', ProviderSource::Mock->value)),
         ))),
+        'mappers' => [
+            'mock' => ['api' => MockTitleMapper::class],
+            'shikimori' => ['api' => ShikimoriTitleMapper::class, 'dump' => ShikimoriTitleMapper::class],
+        ],
         'clients' => [
             ProviderSource::Mock->value => [
                 ProviderDataSource::Api->value => MockProviderClient::class,
             ],
             ProviderSource::Shikimori->value => [
                 ProviderDataSource::Api->value => ShikimoriProviderClient::class,
-                ProviderDataSource::Dump->value => ShikimoriDumpReplayProviderClient::class,
+                ProviderDataSource::Dump->value => ShikimoriDumpProviderClient::class,
             ],
         ],
     ],

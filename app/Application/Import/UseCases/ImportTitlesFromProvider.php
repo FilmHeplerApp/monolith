@@ -7,6 +7,7 @@ namespace App\Application\Import\UseCases;
 use App\Application\Import\Contracts\CandidateSinkContract;
 use App\Application\Import\Contracts\ImportRunLockContract;
 use App\Application\Import\Contracts\ImportRunRecorderContract;
+use App\Application\Import\Contracts\ProviderImportContextFactoryContract;
 use App\Application\Import\DTOs\ImportBatch;
 use App\Application\Import\DTOs\ImportRejectionData;
 use App\Application\Import\DTOs\ImportResult;
@@ -19,18 +20,20 @@ use App\Application\Import\Services\ProviderTitleToCandidateMapper;
 use App\Domain\Import\Services\TitleCandidateEvaluator;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
+use RuntimeException;
 use Throwable;
 
 final readonly class ImportTitlesFromProvider
 {
     public function __construct(
-        private ImportTitleStreamFactory       $streams,
-        private ProviderTitleToCandidateMapper $mapper,
-        private TitleCandidateEvaluator        $filter,
-        private ImportRunRecorderContract      $recorder,
-        private CandidateSinkContract          $sink,
-        private ImportRunLockContract          $lock,
-        private int                            $checkpointEvery = 50,
+        private ProviderImportContextFactoryContract $contexts,
+        private ImportTitleStreamFactory             $streams,
+        private ProviderTitleToCandidateMapper       $candidateMapper,
+        private TitleCandidateEvaluator              $filter,
+        private ImportRunRecorderContract            $recorder,
+        private CandidateSinkContract                $sink,
+        private ImportRunLockContract                $lock,
+        private int                                  $checkpointEvery = 50,
     ) {
         if ($checkpointEvery < 1) {
             throw new InvalidArgumentException('Checkpoint interval must be positive.');
@@ -61,9 +64,6 @@ final readonly class ImportTitlesFromProvider
     }
 
 
-    /**
-     * @throws Throwable
-     */
     private function process(
         ProviderSource      $provider,
         ProviderDataSource  $dataSource,
@@ -77,30 +77,38 @@ final readonly class ImportTitlesFromProvider
         $stream = null;
 
         try {
-            $stream = $this->streams->create($provider, $dataSource, $run);
+            $context = $this->contexts->create($provider, $dataSource);
+            $stream = $this->streams->create($context->client, $run);
 
-            foreach ($stream->titles() as $providerTitle) {
+            foreach ($stream->titles() as $record) {
+                if ($record->source !== $provider) {
+                    throw new RuntimeException('Import record does not match the requested provider.');
+                }
                 try {
-                    $candidate = $this->mapper->map($providerTitle);
+                    $providerTitle = $context->mapper->map($record);
+                    if ($providerTitle->source !== $record->source || $providerTitle->externalId !== $record->externalId) {
+                        throw new RuntimeException('Mapped title identity does not match its raw record.');
+                    }
+                    $candidate = $this->candidateMapper->map($providerTitle);
                     $decision = $this->filter->decide($candidate);
 
                     if ($decision->isRejected()) {
-                        $rejections[] = new ImportRejectionData($providerTitle->externalId, $decision->reason, $decision->context ?? []);
+                        $rejections[] = new ImportRejectionData($record->externalId, $decision->reason, $decision->context ?? []);
                         $counters->recordRejected();
                     } else {
                         $this->sink->consume($candidate, $decision);
                         $decision->isFlagged() ? $counters->recordFlagged() : $counters->recordAccepted();
                     }
                 } catch (ProviderTitleMappingException $exception) {
-                    $rejections[] = new ImportRejectionData($providerTitle->externalId, $exception->reason, $exception->context);
+                    $rejections[] = new ImportRejectionData($record->externalId, $exception->reason, $exception->context);
                     $counters->recordRejected();
                 }
 
-                $pendingIds[] = $providerTitle->externalId;
+                $pendingIds[] = $record->externalId;
                 $checkpoint++;
 
                 if (count($pendingIds) >= $this->checkpointEvery) {
-                    $run = $this->commit($run, new ImportBatch($counters, $checkpoint, $pendingIds, $rejections));
+                    $run = $this->commit($run, new ImportBatch(clone $counters, $checkpoint, $pendingIds, $rejections));
                     $pendingIds = [];
                     $rejections = [];
                 }

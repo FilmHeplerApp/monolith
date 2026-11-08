@@ -7,7 +7,13 @@ namespace Tests\Feature\Import;
 use App\Application\Import\Contracts\CandidateSinkContract;
 use App\Application\Import\Contracts\ImportRunLockContract;
 use App\Application\Import\Contracts\ImportRunRecorderContract;
+use App\Application\Import\Contracts\ProviderClientContract;
 use App\Application\Import\Contracts\ProviderClientFactoryContract;
+use App\Application\Import\Contracts\ProviderImportContextFactoryContract;
+use App\Application\Import\Contracts\ProviderTitleMapperContract;
+use App\Application\Import\DTOs\ProviderImportContext;
+use App\Application\Import\DTOs\ProviderTitle;
+use App\Application\Import\DTOs\ProviderTitleRecord;
 use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\Exceptions\ProviderUnavailableException;
@@ -20,9 +26,13 @@ use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
 use Closure;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Sleep;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use Tests\Support\CommittedShikimoriDump;
+use Tests\Support\ProviderRecords;
 use Tests\Support\SingleProviderClientFactory;
 use Tests\TestCase;
 
@@ -30,6 +40,205 @@ final class ImportReliabilityTest extends TestCase
 {
     private string $directory;
 
+
+    #[Test]
+    #[DataProvider('rawSources')]
+    public function it_commits_mapping_rejections_and_resumes_the_remaining_raw_records(ProviderDataSource $source): void
+    {
+        config()->set('import.checkpoint_every', 1);
+        $rows = [
+            [...$this->row('1'), 'genres' => 'broken list'],
+            $this->row('2'),
+            $this->row('3'),
+        ];
+        if ($source === ProviderDataSource::Api) {
+            Sleep::fake();
+            Http::fake(['*' => Http::response(['data' => ['animes' => $rows]])]);
+        } else {
+            $data = implode("\n", array_map(static fn (array $row): string => json_encode($row, JSON_THROW_ON_ERROR), $rows))."\n";
+            CommittedShikimoriDump::configure(CommittedShikimoriDump::create($this->directory, $data));
+        }
+        $this->sink(failFlush: 2);
+
+        try {
+            $this->importer()->execute(ProviderSource::Shikimori, $source);
+            self::fail('The second batch must fail.');
+        } catch (RuntimeException $exception) {
+            self::assertSame('Flush failed', $exception->getMessage());
+        }
+
+        $this->assertDatabaseHas('import_runs', ['checkpoint' => 1, 'rejected' => 1, 'status' => 'failed']);
+        $this->assertDatabaseHas('import_rejections', ['external_id' => '1', 'reason' => 'malformed']);
+        $sink = $this->sink();
+
+        $result = $this->importer()->execute(ProviderSource::Shikimori, $source, resume: true);
+
+        self::assertTrue($result->resumed);
+        self::assertSame(3, $result->checkpoint);
+        self::assertSame(2, $result->counters->accepted);
+        self::assertSame(1, $result->counters->rejected);
+        self::assertSame(['2', '3'], $sink->saved);
+        $this->assertDatabaseCount('import_processed_titles', 3);
+        $this->assertDatabaseCount('import_rejections', 1);
+    }
+
+    public static function rawSources(): array
+    {
+        return [[ProviderDataSource::Api], [ProviderDataSource::Dump]];
+    }
+
+    #[Test]
+    public function it_counts_a_repeated_api_record_once_even_when_mapping_is_rejected(): void
+    {
+        Sleep::fake();
+        $rejected = [...$this->row('1'), 'genres' => 'broken list'];
+        Http::fake(['*' => Http::response(['data' => ['animes' => [$rejected, $rejected, $this->row('2')]]])]);
+        $sink = $this->sink();
+
+        $result = $this->importer()->execute(ProviderSource::Shikimori, ProviderDataSource::Api, limit: 2);
+
+        self::assertSame(2, $result->checkpoint);
+        self::assertSame(1, $result->counters->accepted);
+        self::assertSame(1, $result->counters->rejected);
+        self::assertSame(['2'], $sink->saved);
+        $this->assertDatabaseCount('import_processed_titles', 2);
+        $this->assertDatabaseCount('import_rejections', 1);
+    }
+
+    #[Test]
+    public function it_does_not_turn_mapper_programming_errors_into_record_rejections(): void
+    {
+        $mapper = $this->createStub(ProviderTitleMapperContract::class);
+        $mapper->method('source')->willReturn(ProviderSource::Mock);
+        $original = new \LogicException('Mapper programming error');
+        $mapper->method('map')->willThrowException($original);
+        $contexts = $this->createStub(ProviderImportContextFactoryContract::class);
+        $contexts->method('create')->willReturn(new ProviderImportContext($this->client('1'), $mapper));
+        $this->app->instance(ProviderImportContextFactoryContract::class, $contexts);
+        $this->sink();
+
+        try {
+            $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+            self::fail('Programming errors must stop the run.');
+        } catch (\LogicException $exception) {
+            self::assertSame($original, $exception);
+        }
+
+        $this->assertDatabaseHas('import_runs', ['status' => 'failed', 'checkpoint' => 0]);
+        $this->assertDatabaseCount('import_rejections', 0);
+        $this->assertDatabaseCount('import_processed_titles', 0);
+    }
+
+    #[Test]
+    #[DataProvider('changedIdentities')]
+    public function it_stops_when_a_mapper_changes_the_record_identity(ProviderSource $provider, string $externalId): void
+    {
+        $mapper = $this->createStub(ProviderTitleMapperContract::class);
+        $mapper->method('source')->willReturn(ProviderSource::Mock);
+        $title = (new ShikimoriTitleMapper)->map(ProviderRecords::shikimori($this->row('1')));
+        $mapper->method('map')->willReturn(new ProviderTitle(...array_replace(get_object_vars($title), [
+            'source' => $provider,
+            'externalId' => $externalId,
+        ])));
+        $contexts = $this->createStub(ProviderImportContextFactoryContract::class);
+        $contexts->method('create')->willReturn(new ProviderImportContext($this->client('1'), $mapper));
+        $this->app->instance(ProviderImportContextFactoryContract::class, $contexts);
+        $this->sink();
+
+        try {
+            $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+            self::fail('A mapper must preserve identity.');
+        } catch (RuntimeException $exception) {
+            self::assertSame('Mapped title identity does not match its raw record.', $exception->getMessage());
+        }
+
+        $this->assertDatabaseHas('import_runs', ['status' => 'failed', 'checkpoint' => 0]);
+        $this->assertDatabaseCount('import_processed_titles', 0);
+        $this->assertDatabaseCount('import_rejections', 0);
+    }
+
+    public static function changedIdentities(): array
+    {
+        return [
+            'only external id changed' => [ProviderSource::Mock, 'other'],
+            'only provider changed' => [ProviderSource::Shikimori, '1'],
+        ];
+    }
+
+    #[Test]
+    public function it_rejects_a_foreign_record_before_calling_the_mapper(): void
+    {
+        $record = ProviderRecords::shikimori($this->row('1'));
+        $client = $this->createStub(ProviderClientContract::class);
+        $client->method('source')->willReturn(ProviderSource::Mock);
+        $client->method('fetchTitles')->willReturnCallback(static function () use ($record): \Generator {
+            yield $record;
+        });
+        $mapper = $this->createMock(ProviderTitleMapperContract::class);
+        $mapper->method('source')->willReturn(ProviderSource::Mock);
+        $mapper->expects(self::never())->method('map');
+        $contexts = $this->createStub(ProviderImportContextFactoryContract::class);
+        $contexts->method('create')->willReturn(new ProviderImportContext($client, $mapper));
+        $this->app->instance(ProviderImportContextFactoryContract::class, $contexts);
+        $sink = $this->sink();
+
+        try {
+            $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+            self::fail('Foreign records must stop the run.');
+        } catch (RuntimeException $exception) {
+            self::assertSame('Import record does not match the requested provider.', $exception->getMessage());
+        }
+
+        self::assertSame([], $sink->saved);
+        $this->assertDatabaseHas('import_runs', ['status' => 'failed', 'checkpoint' => 0]);
+        $this->assertDatabaseCount('import_processed_titles', 0);
+    }
+
+    #[Test]
+    public function it_imports_another_provider_using_the_configured_context(): void
+    {
+        $record = new ProviderTitleRecord(ProviderSource::Jikan, '1', ['name' => 'Other provider title']);
+        $client = $this->createStub(ProviderClientContract::class);
+        $client->method('source')->willReturn(ProviderSource::Jikan);
+        $client->method('fetchTitles')->willReturnCallback(static function () use ($record): \Generator {
+            yield $record;
+        });
+        $mapper = $this->createMock(ProviderTitleMapperContract::class);
+        $mapper->method('source')->willReturn(ProviderSource::Jikan);
+        $title = (new ShikimoriTitleMapper)->map(ProviderRecords::shikimori($this->row('1')));
+        $mapper->expects(self::once())->method('map')->with(self::identicalTo($record))->willReturn(
+            new ProviderTitle(...array_replace(get_object_vars($title), ['source' => ProviderSource::Jikan])),
+        );
+        $this->app->instance(ProviderClientFactoryContract::class, new SingleProviderClientFactory($client));
+        $this->app->instance(ProviderTitleMapperContract::class, $mapper);
+        config()->set('import.providers.mappers.jikan.api', ProviderTitleMapperContract::class);
+        $sink = $this->sink();
+
+        $result = $this->importer()->execute(ProviderSource::Jikan, ProviderDataSource::Api);
+
+        self::assertSame(1, $result->counters->accepted);
+        self::assertSame(['1'], $sink->saved);
+        $this->assertDatabaseHas('import_runs', ['provider' => 'jikan', 'status' => 'completed', 'checkpoint' => 1]);
+        $this->assertDatabaseCount('import_processed_titles', 1);
+    }
+
+    #[Test]
+    public function it_stops_on_a_dump_record_without_a_stable_identity(): void
+    {
+        CommittedShikimoriDump::configure(CommittedShikimoriDump::create($this->directory, "{\"russian\":\"Title\"}\n"));
+        $this->sink();
+
+        try {
+            $this->importer()->execute(ProviderSource::Shikimori, ProviderDataSource::Dump);
+            self::fail('A record without identity must stop the source.');
+        } catch (RuntimeException $exception) {
+            self::assertSame('Invalid Shikimori dump: title must have an id.', $exception->getMessage());
+        }
+
+        $this->assertDatabaseHas('import_runs', ['status' => 'failed', 'checkpoint' => 0]);
+        $this->assertDatabaseCount('import_rejections', 0);
+        $this->assertDatabaseCount('import_processed_titles', 0);
+    }
 
     #[Test]
     public function it_replays_the_uncommitted_tail_after_finish_fails(): void
@@ -225,8 +434,8 @@ final class ImportReliabilityTest extends TestCase
     {
         $mapper = new ShikimoriTitleMapper;
         $client = new MockProviderClient([
-            $mapper->map(['id' => '1', 'status' => 'released']),
-            $mapper->map($this->row('2')),
+            ProviderRecords::mock($mapper->map(ProviderRecords::shikimori(['id' => '1', 'status' => 'released']))),
+            ProviderRecords::mock($mapper->map(ProviderRecords::shikimori($this->row('2')))),
         ]);
         $client->failWith(new ProviderUnavailableException(ProviderSource::Mock), 1);
         $this->bindClient($client);
@@ -258,6 +467,10 @@ final class ImportReliabilityTest extends TestCase
         $this->bindClient($this->client('1'));
         $this->sink();
         $first = $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+
+        $contexts = $this->createMock(ProviderImportContextFactoryContract::class);
+        $contexts->expects(self::never())->method('create');
+        $this->app->instance(ProviderImportContextFactoryContract::class, $contexts);
 
         $client = $this->client('1');
         $client->failWith(new ProviderUnavailableException(ProviderSource::Mock));
@@ -336,7 +549,7 @@ final class ImportReliabilityTest extends TestCase
 
     private function client(string ...$ids): MockProviderClient
     {
-        return new MockProviderClient(array_map(fn (string $id) => (new ShikimoriTitleMapper)->map($this->row($id)), $ids));
+        return new MockProviderClient(array_map(fn (string $id) => ProviderRecords::mock((new ShikimoriTitleMapper)->map(ProviderRecords::shikimori($this->row($id)))), $ids));
     }
 
     private function row(string $id): array

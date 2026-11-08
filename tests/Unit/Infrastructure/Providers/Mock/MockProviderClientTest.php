@@ -6,14 +6,17 @@ namespace Tests\Unit\Infrastructure\Providers\Mock;
 
 use App\Application\Import\DTOs\ProviderAttribute;
 use App\Application\Import\DTOs\ProviderTitle;
+use App\Application\Import\DTOs\ProviderTitleRecord;
 use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\Exceptions\ProviderRateLimitedException;
 use App\Application\Import\Exceptions\ProviderUnavailableException;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use App\Infrastructure\Providers\Mock\MockProviderClient;
+use App\Infrastructure\Providers\Mock\MockTitleMapper;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\ProviderRecords;
 
 final class MockProviderClientTest extends TestCase
 {
@@ -24,12 +27,12 @@ final class MockProviderClientTest extends TestCase
     }
 
     #[Test]
-    public function it_yields_provider_titles(): void
+    public function it_yields_raw_provider_titles(): void
     {
         $titles = iterator_to_array(new MockProviderClient()->fetchTitles());
 
         self::assertNotEmpty($titles);
-        self::assertContainsOnlyInstancesOf(ProviderTitle::class, $titles);
+        self::assertContainsOnlyInstancesOf(ProviderTitleRecord::class, $titles);
     }
 
     #[Test]
@@ -49,7 +52,7 @@ final class MockProviderClientTest extends TestCase
 
         self::assertNotNull($found);
         self::assertSame('5114', $found->externalId);
-        self::assertSame('Стальной алхимик: Братство', $found->title?->getRu());
+        self::assertSame('Стальной алхимик: Братство', (new MockTitleMapper)->map($found)->title?->getRu());
     }
 
     #[Test]
@@ -73,7 +76,7 @@ final class MockProviderClientTest extends TestCase
 
         try {
             foreach ($stream as $title) {
-                self::assertInstanceOf(ProviderTitle::class, $title);
+                self::assertInstanceOf(ProviderTitleRecord::class, $title);
                 $seen++;
             }
 
@@ -219,7 +222,7 @@ final class MockProviderClientTest extends TestCase
     #[Test]
     public function it_includes_localized_title_and_description_in_the_default_fixtures(): void
     {
-        $title = new MockProviderClient()->fetchTitleByExternalId('5114');
+        $title = (new MockTitleMapper)->map(new MockProviderClient()->fetchTitleByExternalId('5114'));
 
         self::assertNotNull($title);
         self::assertInstanceOf(LocalizedText::class, $title->title);
@@ -239,7 +242,7 @@ final class MockProviderClientTest extends TestCase
     #[Test]
     public function it_includes_invalid_titles_in_the_default_fixtures(): void
     {
-        $titles = iterator_to_array(new MockProviderClient()->fetchTitles());
+        $titles = array_map((new MockTitleMapper)->map(...), iterator_to_array(new MockProviderClient()->fetchTitles()));
 
         self::assertNotEmpty(array_filter(
             $titles,
@@ -251,7 +254,7 @@ final class MockProviderClientTest extends TestCase
         ));
         self::assertNotEmpty(array_filter(
             $titles,
-            static fn (ProviderTitle $title): bool => $title->externalId === '',
+            static fn (ProviderTitle $title): bool => $title->externalId === '900006' && $title->title === null,
         ));
         self::assertNotEmpty(array_filter(
             $titles,
@@ -281,7 +284,7 @@ final class MockProviderClientTest extends TestCase
     public function it_yields_the_duplicated_external_id_before_invalid_titles(): void
     {
         $externalIds = array_map(
-            static fn (ProviderTitle $title): string => $title->externalId,
+            static fn (ProviderTitleRecord $title): string => $title->externalId,
             iterator_to_array(new MockProviderClient()->fetchTitles()),
         );
 
@@ -310,7 +313,7 @@ final class MockProviderClientTest extends TestCase
             attributes: [new ProviderAttribute('genres', LocalizedText::create('Свой', 'custom'))],
         );
 
-        $client = new MockProviderClient([$custom]);
+        $client = new MockProviderClient([ProviderRecords::mock($custom)]);
         $titles = iterator_to_array($client->fetchTitles());
 
         self::assertCount(1, $titles);
@@ -340,7 +343,7 @@ final class MockProviderClientTest extends TestCase
         $titles = [];
 
         foreach (new MockProviderClient()->fetchTitles() as $title) {
-            $titles[$title->externalId] = $title;
+            $titles[$title->externalId] = (new MockTitleMapper)->map($title);
         }
 
         return $titles;

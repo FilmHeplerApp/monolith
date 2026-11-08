@@ -4,14 +4,11 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Infrastructure\Providers\Shikimori;
 
-use App\Application\Import\DTOs\ProviderTitle;
-use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriDumpReplayProviderClient;
-use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
+use App\Application\Import\DTOs\ProviderTitleRecord;
+use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriDumpProviderClient;
 use InvalidArgumentException;
-use JsonException;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use Random\RandomException;
 use Tests\Support\CommittedShikimoriDump;
 
 final class ShikimoriDumpReplayProviderClientTest extends TestCase
@@ -25,8 +22,8 @@ final class ShikimoriDumpReplayProviderClientTest extends TestCase
         $titles = iterator_to_array($this->client()->fetchTitles(limit: 2, offset: 1));
 
         self::assertCount(2, $titles);
-        self::assertContainsOnlyInstancesOf(ProviderTitle::class, $titles);
-        self::assertSame(['6', '7'], array_map(static fn (ProviderTitle $title): string => $title->externalId, $titles));
+        self::assertContainsOnlyInstancesOf(ProviderTitleRecord::class, $titles);
+        self::assertSame(['6', '7'], array_map(static fn (ProviderTitleRecord $title): string => $title->externalId, $titles));
     }
 
     #[Test]
@@ -35,7 +32,7 @@ final class ShikimoriDumpReplayProviderClientTest extends TestCase
         $title = $this->client()->fetchTitleByExternalId('20');
 
         self::assertNotNull($title);
-        self::assertSame('Наруто', $title->title?->getRu());
+        self::assertSame('Наруто', $title->payload['russian']);
     }
 
     #[Test]
@@ -55,10 +52,6 @@ final class ShikimoriDumpReplayProviderClientTest extends TestCase
     }
 
 
-    /**
-     * @throws RandomException
-     * @throws JsonException
-     */
     protected function setUp(): void
     {
         parent::setUp();
@@ -76,10 +69,9 @@ final class ShikimoriDumpReplayProviderClientTest extends TestCase
     }
 
 
-    private function client(): ShikimoriDumpReplayProviderClient
+    private function client(): ShikimoriDumpProviderClient
     {
-        return new ShikimoriDumpReplayProviderClient(
-            new ShikimoriTitleMapper,
+        return new ShikimoriDumpProviderClient(
             CommittedShikimoriDump::reader($this->directory.'/shikimori_anime.ndjson'),
         );
     }

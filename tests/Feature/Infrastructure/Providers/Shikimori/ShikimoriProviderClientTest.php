@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Infrastructure\Providers\Shikimori;
 
 use App\Application\Import\DTOs\ProviderAttribute;
-use App\Application\Import\DTOs\ProviderTitle;
+use App\Application\Import\DTOs\ProviderTitleRecord;
 use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\Services\ProviderTitleToCandidateMapper;
 use App\Domain\Catalog\Enums\Title\TitleFormat;
@@ -21,12 +21,13 @@ use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
+use Tests\Support\ProviderRecords;
 use Tests\TestCase;
 
 final class ShikimoriProviderClientTest extends TestCase
 {
     #[Test]
-    public function it_maps_a_raw_anime_row_to_a_provider_title(): void
+    public function it_fetches_a_record_that_the_provider_mapper_can_normalize(): void
     {
         Http::fake(['*' => Http::response(['data' => ['animes' => [$this->animeRow()]]])]);
 
@@ -34,7 +35,9 @@ final class ShikimoriProviderClientTest extends TestCase
 
         self::assertCount(1, $titles);
         $title = $titles[0];
-        self::assertInstanceOf(ProviderTitle::class, $title);
+        self::assertInstanceOf(ProviderTitleRecord::class, $title);
+        self::assertSame($this->animeRow(), $title->payload);
+        $title = (new ShikimoriTitleMapper)->map($title);
         self::assertSame(ProviderSource::Shikimori, $title->source);
         self::assertSame('5114', $title->externalId);
         self::assertSame('Стальной алхимик: Братство', $title->title?->getRu());
@@ -66,7 +69,7 @@ final class ShikimoriProviderClientTest extends TestCase
         $row['english'] = null;
         Http::fake(['*' => Http::response(['data' => ['animes' => [$row]]])]);
 
-        $title = iterator_to_array($this->client()->fetchTitles(limit: 1))[0];
+        $title = (new ShikimoriTitleMapper)->map(iterator_to_array($this->client()->fetchTitles(limit: 1))[0]);
 
         self::assertSame('Hagane no Renkinjutsushi', $title->title?->getEn());
     }
@@ -78,7 +81,7 @@ final class ShikimoriProviderClientTest extends TestCase
         $row['score'] = '0.0';
         Http::fake(['*' => Http::response(['data' => ['animes' => [$row]]])]);
 
-        self::assertSame(0.0, iterator_to_array($this->client()->fetchTitles(limit: 1))[0]->rating);
+        self::assertSame(0.0, (new ShikimoriTitleMapper)->map(iterator_to_array($this->client()->fetchTitles(limit: 1))[0])->rating);
     }
 
     #[Test]
@@ -88,7 +91,7 @@ final class ShikimoriProviderClientTest extends TestCase
         $row['duration'] = 0;
         Http::fake(['*' => Http::response(['data' => ['animes' => [$row]]])]);
 
-        self::assertNull(iterator_to_array($this->client()->fetchTitles(limit: 1))[0]->durationMinutes);
+        self::assertNull((new ShikimoriTitleMapper)->map(iterator_to_array($this->client()->fetchTitles(limit: 1))[0])->durationMinutes);
     }
 
     #[Test]
@@ -101,7 +104,7 @@ final class ShikimoriProviderClientTest extends TestCase
 
         $titles = iterator_to_array($this->client()->fetchTitles(limit: 2, offset: 1));
 
-        self::assertSame(['2', '3'], array_map(static fn (ProviderTitle $title): string => $title->externalId, $titles));
+        self::assertSame(['2', '3'], array_map(static fn (ProviderTitleRecord $title): string => $title->externalId, $titles));
         Http::assertSentCount(2);
         Http::assertSent(static function (Request $request): bool {
             return $request['variables']['page'] === 1 && $request['variables']['limit'] === 2;
@@ -160,7 +163,7 @@ final class ShikimoriProviderClientTest extends TestCase
     {
         $row = [...$this->animeRow(), 'kind' => $format, 'score' => '0.0', 'duration' => 0];
         Http::fake(['*' => Http::response(['data' => ['animes' => [$row]]])]);
-        $providerTitle = iterator_to_array($this->client()->fetchTitles(1))[0];
+        $providerTitle = (new ShikimoriTitleMapper)->map(iterator_to_array($this->client()->fetchTitles(1))[0]);
         $candidate = app(ProviderTitleToCandidateMapper::class)->map($providerTitle);
         self::assertSame('anime', $providerTitle->type);
         self::assertSame($format === null ? null : TitleFormat::tryFrom($format), $candidate->format);
@@ -185,8 +188,8 @@ final class ShikimoriProviderClientTest extends TestCase
         $mapper = app(ProviderTitleToCandidateMapper::class);
         $rawMapper = new ShikimoriTitleMapper;
         $factory = app(TitleCanonicalKeyFactory::class);
-        $tv = $mapper->map($rawMapper->map([...$this->animeRow(), 'kind' => 'tv']));
-        $movie = $mapper->map($rawMapper->map([...$this->animeRow(), 'kind' => 'movie']));
+        $tv = $mapper->map($rawMapper->map(ProviderRecords::shikimori([...$this->animeRow(), 'kind' => 'tv'])));
+        $movie = $mapper->map($rawMapper->map(ProviderRecords::shikimori([...$this->animeRow(), 'kind' => 'movie'])));
         self::assertNotSame($factory->create($tv)->getValue(), $factory->create($movie)->getValue());
     }
 

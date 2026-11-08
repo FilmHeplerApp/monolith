@@ -4,8 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Infrastructure\Providers\Shikimori;
 
-use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriDumpReplayProviderClient;
-use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
+use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriDumpProviderClient;
 use JsonException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -25,7 +24,7 @@ final class ShikimoriDumpReaderTest extends TestCase
     public function it_ignores_whole_and_partial_rows_after_the_committed_boundary(): void
     {
         file_put_contents($this->path, "{\"id\":\"2\"}\n{\"id\":", FILE_APPEND);
-        $client = new ShikimoriDumpReplayProviderClient(new ShikimoriTitleMapper, CommittedShikimoriDump::reader($this->path));
+        $client = new ShikimoriDumpProviderClient(CommittedShikimoriDump::reader($this->path));
 
         self::assertSame(['1'], array_map(fn ($title) => $title->externalId, iterator_to_array($client->fetchTitles(null))));
     }
@@ -49,7 +48,7 @@ final class ShikimoriDumpReaderTest extends TestCase
     #[Test]
     public function it_holds_the_snapshot_lock_and_releases_it_when_the_limit_is_reached(): void
     {
-        $client = new ShikimoriDumpReplayProviderClient(new ShikimoriTitleMapper, CommittedShikimoriDump::reader($this->path));
+        $client = new ShikimoriDumpProviderClient(CommittedShikimoriDump::reader($this->path));
         $client->snapshotId();
         $writer = fopen($this->directory.'/shikimori_dump.lock', 'c+b');
 
@@ -126,7 +125,7 @@ final class ShikimoriDumpReaderTest extends TestCase
         file_put_contents($this->directory.'/shikimori_anime.checkpoint', json_encode($metadata));
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('row count does not match');
-        iterator_to_array(new ShikimoriDumpReplayProviderClient(new ShikimoriTitleMapper, CommittedShikimoriDump::reader($this->path))->fetchTitles(1));
+        iterator_to_array(new ShikimoriDumpProviderClient(CommittedShikimoriDump::reader($this->path))->fetchTitles(1));
     }
 
 

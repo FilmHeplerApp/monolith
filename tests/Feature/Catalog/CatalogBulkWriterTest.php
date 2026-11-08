@@ -38,11 +38,14 @@ use App\Infrastructure\Persistence\Eloquent\Models\Catalog\TitleAttribute;
 use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
 use Database\Seeders\AttributeDefinitionSeeder;
 use Illuminate\Contracts\Container\BindingResolutionException;
+use Illuminate\Contracts\Container\CircularDependencyException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use JsonException;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
+use Tests\Support\ProviderRecords;
 use Tests\TestCase;
 
 final class CatalogBulkWriterTest extends TestCase
@@ -571,6 +574,11 @@ final class CatalogBulkWriterTest extends TestCase
         }
     }
 
+    /**
+     * @throws CircularDependencyException
+     * @throws BindingResolutionException
+     * @throws JsonException
+     */
     #[Test]
     public function it_saves_the_provider_fixture_through_evaluation_resolution_and_packing(): void
     {
@@ -583,7 +591,7 @@ final class CatalogBulkWriterTest extends TestCase
         $demographicCandidate = null;
 
         foreach (file(base_path('static/Fixtures/Shikimori/animes.ndjson')) as $line) {
-            $candidate = $mapper->map($rawMapper->map(json_decode($line, true, 512, JSON_THROW_ON_ERROR)));
+            $candidate = $mapper->map($rawMapper->map(ProviderRecords::shikimori(json_decode($line, true, 512, JSON_THROW_ON_ERROR))));
             $decision = $evaluator->decide($candidate);
             if ($decision->isRejected()) {
                 continue;
@@ -630,9 +638,6 @@ final class CatalogBulkWriterTest extends TestCase
     }
 
 
-    /**
-     * @throws BindingResolutionException
-     */
     protected function setUp(): void
     {
         parent::setUp();
@@ -642,7 +647,6 @@ final class CatalogBulkWriterTest extends TestCase
     }
 
 
-    /** @param list<LocalizedText> $studios */
     private function packTitle(string $key, array $studios): CatalogTitlePackData
     {
         $definition = (new ImportAttributeRegistry)->definition(TitleContentType::ANIME, self::ATTRIBUTE_STUDIOS);

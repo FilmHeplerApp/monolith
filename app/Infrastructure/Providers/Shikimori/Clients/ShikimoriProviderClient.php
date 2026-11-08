@@ -5,9 +5,8 @@ declare(strict_types=1);
 namespace App\Infrastructure\Providers\Shikimori\Clients;
 
 use App\Application\Import\Contracts\ProviderClientContract;
-use App\Application\Import\DTOs\ProviderTitle;
+use App\Application\Import\DTOs\ProviderTitleRecord;
 use App\Application\Import\Enums\ProviderSource;
-use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
 use App\Infrastructure\Providers\Shikimori\ShikimoriConfig;
 use Generator;
 use InvalidArgumentException;
@@ -17,7 +16,6 @@ final readonly class ShikimoriProviderClient implements ProviderClientContract
 {
     public function __construct(
         private ShikimoriGraphQLClient $client,
-        private ShikimoriTitleMapper   $mapper,
     ) {}
 
     public function source(): ProviderSource
@@ -43,11 +41,11 @@ final readonly class ShikimoriProviderClient implements ProviderClientContract
         return $this->iterateTitles($limit, $offset, $pageSize);
     }
 
-    public function fetchTitleByExternalId(string $externalId): ?ProviderTitle
+    public function fetchTitleByExternalId(string $externalId): ?ProviderTitleRecord
     {
         $rows = $this->rows($this->client->query($this->animeByIdQuery(), ['ids' => $externalId]));
 
-        return isset($rows[0]) ? $this->mapper->map($rows[0]) : null;
+        return isset($rows[0]) ? new ProviderTitleRecord($this->source(), (string) $rows[0]['id'], $rows[0]) : null;
     }
 
 
@@ -79,7 +77,7 @@ final readonly class ShikimoriProviderClient implements ProviderClientContract
                     return;
                 }
 
-                yield $this->mapper->map($row);
+                yield new ProviderTitleRecord($this->source(), (string) ($row['id'] ?? ''), $row);
                 $yielded++;
             }
 

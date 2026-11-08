@@ -8,6 +8,7 @@ use App\Application\Import\Contracts\CandidateSinkContract;
 use App\Application\Import\Contracts\ImportRunLockContract;
 use App\Application\Import\Contracts\ImportRunRecorderContract;
 use App\Application\Import\Contracts\ProviderClientFactoryContract;
+use App\Application\Import\Contracts\ProviderImportContextFactoryContract;
 use App\Application\Import\Services\ImportTitleStreamFactory;
 use App\Application\Import\Services\ProviderTitleToCandidateMapper;
 use App\Application\Import\UseCases\ImportTitlesFromProvider;
@@ -22,6 +23,7 @@ use App\Infrastructure\Import\Locks\PostgresImportRunLock;
 use App\Infrastructure\Import\Sinks\LogCandidateSink;
 use App\Infrastructure\Persistence\Eloquent\Import\EloquentImportRunRecorder;
 use App\Infrastructure\Providers\Factories\ProviderClientFactory;
+use App\Infrastructure\Providers\Factories\ProviderImportContextFactory;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
 
@@ -38,6 +40,13 @@ final class ImportServiceProvider extends ServiceProvider
                 isProduction: $app->isProduction(),
             ),
         );
+        $this->app->bind(
+            ProviderImportContextFactoryContract::class,
+            static fn(Application $app): ProviderImportContextFactory => new ProviderImportContextFactory(
+                $app,
+                $app->make(ProviderClientFactoryContract::class),
+                (array)config('import.providers.mappers'),
+            ));
         $this->app->bind(ImportRunLockContract::class, PostgresImportRunLock::class);
         $this->app->bind(ImportRunRecorderContract::class, EloquentImportRunRecorder::class);
         $this->app->bind(CandidateSinkContract::class, LogCandidateSink::class);
@@ -68,8 +77,9 @@ final class ImportServiceProvider extends ServiceProvider
         $this->app->bind(
             ImportTitlesFromProvider::class,
             static fn (Application $app): ImportTitlesFromProvider => new ImportTitlesFromProvider(
-                streams: new ImportTitleStreamFactory($app->make(ProviderClientFactoryContract::class), $app->make(ImportRunRecorderContract::class)),
-                mapper: $app->make(ProviderTitleToCandidateMapper::class),
+                contexts: $app->make(ProviderImportContextFactoryContract::class),
+                streams: new ImportTitleStreamFactory($app->make(ImportRunRecorderContract::class)),
+                candidateMapper: $app->make(ProviderTitleToCandidateMapper::class),
                 filter: $app->make(TitleCandidateEvaluator::class),
                 recorder: $app->make(ImportRunRecorderContract::class),
                 sink: $app->make(CandidateSinkContract::class),

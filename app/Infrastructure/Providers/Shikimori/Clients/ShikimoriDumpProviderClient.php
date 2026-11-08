@@ -6,18 +6,16 @@ namespace App\Infrastructure\Providers\Shikimori\Clients;
 
 use App\Application\Import\Contracts\ProviderClientContract;
 use App\Application\Import\Contracts\ProviderSnapshotContract;
-use App\Application\Import\DTOs\ProviderTitle;
+use App\Application\Import\DTOs\ProviderTitleRecord;
 use App\Application\Import\Enums\ProviderSource;
 use App\Infrastructure\Providers\Shikimori\Dumps\ShikimoriDumpReader;
-use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
 use Generator;
 use InvalidArgumentException;
-use Throwable;
+use RuntimeException;
 
-final readonly class ShikimoriDumpReplayProviderClient implements ProviderClientContract, ProviderSnapshotContract
+final readonly class ShikimoriDumpProviderClient implements ProviderClientContract, ProviderSnapshotContract
 {
     public function __construct(
-        private ShikimoriTitleMapper $mapper,
         private ShikimoriDumpReader  $reader,
     ) {}
 
@@ -36,9 +34,6 @@ final readonly class ShikimoriDumpReplayProviderClient implements ProviderClient
         $this->reader->close();
     }
 
-    /**
-     * @throws Throwable
-     */
     public function fetchTitles(?int $limit = 50, int $offset = 0): Generator
     {
         if (($limit !== null && $limit < 1) || $offset < 0) {
@@ -48,7 +43,7 @@ final readonly class ShikimoriDumpReplayProviderClient implements ProviderClient
         return $this->iterateTitles($limit, $offset);
     }
 
-    public function fetchTitleByExternalId(string $externalId): ?ProviderTitle
+    public function fetchTitleByExternalId(string $externalId): ?ProviderTitleRecord
     {
         foreach ($this->fetchTitles(null) as $title) {
             if ($title->externalId === $externalId) {
@@ -60,16 +55,17 @@ final readonly class ShikimoriDumpReplayProviderClient implements ProviderClient
     }
 
 
-    /** @return Generator<int, ProviderTitle>
-     * @throws Throwable
-     */
     private function iterateTitles(?int $limit, int $offset): Generator
     {
         try {
             $yielded = 0;
 
             foreach ($this->reader->rows($offset) as $row) {
-                yield $this->mapper->map($row);
+                $id = $row['id'] ?? null;
+                if ((!is_int($id) && !is_string($id)) || trim((string) $id) === '') {
+                    throw new RuntimeException('Invalid Shikimori dump: title must have an id.');
+                }
+                yield new ProviderTitleRecord($this->source(), (string) $id, $row);
                 $yielded++;
 
                 if ($limit !== null && $yielded >= $limit) {

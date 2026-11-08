@@ -6,7 +6,7 @@ namespace App\Infrastructure\Providers\Mock;
 
 use App\Application\Import\Contracts\ProviderClientContract;
 use App\Application\Import\DTOs\ProviderAttribute;
-use App\Application\Import\DTOs\ProviderTitle;
+use App\Application\Import\DTOs\ProviderTitleRecord;
 use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\Exceptions\ProviderException;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
@@ -43,7 +43,7 @@ final class MockProviderClient implements ProviderClientContract
         return $this->iterateTitles($limit, $offset);
     }
 
-    public function fetchTitleByExternalId(string $externalId): ?ProviderTitle
+    public function fetchTitleByExternalId(string $externalId): ?ProviderTitleRecord
     {
         if ($this->failure !== null && $this->failAfter === 0) {
             throw $this->failure;
@@ -51,10 +51,9 @@ final class MockProviderClient implements ProviderClientContract
 
         return array_find(
             $this->titles,
-            static fn (ProviderTitle $title): bool => $title->externalId === $externalId,
+            static fn (ProviderTitleRecord $title): bool => $title->externalId === $externalId,
         );
     }
-
 
     public function failWith(ProviderException $exception, int $afterItems = 0): void
     {
@@ -93,7 +92,6 @@ final class MockProviderClient implements ProviderClientContract
         }
     }
 
-
     private static function attributes(string $code, string ...$names): array
     {
         return array_map(
@@ -101,7 +99,6 @@ final class MockProviderClient implements ProviderClientContract
             $names,
         );
     }
-
 
     private static function defaultFixtures(): array
     {
@@ -112,7 +109,6 @@ final class MockProviderClient implements ProviderClientContract
             ...self::invalidFixtures(),
         ];
     }
-
 
     private static function completeFixtures(): array
     {
@@ -170,7 +166,6 @@ final class MockProviderClient implements ProviderClientContract
         ];
     }
 
-
     private static function incompleteFixtures(): array
     {
         return [
@@ -224,45 +219,44 @@ final class MockProviderClient implements ProviderClientContract
         ];
     }
 
-
     private static function invalidFixtures(): array
     {
         return [
             self::fixtureWithUnknownType(),
             self::fixtureWithUnknownStatus(),
-            self::fixtureWithEmptyExternalId(),
+            self::fixtureWithMissingTitle(),
             self::fixtureWithOutOfRangeRating(),
             self::fixtureWithNonPositiveDuration(),
             self::fixtureWithHtmlDescription(),
         ];
     }
 
-    private static function fixtureWithUnknownType(): ProviderTitle
+    private static function fixtureWithUnknownType(): ProviderTitleRecord
     {
         return self::fixture(externalId: '900001', type: 'unknown');
     }
 
-    private static function fixtureWithUnknownStatus(): ProviderTitle
+    private static function fixtureWithUnknownStatus(): ProviderTitleRecord
     {
         return self::fixture(externalId: '900002', status: 'unknown');
     }
 
-    private static function fixtureWithEmptyExternalId(): ProviderTitle
+    private static function fixtureWithMissingTitle(): ProviderTitleRecord
     {
-        return self::fixture(externalId: '');
+        return self::fixture(externalId: '900006', titleRu: null, titleEn: null);
     }
 
-    private static function fixtureWithOutOfRangeRating(): ProviderTitle
+    private static function fixtureWithOutOfRangeRating(): ProviderTitleRecord
     {
         return self::fixture(externalId: '900003', rating: 11.0);
     }
 
-    private static function fixtureWithNonPositiveDuration(): ProviderTitle
+    private static function fixtureWithNonPositiveDuration(): ProviderTitleRecord
     {
         return self::fixture(externalId: '900004', durationMinutes: 0);
     }
 
-    private static function fixtureWithHtmlDescription(): ProviderTitle
+    private static function fixtureWithHtmlDescription(): ProviderTitleRecord
     {
         return self::fixture(
             externalId: '900005',
@@ -270,7 +264,7 @@ final class MockProviderClient implements ProviderClientContract
         );
     }
 
-    private static function fixtureWithDuplicatedExternalId(): ProviderTitle
+    private static function fixtureWithDuplicatedExternalId(): ProviderTitleRecord
     {
         return self::fixture(
             externalId: '5114',
@@ -278,7 +272,6 @@ final class MockProviderClient implements ProviderClientContract
             titleEn: 'Fullmetal Alchemist Duplicate',
         );
     }
-
 
     private static function fixture(
         string  $externalId,
@@ -296,23 +289,25 @@ final class MockProviderClient implements ProviderClientContract
         ?string $bannerUrl = null,
         string  $type = 'anime',
         string  $status = 'released',
-    ): ProviderTitle {
-        return new ProviderTitle(
+    ): ProviderTitleRecord {
+        return new ProviderTitleRecord(
             source: ProviderSource::Mock,
             externalId: $externalId,
-            title: LocalizedText::create($titleRu, $titleEn),
-            description: LocalizedText::create($descriptionRu, $descriptionEn),
-            year: $year,
-            durationMinutes: $durationMinutes,
-            rating: $rating,
-            posterUrl: $posterUrl,
-            bannerUrl: $bannerUrl,
-            type: $type,
-            status: $status,
-            ratingCount: $ratingCount,
-            attributes: [
-                ...self::attributes('genres', ...$genres),
-                ...self::attributes('studios', ...$studios),
+            payload: [
+                'title' => LocalizedText::create($titleRu, $titleEn),
+                'description' => LocalizedText::create($descriptionRu, $descriptionEn),
+                'year' => $year,
+                'durationMinutes' => $durationMinutes,
+                'rating' => $rating,
+                'posterUrl' => $posterUrl,
+                'bannerUrl' => $bannerUrl,
+                'type' => $type,
+                'status' => $status,
+                'ratingCount' => $ratingCount,
+                'attributes' => [
+                    ...self::attributes('genres', ...$genres),
+                    ...self::attributes('studios', ...$studios),
+                ],
             ],
         );
     }

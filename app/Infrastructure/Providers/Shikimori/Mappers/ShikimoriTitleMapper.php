@@ -4,22 +4,47 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Providers\Shikimori\Mappers;
 
+use App\Application\Import\Contracts\ProviderTitleMapperContract;
 use App\Application\Import\DTOs\ProviderAttribute;
 use App\Application\Import\DTOs\ProviderTitle;
+use App\Application\Import\DTOs\ProviderTitleRecord;
 use App\Application\Import\Enums\ProviderSource;
+use App\Application\Import\Exceptions\ProviderTitleMappingException;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\Enums\Title\TitleFormat;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
+use App\Domain\Import\Enums\RejectionReason;
+use InvalidArgumentException;
 
-final readonly class ShikimoriTitleMapper
+final readonly class ShikimoriTitleMapper implements ProviderTitleMapperContract
 {
-    public function map(array $row): ProviderTitle
+    public function source(): ProviderSource
     {
+        return ProviderSource::Shikimori;
+    }
+
+    public function map(ProviderTitleRecord $record): ProviderTitle
+    {
+        if ($record->source !== $this->source()) {
+            throw new InvalidArgumentException('Shikimori mapper requires a Shikimori record.');
+        }
+        $row = $record->payload;
+        foreach (['genres', 'studios', 'scoresStats'] as $field) {
+            $items = $row[$field] ?? [];
+            if (!is_array($items) || !array_is_list($items)) {
+                throw new ProviderTitleMappingException(RejectionReason::MALFORMED, ['field' => $field], 'Expected a list of objects.');
+            }
+            foreach ($items as $item) {
+                if (!is_array($item) || array_is_list($item)) {
+                    throw new ProviderTitleMappingException(RejectionReason::MALFORMED, ['field' => $field], 'Expected an object.');
+                }
+            }
+        }
         $status = strtolower(trim((string) ($row['status'] ?? '')));
 
         return new ProviderTitle(
             source: ProviderSource::Shikimori,
-            externalId: (string) ($row['id'] ?? ''),
+            externalId: $record->externalId,
             title: LocalizedText::create(
                 $this->cleanString($row['russian'] ?? null),
                 $this->cleanString($row['english'] ?? null) ?? $this->cleanString($row['name'] ?? null),

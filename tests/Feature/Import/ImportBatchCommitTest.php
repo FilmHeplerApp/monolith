@@ -21,11 +21,15 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
+use Tests\Support\ProviderRecords;
 use Tests\TestCase;
 use Throwable;
 
 final class ImportBatchCommitTest extends TestCase
 {
+    /**
+     * @throws Throwable
+     */
     #[Test]
     public function it_commits_sink_rows_rejections_identities_and_checkpoint_together(): void
     {
@@ -91,6 +95,9 @@ final class ImportBatchCommitTest extends TestCase
         $this->assertDatabaseCount('import_rejections', 0);
     }
 
+    /**
+     * @throws Throwable
+     */
     #[Test]
     public function it_fences_a_previous_owner_before_any_sink_write(): void
     {
@@ -119,6 +126,9 @@ final class ImportBatchCommitTest extends TestCase
         $this->assertDatabaseCount('import_rejections', 1);
     }
 
+    /**
+     * @throws Throwable
+     */
     #[Test]
     public function it_rejects_a_repeated_batch_before_calling_the_sink(): void
     {
@@ -138,6 +148,9 @@ final class ImportBatchCommitTest extends TestCase
         }
     }
 
+    /**
+     * @throws Throwable
+     */
     #[Test]
     public function it_preserves_a_committed_checkpoint_when_failure_uses_an_older_local_checkpoint(): void
     {
@@ -151,6 +164,9 @@ final class ImportBatchCommitTest extends TestCase
         self::assertSame(1, $resumed->checkpoint);
     }
 
+    /**
+     * @throws Throwable
+     */
     #[Test]
     public function it_discards_legacy_unconfirmed_rejections_when_claiming_a_run(): void
     {
@@ -163,15 +179,18 @@ final class ImportBatchCommitTest extends TestCase
         $this->assertDatabaseHas('import_runs', ['checkpoint' => 0, 'rejected' => 0]);
     }
 
+    /**
+     * @throws Throwable
+     */
     #[Test]
     public function it_emits_candidate_logs_only_after_a_successful_batch_commit(): void
     {
         Log::shouldReceive('info')->once()->with('Import candidate accepted.', \Mockery::type('array'));
         $recorder = app(EloquentImportRunRecorder::class);
         $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
-        $candidate = app(ProviderTitleToCandidateMapper::class)->map((new ShikimoriTitleMapper)->map([
+        $candidate = app(ProviderTitleToCandidateMapper::class)->map((new ShikimoriTitleMapper)->map(ProviderRecords::shikimori([
             'id' => '1', 'russian' => 'Тайтл', 'status' => 'released',
-        ]));
+        ])));
         $sink = new LogCandidateSink;
         $batch = new ImportBatch(new ImportCounters(fetched: 1, accepted: 1), 1, ['1'], []);
 

@@ -1,10 +1,11 @@
 # Оркестратор импорта поставщиков
 
-Состояние ветки 3db98b5 после доработок 2026-10-29.
+Состояние ветки 3db98b5 после разделения получения и преобразования данных.
 
 ## Назначение и граница
 
-import:run синхронно получает ProviderTitle от клиента, строит TitleCandidate,
+import:run синхронно получает ProviderTitleRecord от клиента, преобразует его
+выбранным mapper в ProviderTitle, затем строит TitleCandidate,
 применяет фильтры и передаёт принятых/помеченных кандидатов в CandidateSinkContract.
 Сценарий не зависит от Shikimori.
 
@@ -14,6 +15,22 @@ import:run синхронно получает ProviderTitle от клиента
 завершение получения и классификации данных.
 
 ## Адаптеры и внутренний контракт
+
+Клиенты API и дампа реализуют ProviderClientContract и возвращают сырые записи
+ProviderTitleRecord(source, externalId, payload). Поиск по ID также возвращает сырую
+запись. Клиенты проверяют идентичность и структуру транспортного ответа, занимаются
+пагинацией либо чтением файла; mapper им не внедряется.
+
+ProviderImportContextFactory выбирает клиента через ProviderClientFactoryContract,
+а mapper через import.providers.mappers.<provider>.<source>. Контекст создаётся один
+раз на незавершённый запуск. Перед получением записей проверяется соответствие
+поставщика у клиента, mapper и запроса. Один поставщик может иметь разные mapper
+для API и дампа; Shikimori использует один, поскольку структуры записей совпадают.
+
+ProviderTitleMapperContract задаёт source() и map(ProviderTitleRecord): ProviderTitle.
+ImportTitlesFromProvider вызывает mapper внутри обработки каждой записи, затем
+ProviderTitleToCandidateMapper и фильтры. ID и поставщик результата mapper должны
+совпасть с исходной записью. Общий сценарий не выбирает конкретный класс через match.
 
 ShikimoriTitleMapper переводит сырые kind/status/таксономию во внутренние значения:
 content type anime, статус announced вместо anons, TitleFormat,
@@ -50,8 +67,21 @@ attributes: [
 Перед сохранением новый код также должен иметь согласованное определение атрибута
 в каталоге. Общий mapper не создаёт определения и не выполняет запись каталога.
 
-Новый поставщик добавляет свой клиент и адаптер до ProviderTitle, регистрацию
-в конфигурации и при необходимости описание дампа. Общий mapper не меняется.
+Новый поставщик добавляет свой клиент, реализацию ProviderTitleMapperContract,
+регистрации клиента и mapper для нужных источников и при необходимости описание
+дампа. Общий mapper кандидатов и оркестратор не меняются.
+
+ProviderTitleMappingException означает отказ конкретной записи: он сохраняется
+вместе с её исходным ID и учитывается в checkpoint. Например, неверная структура
+списка genres у Shikimori даёт malformed. Ошибки программирования, транспортные
+ошибки, повреждение NDJSON и отсутствие стабильного ID останавливают прогон.
+Данные с ошибкой mapper можно безопасно пропускать при resume только после commit
+соответствующего отказа и ID. Уже подтверждённые записи не преобразуются повторно.
+
+MockProviderClient также возвращает ProviderTitleRecord. Его локальный payload содержит
+поля внутреннего mock-формата, включая LocalizedText и ProviderAttribute;
+MockTitleMapper собирает из него ProviderTitle. Фикстуры ошибок имеют стабильные ID:
+пустая идентичность является ошибкой источника, а не классифицируемой записью.
 
 ## Конфигурация дампов
 
@@ -69,12 +99,14 @@ Writer, reader и сборщик фикстуры Shikimori используют
 
 Переопределение: SHIKIMORI_DUMP_DISK, SHIKIMORI_DUMP_DATA_PATH,
 SHIKIMORI_DUMP_CHECKPOINT_PATH, SHIKIMORI_DUMP_LOCK_PATH,
-SHIKIMORI_DUMP_TAXONOMY_PATH. ShikimoriDumpReplayProviderClient — readonly-оболочка
+SHIKIMORI_DUMP_TAXONOMY_PATH. ShikimoriDumpProviderClient — readonly-оболочка
 над изменяемым reader.
 
 ## Чтение и возобновление
 
-ImportTitleStreamFactory выбирает стратегию по поддержке клиентом снимка.
+ImportTitleStreamFactory принимает уже выбранного клиента из контекста и выбирает
+стратегию по поддержке им снимка. Оба потока возвращают ProviderTitleRecord и не
+выполняют преобразование в ProviderTitle.
 
 LiveProviderTitleStream начинает API с начала и пропускает подтверждённые ID
 из import_processed_titles и повторы текущего чтения. Страницы API могут сдвигаться.
@@ -151,6 +183,11 @@ ProviderClientFactory нормализует старую плоскую API-к�
 клиентов. make() получает класс из карты и создаёт объект контейнером.
 Экземпляры изменяемых клиентов фабрика не кеширует. Запрет mock в production
 сохранён. enabled() по-прежнему возвращает API-клиентов включённых поставщиков.
+
+Изменения контрактов требуют обновления клиентов и их потребителей: прямые вызовы
+fetchTitles/fetchTitleByExternalId больше не возвращают нормализованные DTO.
+Схема БД и формат Shikimori NDJSON не изменены. Существующий snapshot/checkpoint
+может использоваться при сохранении тех же входных данных и правил обработки.
 
 ## Проверки
 

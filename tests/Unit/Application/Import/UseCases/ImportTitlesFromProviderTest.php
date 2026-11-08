@@ -12,6 +12,7 @@ use App\Application\Import\DTOs\ImportBatch;
 use App\Application\Import\DTOs\ImportCounters;
 use App\Application\Import\DTOs\ImportRunCheckpoint;
 use App\Application\Import\DTOs\ProviderTitle;
+use App\Application\Import\DTOs\ProviderTitleRecord;
 use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\Services\ImportTitleStreamFactory;
@@ -25,11 +26,15 @@ use App\Domain\Import\Enums\RejectionReason;
 use App\Domain\Import\Rules\CompletenessRule;
 use App\Domain\Import\Rules\HasAnyTitleRule;
 use App\Domain\Import\Services\TitleCandidateEvaluator;
+use App\Infrastructure\Providers\Factories\ProviderImportContextFactory;
 use App\Infrastructure\Providers\Mock\MockProviderClient;
+use App\Infrastructure\Providers\Mock\MockTitleMapper;
 use Closure;
+use Illuminate\Container\Container;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
+use Tests\Support\ProviderRecords;
 use Tests\Support\SingleProviderClientFactory;
 
 final class ImportTitlesFromProviderTest extends TestCase
@@ -97,8 +102,9 @@ final class ImportTitlesFromProviderTest extends TestCase
         CollectingCandidateSink   $sink,
     ): ImportTitlesFromProvider {
         return new ImportTitlesFromProvider(
-            streams: new ImportTitleStreamFactory(new SingleProviderClientFactory($client), $recorder),
-            mapper: new ProviderTitleToCandidateMapper(new ProviderTitleNormalizer),
+            contexts: new ProviderImportContextFactory(new Container, new SingleProviderClientFactory($client), ['mock' => ['api' => MockTitleMapper::class]]),
+            streams: new ImportTitleStreamFactory($recorder),
+            candidateMapper: new ProviderTitleToCandidateMapper(new ProviderTitleNormalizer),
             filter: new TitleCandidateEvaluator([new HasAnyTitleRule, new CompletenessRule]),
             recorder: $recorder,
             sink: $sink,
@@ -121,8 +127,8 @@ final class ImportTitlesFromProviderTest extends TestCase
         ?string $titleEn = 'Title',
         ?string $description = 'Описание',
         string  $type = 'anime',
-    ): ProviderTitle {
-        return new ProviderTitle(
+    ): ProviderTitleRecord {
+        return ProviderRecords::mock(new ProviderTitle(
             source: ProviderSource::Mock,
             externalId: $externalId,
             title: LocalizedText::create($titleRu, $titleEn),
@@ -135,7 +141,7 @@ final class ImportTitlesFromProviderTest extends TestCase
             type: $type,
             status: 'released',
             ratingCount: 100,
-        );
+        ));
     }
 }
 

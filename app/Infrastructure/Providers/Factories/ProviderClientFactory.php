@@ -9,6 +9,7 @@ use App\Application\Import\Contracts\ProviderClientFactoryContract;
 use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
 use App\Infrastructure\Providers\Mock\MockProviderClient;
+use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Contracts\Container\Container;
 use InvalidArgumentException;
 use RuntimeException;
@@ -70,6 +71,9 @@ final readonly class ProviderClientFactory implements ProviderClientFactoryContr
         $this->sources = array_values($sources);
     }
 
+    /**
+     * @throws BindingResolutionException
+     */
     public function make(ProviderSource $source, ProviderDataSource $dataSource = ProviderDataSource::Api): ProviderClientContract
     {
         $class = $this->classes[$this->key($source, $dataSource)]

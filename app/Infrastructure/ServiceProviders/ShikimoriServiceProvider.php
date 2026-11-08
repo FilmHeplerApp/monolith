@@ -5,10 +5,9 @@ declare(strict_types=1);
 namespace App\Infrastructure\ServiceProviders;
 
 use App\Infrastructure\Import\Dumps\DumpLocation;
-use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriDumpReplayProviderClient;
+use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriDumpProviderClient;
 use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriGraphQLClient;
 use App\Infrastructure\Providers\Shikimori\Dumps\ShikimoriDumpReader;
-use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
 use App\Infrastructure\Providers\Shikimori\ShikimoriConfig;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\Facades\Storage;
@@ -18,12 +17,11 @@ final class ShikimoriServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->app->bind(ShikimoriDumpReplayProviderClient::class, static function (Application $app): ShikimoriDumpReplayProviderClient {
+        $this->app->bind(ShikimoriDumpProviderClient::class, static function (Application $app): ShikimoriDumpProviderClient {
             $location = DumpLocation::fromConfig('shikimori');
             $disk = Storage::disk($location->disk);
 
-            return new ShikimoriDumpReplayProviderClient(
-                $app->make(ShikimoriTitleMapper::class),
+            return new ShikimoriDumpProviderClient(
                 new ShikimoriDumpReader(
                     $disk->path($location->data),
                     $disk->path($location->checkpoint),
