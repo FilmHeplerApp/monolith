@@ -11,22 +11,26 @@ use App\Application\Import\Contracts\ProviderClientContract;
 use App\Application\Import\Contracts\ProviderClientFactoryContract;
 use App\Application\Import\Contracts\ProviderImportContextFactoryContract;
 use App\Application\Import\Contracts\ProviderTitleMapperContract;
-use App\Application\Import\DTOs\ProviderImportContext;
 use App\Application\Import\DTOs\ProviderTitle;
 use App\Application\Import\DTOs\ProviderTitleRecord;
 use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\Exceptions\ProviderUnavailableException;
+use App\Application\Import\Services\ProviderImportContext;
 use App\Application\Import\UseCases\ImportTitlesFromProvider;
 use App\Domain\Import\DTOs\FilterDecision;
 use App\Domain\Import\DTOs\TitleCandidate;
+use App\Domain\Import\Enums\RejectionReason;
+use App\Infrastructure\Import\Sinks\LogCandidateSink;
 use App\Infrastructure\Persistence\Eloquent\Import\EloquentImportRunRecorder;
+use App\Infrastructure\Persistence\Eloquent\Models\Import\ImportRejection;
 use App\Infrastructure\Providers\Mock\MockProviderClient;
 use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
 use Closure;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Sleep;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -47,7 +51,7 @@ final class ImportReliabilityTest extends TestCase
     {
         config()->set('import.checkpoint_every', 1);
         $rows = [
-            [...$this->row('1'), 'genres' => 'broken list'],
+            [...$this->row('1'), 'status' => ['broken']],
             $this->row('2'),
             $this->row('3'),
         ];
@@ -91,7 +95,7 @@ final class ImportReliabilityTest extends TestCase
     public function it_counts_a_repeated_api_record_once_even_when_mapping_is_rejected(): void
     {
         Sleep::fake();
-        $rejected = [...$this->row('1'), 'genres' => 'broken list'];
+        $rejected = [...$this->row('1'), 'status' => ['broken']];
         Http::fake(['*' => Http::response(['data' => ['animes' => [$rejected, $rejected, $this->row('2')]]])]);
         $sink = $this->sink();
 
@@ -186,12 +190,93 @@ final class ImportReliabilityTest extends TestCase
             $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
             self::fail('Foreign records must stop the run.');
         } catch (RuntimeException $exception) {
-            self::assertSame('Import record does not match the requested provider.', $exception->getMessage());
+            self::assertSame('Import record does not match the provider of its context.', $exception->getMessage());
         }
 
         self::assertSame([], $sink->saved);
         $this->assertDatabaseHas('import_runs', ['status' => 'failed', 'checkpoint' => 0]);
         $this->assertDatabaseCount('import_processed_titles', 0);
+    }
+
+    #[Test]
+    public function it_stops_before_reading_when_the_context_belongs_to_another_provider(): void
+    {
+        $client = $this->createMock(ProviderClientContract::class);
+        $client->method('source')->willReturn(ProviderSource::Mock);
+        $client->expects(self::never())->method('fetchTitles');
+        $mapper = $this->createStub(ProviderTitleMapperContract::class);
+        $mapper->method('source')->willReturn(ProviderSource::Mock);
+        $contexts = $this->createStub(ProviderImportContextFactoryContract::class);
+        $contexts->method('create')->willReturn(new ProviderImportContext($client, $mapper));
+        $this->app->instance(ProviderImportContextFactoryContract::class, $contexts);
+        $this->sink();
+
+        try {
+            $this->importer()->execute(ProviderSource::Shikimori, ProviderDataSource::Api);
+            self::fail('A context of another provider must stop the run.');
+        } catch (RuntimeException $exception) {
+            self::assertSame('Import context does not match the requested provider.', $exception->getMessage());
+        }
+
+        $this->assertDatabaseHas('import_runs', ['provider' => 'shikimori', 'status' => 'failed', 'checkpoint' => 0]);
+    }
+
+    #[Test]
+    public function it_imports_a_record_with_unparseable_optional_fields_as_unknown_data(): void
+    {
+        Sleep::fake();
+        $broken = [
+            ...$this->row('1'),
+            'genres' => 'broken list',
+            'studios' => [42],
+            'scoresStats' => ['count' => 3],
+            'score' => 'abc',
+            'duration' => ['24'],
+            'kind' => ['pv'],
+            'airedOn' => ['year' => ['1960']],
+        ];
+        Http::fake(['*' => Http::response(['data' => ['animes' => [$broken, $this->row('2')]]])]);
+        $sink = $this->sink();
+
+        $result = $this->importer()->execute(ProviderSource::Shikimori, ProviderDataSource::Api);
+
+        self::assertSame(2, $result->counters->accepted);
+        self::assertSame(0, $result->counters->rejected);
+        self::assertSame(['1', '2'], $sink->saved);
+        $this->assertDatabaseCount('import_rejections', 0);
+        $this->assertDatabaseHas('import_runs', ['status' => 'completed', 'checkpoint' => 2]);
+    }
+
+    #[Test]
+    public function it_stores_a_non_finite_rating_as_one_malformed_rejection_and_keeps_its_neighbours(): void
+    {
+        $mapper = $this->createStub(ProviderTitleMapperContract::class);
+        $mapper->method('source')->willReturn(ProviderSource::Mock);
+        $mapper->method('map')->willReturnCallback(function (ProviderTitleRecord $record): ProviderTitle {
+            $title = (new ShikimoriTitleMapper)->map(ProviderRecords::shikimori($this->row($record->externalId)));
+
+            return new ProviderTitle(...array_replace(get_object_vars($title), [
+                'source' => ProviderSource::Mock,
+                'rating' => $record->externalId === '2' ? INF : 8.0,
+            ]));
+        });
+        $contexts = $this->createStub(ProviderImportContextFactoryContract::class);
+        $contexts->method('create')->willReturn(new ProviderImportContext($this->client('1', '2', '3'), $mapper));
+        $this->app->instance(ProviderImportContextFactoryContract::class, $contexts);
+        config()->set('import.checkpoint_every', 2);
+        $sink = $this->sink();
+
+        $result = $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+
+        self::assertSame(3, $result->checkpoint);
+        self::assertSame(2, $result->counters->accepted);
+        self::assertSame(1, $result->counters->rejected);
+        self::assertSame(['1', '3'], $sink->saved);
+        $rejection = ImportRejection::query()->where(ImportRejection::FIELD_EXTERNAL_ID, '2')->sole();
+        self::assertSame(RejectionReason::MALFORMED, $rejection->reason);
+        self::assertSame(['rating' => 'INF'], $rejection->context);
+        $this->assertDatabaseHas('import_runs', ['status' => 'completed', 'checkpoint' => 3]);
+        $this->assertDatabaseCount('import_processed_titles', 3);
     }
 
     #[Test]
@@ -378,8 +463,12 @@ final class ImportReliabilityTest extends TestCase
     }
 
     #[Test]
-    public function it_preserves_the_original_failure_when_recording_it_also_fails(): void
+    #[DataProvider('failureLoggers')]
+    public function it_preserves_the_original_failure_when_recording_it_also_fails(bool $loggerFails): void
     {
+        if ($loggerFails) {
+            Log::shouldReceive('error')->once()->andThrow(new RuntimeException('Logger down'));
+        }
         $recorder = $this->createStub(ImportRunRecorderContract::class);
         $run = app(EloquentImportRunRecorder::class)->start(ProviderSource::Mock, ProviderDataSource::Api, null);
         $recorder->method('start')->willReturn($run);
@@ -397,6 +486,28 @@ final class ImportReliabilityTest extends TestCase
         } catch (ProviderUnavailableException $caught) {
             self::assertSame($original, $caught);
         }
+    }
+
+    public static function failureLoggers(): array
+    {
+        return ['working logger' => [false], 'broken logger' => [true]];
+    }
+
+    #[Test]
+    public function it_completes_the_run_when_candidate_diagnostics_fail_after_each_commit(): void
+    {
+        config()->set('import.checkpoint_every', 2);
+        $this->bindClient($this->client('1', '2', '3'));
+        $this->app->instance(CandidateSinkContract::class, new LogCandidateSink);
+        Log::shouldReceive('info')->twice()->andThrow(new RuntimeException('Logger down'));
+        Log::shouldReceive('warning')->twice()->andThrow(new RuntimeException('Logger down'));
+
+        $result = $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+
+        self::assertSame(3, $result->checkpoint);
+        self::assertSame(3, $result->counters->accepted);
+        $this->assertDatabaseHas('import_runs', ['status' => 'completed', 'checkpoint' => 3]);
+        $this->assertDatabaseCount('import_processed_titles', 3);
     }
 
     #[Test]

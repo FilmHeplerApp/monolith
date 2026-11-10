@@ -31,8 +31,17 @@ final readonly class ProviderTitleToCandidateMapper
         if ($title->rating !== null && (!is_finite($title->rating) || $title->rating < 0 || $title->rating > 10)) {
             throw new ProviderTitleMappingException(
                 RejectionReason::MALFORMED,
-                ['rating' => $title->rating],
+                // JSON has no INF/NAN: keep them readable so the rejection can be stored.
+                ['rating' => is_finite($title->rating) ? $title->rating : (string) $title->rating],
                 "Provider title rating must be between 0 and 10, got {$title->rating}.",
+            );
+        }
+
+        if ($title->ratingCount !== null && $title->ratingCount < 0) {
+            throw new ProviderTitleMappingException(
+                RejectionReason::MALFORMED,
+                ['ratingCount' => $title->ratingCount],
+                "Provider title rating count must not be negative, got {$title->ratingCount}.",
             );
         }
 

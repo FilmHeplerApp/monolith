@@ -209,6 +209,36 @@ final class ImportBatchCommitTest extends TestCase
     }
 
 
+    /**
+     * @throws Throwable
+     */
+    #[Test]
+    public function it_returns_the_committed_checkpoint_when_candidate_logging_fails_after_commit(): void
+    {
+        Log::shouldReceive('info')->once()->andThrow(new RuntimeException('Logger down'));
+        Log::shouldReceive('warning')->once()->with(
+            'Import candidate diagnostics were not emitted.',
+            \Mockery::on(static fn (array $context): bool => $context['skipped'] === 2 && $context['message'] === 'Logger down'),
+        );
+        $recorder = app(EloquentImportRunRecorder::class);
+        $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $sink = new LogCandidateSink;
+        foreach (['1', '2'] as $id) {
+            $sink->consume(app(ProviderTitleToCandidateMapper::class)->map((new ShikimoriTitleMapper)->map(ProviderRecords::shikimori([
+                'id' => $id, 'russian' => 'Тайтл '.$id, 'status' => 'released',
+            ]))), FilterDecision::accept());
+        }
+
+        $committed = $recorder->commit(
+            $run,
+            new ImportBatch(new ImportCounters(fetched: 2, accepted: 2), 2, ['1', '2'], []),
+            fn () => $sink->flush(),
+        );
+
+        self::assertSame(2, $committed->checkpoint);
+        $this->assertDatabaseHas('import_runs', ['id' => $run->runId, 'checkpoint' => 2, 'status' => 'running']);
+    }
+
     protected function setUp(): void
     {
         parent::setUp();

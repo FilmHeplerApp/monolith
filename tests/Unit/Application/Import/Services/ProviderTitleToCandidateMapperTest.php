@@ -15,6 +15,7 @@ use App\Domain\Catalog\Enums\Title\TitleFormat;
 use App\Domain\Catalog\Enums\Title\TitleStatus;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use App\Domain\Import\Enums\RejectionReason;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
@@ -75,6 +76,49 @@ final class ProviderTitleToCandidateMapperTest extends TestCase
 
             throw $exception;
         }
+    }
+
+    #[Test]
+    #[DataProvider('nonFiniteRatings')]
+    public function it_keeps_a_non_finite_rating_json_compatible_in_the_rejection_context(float $rating, string $stored): void
+    {
+        try {
+            $this->mapper()->map($this->title(rating: $rating));
+            self::fail('A non-finite rating must be malformed.');
+        } catch (ProviderTitleMappingException $exception) {
+            self::assertSame(RejectionReason::MALFORMED, $exception->reason);
+            self::assertSame(['rating' => $stored], $exception->context);
+            self::assertJson(json_encode($exception->context, JSON_THROW_ON_ERROR));
+        }
+    }
+
+    public static function nonFiniteRatings(): array
+    {
+        return [
+            'infinity' => [INF, 'INF'],
+            'negative infinity' => [-INF, '-INF'],
+            'not a number' => [NAN, 'NAN'],
+        ];
+    }
+
+    #[Test]
+    public function it_rejects_a_negative_rating_count_as_malformed(): void
+    {
+        try {
+            $this->mapper()->map(new ProviderTitle(...array_replace(get_object_vars($this->title()), ['ratingCount' => -5])));
+            self::fail('A negative rating count must be malformed.');
+        } catch (ProviderTitleMappingException $exception) {
+            self::assertSame(RejectionReason::MALFORMED, $exception->reason);
+            self::assertSame(['ratingCount' => -5], $exception->context);
+        }
+    }
+
+    #[Test]
+    public function it_keeps_a_zero_rating_count(): void
+    {
+        $candidate = $this->mapper()->map(new ProviderTitle(...array_replace(get_object_vars($this->title()), ['ratingCount' => 0])));
+
+        self::assertSame(0, $candidate->providerScoreCount);
     }
 
     #[Test]

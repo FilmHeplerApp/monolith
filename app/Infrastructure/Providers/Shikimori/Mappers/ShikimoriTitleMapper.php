@@ -9,11 +9,9 @@ use App\Application\Import\DTOs\ProviderAttribute;
 use App\Application\Import\DTOs\ProviderTitle;
 use App\Application\Import\DTOs\ProviderTitleRecord;
 use App\Application\Import\Enums\ProviderSource;
-use App\Application\Import\Exceptions\ProviderTitleMappingException;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\Enums\Title\TitleFormat;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
-use App\Domain\Import\Enums\RejectionReason;
 use InvalidArgumentException;
 
 final readonly class ShikimoriTitleMapper implements ProviderTitleMapperContract
@@ -29,18 +27,8 @@ final readonly class ShikimoriTitleMapper implements ProviderTitleMapperContract
             throw new InvalidArgumentException('Shikimori mapper requires a Shikimori record.');
         }
         $row = $record->payload;
-        foreach (['genres', 'studios', 'scoresStats'] as $field) {
-            $items = $row[$field] ?? [];
-            if (!is_array($items) || !array_is_list($items)) {
-                throw new ProviderTitleMappingException(RejectionReason::MALFORMED, ['field' => $field], 'Expected a list of objects.');
-            }
-            foreach ($items as $item) {
-                if (!is_array($item) || array_is_list($item)) {
-                    throw new ProviderTitleMappingException(RejectionReason::MALFORMED, ['field' => $field], 'Expected an object.');
-                }
-            }
-        }
-        $status = strtolower(trim((string) ($row['status'] ?? '')));
+        $status = strtolower($this->cleanString($row['status'] ?? null) ?? '');
+        $kind = $this->cleanString($row['kind'] ?? null);
 
         return new ProviderTitle(
             source: ProviderSource::Shikimori,
@@ -53,14 +41,14 @@ final readonly class ShikimoriTitleMapper implements ProviderTitleMapperContract
                 $this->cleanString($row['description'] ?? null),
                 null,
             ),
-            year: $this->nullableInt(data_get($row, 'airedOn.year') ?? data_get($row, 'releasedOn.year')),
+            year: $this->nullableInt(data_get($row, 'airedOn.year')) ?? $this->nullableInt(data_get($row, 'releasedOn.year')),
             durationMinutes: $this->nullablePositiveInt($row['duration'] ?? null),
             rating: $this->nullableFloat($row['score'] ?? null),
             posterUrl: $this->cleanString(data_get($row, 'poster.originalUrl')),
             bannerUrl: null,
             type: TitleContentType::ANIME->value,
             status: $status === 'anons' ? 'announced' : $status,
-            format: TitleFormat::tryFrom(strtolower(trim((string) ($row['kind'] ?? '')))),
+            format: $kind === null ? null : TitleFormat::tryFrom(strtolower($kind)),
             ratingCount: $this->ratingCount($row['scoresStats'] ?? []),
             attributes: [
                 ...$this->mapTaxonomy($row['genres'] ?? []),
@@ -70,47 +58,70 @@ final readonly class ShikimoriTitleMapper implements ProviderTitleMapperContract
     }
 
 
-    private function mapTaxonomy(array $items): array
+    private function mapTaxonomy(mixed $items): array
     {
-        return array_values(array_map(
-            fn (array $item): ProviderAttribute => new ProviderAttribute(
-                code: match (strtolower(trim((string) ($item['kind'] ?? 'genre')))) {
+        $attributes = [];
+
+        foreach ($this->objectsOf($items) as $item) {
+            $attributes[] = new ProviderAttribute(
+                code: match (strtolower($this->cleanString($item['kind'] ?? null) ?? 'genre')) {
                     'genre' => 'genres',
                     'demographic' => 'target_audience',
-                    'theme' => 'tags',
                     default => 'tags',
                 },
                 value: LocalizedText::create(
                     $this->cleanString($item['russian'] ?? null),
                     $this->cleanString($item['name'] ?? null),
                 ),
-            ),
-            $items,
-        ));
-    }
-
-
-    private function mapStudios(array $studios): array
-    {
-        return array_values(array_map(
-            fn (array $studio): ProviderAttribute => new ProviderAttribute(
-                code: 'studios',
-                value: LocalizedText::create(null, $this->cleanString($studio['name'] ?? null)),
-            ),
-            $studios,
-        ));
-    }
-
-
-    private function ratingCount(array $stats): ?int
-    {
-        if ($stats === []) {
-            return null;
+            );
         }
 
-        return array_sum(array_map(
-            static fn (array $stat): int => (int) ($stat['count'] ?? 0),
-            $stats,
+        return $attributes;
+    }
+
+
+    private function mapStudios(mixed $studios): array
+    {
+        $attributes = [];
+
+        foreach ($this->objectsOf($studios) as $studio) {
+            $attributes[] = new ProviderAttribute(
+                code: 'studios',
+                value: LocalizedText::create(null, $this->cleanString($studio['name'] ?? null)),
+            );
+        }
+
+        return $attributes;
+    }
+
+
+    private function ratingCount(mixed $stats): ?int
+    {
+        $counts = array_filter(
+            array_map(fn (array $stat): ?int => $this->nullableInt($stat['count'] ?? null), $this->objectsOf($stats)),
+            static fn (?int $count): bool => $count !== null,
+        );
+
+        $sum = array_sum($counts);
+
+        // An int overflow turns the sum into a float: the total is then unknown.
+        return $counts === [] || !is_int($sum) ? null : $sum;
+    }
+
+    /**
+     * Keeps the JSON objects of a list; any other shape is treated as unknown data.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function objectsOf(mixed $value): array
+    {
+        if (!is_array($value) || !array_is_list($value)) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            $value,
+            static fn (mixed $item): bool => is_array($item) && $item !== [] && !array_is_list($item),
         ));
     }
 
@@ -127,7 +138,14 @@ final readonly class ShikimoriTitleMapper implements ProviderTitleMapperContract
 
     private function nullableInt(mixed $value): ?int
     {
-        return $value === null || $value === '' ? null : (int) $value;
+        if (is_int($value)) {
+            return $value;
+        }
+
+        $number = $this->nullableFloat($value);
+
+        // Outside the int range a cast is meaningless: treat the value as unknown.
+        return $number === null || $number < PHP_INT_MIN || $number >= PHP_INT_MAX ? null : (int) $number;
     }
 
     private function nullablePositiveInt(mixed $value): ?int
@@ -139,6 +157,12 @@ final readonly class ShikimoriTitleMapper implements ProviderTitleMapperContract
 
     private function nullableFloat(mixed $value): ?float
     {
-        return $value === null || $value === '' ? null : (float) $value;
+        $number = match (true) {
+            is_int($value), is_float($value) => (float) $value,
+            is_string($value) && is_numeric(trim($value)) => (float) trim($value),
+            default => null,
+        };
+
+        return $number !== null && is_finite($number) ? $number : null;
     }
 }

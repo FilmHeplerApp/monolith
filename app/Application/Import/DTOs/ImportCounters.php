@@ -6,13 +6,16 @@ namespace App\Application\Import\DTOs;
 
 use InvalidArgumentException;
 
-final class ImportCounters
+/**
+ * Immutable run totals: batches and checkpoints keep the snapshot they were built with.
+ */
+final readonly class ImportCounters
 {
     public function __construct(
-        private(set) int $fetched = 0,
-        private(set) int $accepted = 0,
-        private(set) int $flagged = 0,
-        private(set) int $rejected = 0,
+        public int $fetched = 0,
+        public int $accepted = 0,
+        public int $flagged = 0,
+        public int $rejected = 0,
     ) {
         if (min($this->fetched, $this->accepted, $this->flagged, $this->rejected) < 0) {
             throw new InvalidArgumentException('Import counters cannot be negative.');
@@ -25,21 +28,33 @@ final class ImportCounters
         }
     }
 
-    public function recordAccepted(): void
+    public function withAccepted(): self
     {
-        $this->accepted++;
-        $this->fetched++;
+        return new self(
+            $this->fetched + 1,
+            $this->accepted + 1,
+            $this->flagged,
+            $this->rejected
+        );
     }
 
-    public function recordFlagged(): void
+    public function withFlagged(): self
     {
-        $this->flagged++;
-        $this->fetched++;
+        return new self(
+            $this->fetched + 1,
+            $this->accepted,
+            $this->flagged + 1,
+            $this->rejected
+        );
     }
 
-    public function recordRejected(): void
+    public function withRejected(): self
     {
-        $this->rejected++;
-        $this->fetched++;
+        return new self(
+            $this->fetched + 1,
+            $this->accepted,
+            $this->flagged,
+            $this->rejected + 1
+        );
     }
 }

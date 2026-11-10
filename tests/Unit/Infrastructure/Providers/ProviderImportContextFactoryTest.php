@@ -7,6 +7,7 @@ namespace Tests\Unit\Infrastructure\Providers;
 use App\Application\Import\Contracts\ProviderClientContract;
 use App\Application\Import\Contracts\ProviderClientFactoryContract;
 use App\Application\Import\Contracts\ProviderTitleMapperContract;
+use App\Application\Import\DTOs\ProviderTitle;
 use App\Application\Import\DTOs\ProviderTitleRecord;
 use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
@@ -27,8 +28,11 @@ final class ProviderImportContextFactoryTest extends TestCase
         $client->method('source')->willReturn(ProviderSource::Jikan);
         $clients = $this->createMock(ProviderClientFactoryContract::class);
         $clients->expects(self::once())->method('make')->with(ProviderSource::Jikan, ProviderDataSource::Dump)->willReturn($client);
-        $mapper = $this->createStub(ProviderTitleMapperContract::class);
+        $record = new ProviderTitleRecord(ProviderSource::Jikan, '7', []);
+        $title = $this->title(ProviderSource::Jikan, '7');
+        $mapper = $this->createMock(ProviderTitleMapperContract::class);
         $mapper->method('source')->willReturn(ProviderSource::Jikan);
+        $mapper->expects(self::once())->method('map')->with($record)->willReturn($title);
         $container = new Container;
         $container->instance(ProviderTitleMapperContract::class, $mapper);
         $factory = new ProviderImportContextFactory($container, $clients, [
@@ -38,7 +42,8 @@ final class ProviderImportContextFactoryTest extends TestCase
         $context = $factory->create(ProviderSource::Jikan, ProviderDataSource::Dump);
 
         self::assertSame($client, $context->client);
-        self::assertSame($mapper, $context->mapper);
+        self::assertSame(ProviderSource::Jikan, $context->source());
+        self::assertSame($title, $context->interpret($record));
     }
 
     #[Test]
@@ -101,9 +106,14 @@ final class ProviderImportContextFactoryTest extends TestCase
         $client->method('source')->willReturn(ProviderSource::Shikimori);
         $clients = $this->createStub(ProviderClientFactoryContract::class);
         $clients->method('make')->willReturn($client);
-        $apiMapper = new ShikimoriTitleMapper;
+        $apiTitle = $this->title(ProviderSource::Shikimori, '42');
+        $apiMapper = $this->createStub(ProviderTitleMapperContract::class);
+        $apiMapper->method('source')->willReturn(ProviderSource::Shikimori);
+        $apiMapper->method('map')->willReturn($apiTitle);
+        $dumpTitle = $this->title(ProviderSource::Shikimori, '42');
         $dumpMapper = $this->createStub(ProviderTitleMapperContract::class);
         $dumpMapper->method('source')->willReturn(ProviderSource::Shikimori);
+        $dumpMapper->method('map')->willReturn($dumpTitle);
         $container = new Container;
         $container->instance(ShikimoriTitleMapper::class, $apiMapper);
         $container->instance(ProviderTitleMapperContract::class, $dumpMapper);
@@ -111,9 +121,10 @@ final class ProviderImportContextFactoryTest extends TestCase
             'api' => ShikimoriTitleMapper::class,
             'dump' => ProviderTitleMapperContract::class,
         ]]);
+        $record = new ProviderTitleRecord(ProviderSource::Shikimori, '42', []);
 
-        self::assertSame($apiMapper, $factory->create(ProviderSource::Shikimori, ProviderDataSource::Api)->mapper);
-        self::assertSame($dumpMapper, $factory->create(ProviderSource::Shikimori, ProviderDataSource::Dump)->mapper);
+        self::assertSame($apiTitle, $factory->create(ProviderSource::Shikimori, ProviderDataSource::Api)->interpret($record));
+        self::assertSame($dumpTitle, $factory->create(ProviderSource::Shikimori, ProviderDataSource::Dump)->interpret($record));
     }
 
     #[Test]
@@ -149,5 +160,11 @@ final class ProviderImportContextFactoryTest extends TestCase
             'missing class' => ['MissingTitleMapper'],
             'unrelated class' => [\stdClass::class],
         ];
+    }
+
+
+    private function title(ProviderSource $source, string $externalId): ProviderTitle
+    {
+        return new ProviderTitle($source, $externalId, null, null, null, null, null, null, null, 'anime', 'released');
     }
 }

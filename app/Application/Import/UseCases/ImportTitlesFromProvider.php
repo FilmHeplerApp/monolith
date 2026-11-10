@@ -70,7 +70,7 @@ final readonly class ImportTitlesFromProvider
         ImportRunCheckpoint $run,
         bool                $resumed,
     ): ImportResult {
-        $counters = clone $run->counters;
+        $counters = $run->counters;
         $checkpoint = $run->checkpoint;
         $pendingIds = [];
         $rejections = [];
@@ -78,55 +78,51 @@ final readonly class ImportTitlesFromProvider
 
         try {
             $context = $this->contexts->create($provider, $dataSource);
-            $stream = $this->streams->create($context->client, $run);
+            if ($context->source() !== $provider) {
+                throw new RuntimeException('Import context does not match the requested provider.');
+            }
+            $stream = $this->streams->create($context, $run);
 
             foreach ($stream->titles() as $record) {
-                if ($record->source !== $provider) {
-                    throw new RuntimeException('Import record does not match the requested provider.');
-                }
                 try {
-                    $providerTitle = $context->mapper->map($record);
-                    if ($providerTitle->source !== $record->source || $providerTitle->externalId !== $record->externalId) {
-                        throw new RuntimeException('Mapped title identity does not match its raw record.');
-                    }
-                    $candidate = $this->candidateMapper->map($providerTitle);
+                    $candidate = $this->candidateMapper->map($context->interpret($record));
                     $decision = $this->filter->decide($candidate);
 
                     if ($decision->isRejected()) {
                         $rejections[] = new ImportRejectionData($record->externalId, $decision->reason, $decision->context ?? []);
-                        $counters->recordRejected();
+                        $counters = $counters->withRejected();
                     } else {
                         $this->sink->consume($candidate, $decision);
-                        $decision->isFlagged() ? $counters->recordFlagged() : $counters->recordAccepted();
+                        $counters = $decision->isFlagged() ? $counters->withFlagged() : $counters->withAccepted();
                     }
                 } catch (ProviderTitleMappingException $exception) {
                     $rejections[] = new ImportRejectionData($record->externalId, $exception->reason, $exception->context);
-                    $counters->recordRejected();
+                    $counters = $counters->withRejected();
                 }
 
                 $pendingIds[] = $record->externalId;
                 $checkpoint++;
 
                 if (count($pendingIds) >= $this->checkpointEvery) {
-                    $run = $this->commit($run, new ImportBatch(clone $counters, $checkpoint, $pendingIds, $rejections));
+                    $run = $this->commit($run, new ImportBatch($counters, $checkpoint, $pendingIds, $rejections));
                     $pendingIds = [];
                     $rejections = [];
                 }
             }
 
-            $run = $this->commit($run, new ImportBatch(clone $counters, $checkpoint, $pendingIds, $rejections), complete: true);
+            $run = $this->commit($run, new ImportBatch($counters, $checkpoint, $pendingIds, $rejections), complete: true);
         } catch (Throwable $exception) {
             try {
                 $this->sink->abort();
             } catch (Throwable $abortError) {
-                Log::error('Failed to discard pending import candidates.', ['exception' => $abortError]);
+                $this->logQuietly('Failed to discard pending import candidates.', ['exception' => $abortError]);
             }
 
             try {
                 $this->lock->assertOwned();
                 $this->recorder->fail($run, $exception->getMessage());
             } catch (Throwable $recordError) {
-                Log::error('Failed to record the import failure.', ['exception' => $recordError, 'original_exception' => $exception]);
+                $this->logQuietly('Failed to record the import failure.', ['exception' => $recordError, 'original_exception' => $exception]);
             }
 
             throw $exception;
@@ -135,6 +131,15 @@ final readonly class ImportTitlesFromProvider
         }
 
         return new ImportResult($run->runId, $run->counters, $run->checkpoint, $resumed);
+    }
+
+    /** Secondary diagnostics must not replace the failure that is being rethrown. */
+    private function logQuietly(string $message, array $context): void
+    {
+        try {
+            Log::error($message, $context);
+        } catch (Throwable) {
+        }
     }
 
     private function commit(ImportRunCheckpoint $run, ImportBatch $batch, bool $complete = false): ImportRunCheckpoint

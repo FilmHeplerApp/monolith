@@ -96,6 +96,35 @@ final class ImportTitlesFromProviderTest extends TestCase
     }
 
 
+    #[Test]
+    public function it_keeps_each_committed_batch_snapshot_and_the_resumed_totals_unchanged(): void
+    {
+        $client = new MockProviderClient([
+            $this->title('1'),
+            $this->title('2'),
+            $this->title('3', description: null),
+            $this->title('4', titleRu: null, titleEn: null),
+        ]);
+        $resumed = new ImportCounters(fetched: 1, accepted: 1);
+        $recorder = new InMemoryImportRunRecorder(new ImportRunCheckpoint(10, 1, $resumed, null, 'owner'));
+
+        $result = $this->importer($client, $recorder, new CollectingCandidateSink)->execute(
+            ProviderSource::Mock,
+            ProviderDataSource::Api,
+            resume: true,
+        );
+
+        self::assertEquals([
+            new ImportCounters(fetched: 2, accepted: 2),
+            new ImportCounters(fetched: 3, accepted: 2, flagged: 1),
+            new ImportCounters(fetched: 4, accepted: 2, flagged: 1, rejected: 1),
+            new ImportCounters(fetched: 4, accepted: 2, flagged: 1, rejected: 1),
+        ], array_map(static fn (ImportBatch $batch): ImportCounters => $batch->counters, $recorder->batches));
+        self::assertSame([], $recorder->batches[3]->processedIds, 'The completing batch carries no new identities.');
+        self::assertEquals(new ImportCounters(fetched: 1, accepted: 1), $resumed);
+        self::assertSame($recorder->batches[3]->counters, $result->counters);
+    }
+
     private function importer(
         ProviderClientContract    $client,
         InMemoryImportRunRecorder $recorder,
@@ -148,6 +177,8 @@ final class ImportTitlesFromProviderTest extends TestCase
 final class InMemoryImportRunRecorder implements ImportRunRecorderContract
 {
     public array $rejections = [];
+    /** @var list<ImportBatch> batches exactly as received, without copying */
+    public array $batches = [];
     public bool $completed = false;
     public int $checkpoint = 0;
 
@@ -173,6 +204,7 @@ final class InMemoryImportRunRecorder implements ImportRunRecorderContract
     public function commit(ImportRunCheckpoint $run, ImportBatch $batch, Closure $write, bool $complete = false): ImportRunCheckpoint
     {
         $write();
+        $this->batches[] = $batch;
         foreach ($batch->rejections as $rejection) {
             $this->rejections[] = ['external_id' => $rejection->externalId, 'reason' => $rejection->reason, 'context' => $rejection->context];
         }

@@ -9,6 +9,7 @@ use App\Domain\Import\DTOs\FilterDecision;
 use App\Domain\Import\DTOs\TitleCandidate;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 final class LogCandidateSink implements CandidateSinkContract
 {
@@ -28,11 +29,7 @@ final class LogCandidateSink implements CandidateSinkContract
     public function flush(): void
     {
         $pending = $this->pending;
-        DB::afterCommit(static function () use ($pending): void {
-            foreach ($pending as $context) {
-                Log::info('Import candidate accepted.', $context);
-            }
-        });
+        DB::afterCommit(static fn () => self::emit($pending));
         $this->pending = [];
     }
 
@@ -44,5 +41,31 @@ final class LogCandidateSink implements CandidateSinkContract
     public function abort(): void
     {
         $this->pending = [];
+    }
+
+
+    /**
+     * Runs after the batch transaction has committed: an exception here would escape
+     * DB::transaction() and make a committed batch look failed, so it never leaves.
+     */
+    private static function emit(array $pending): void
+    {
+        foreach ($pending as $index => $context) {
+            try {
+                Log::info('Import candidate accepted.', $context);
+            } catch (Throwable $exception) {
+                // The logger is likely down as a whole: stop this batch and try one guarded notice.
+                try {
+                    Log::warning('Import candidate diagnostics were not emitted.', [
+                        'skipped' => count($pending) - $index,
+                        'exception' => $exception::class,
+                        'message' => $exception->getMessage(),
+                    ]);
+                } catch (Throwable) {
+                }
+
+                return;
+            }
+        }
     }
 }
