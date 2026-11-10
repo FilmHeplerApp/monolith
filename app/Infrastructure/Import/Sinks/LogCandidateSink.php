@@ -44,27 +44,21 @@ final class LogCandidateSink implements CandidateSinkContract
     }
 
 
-    /**
-     * Runs after the batch transaction has committed: an exception here would escape
-     * DB::transaction() and make a committed batch look failed, so it never leaves.
-     */
     private static function emit(array $pending): void
     {
-        foreach ($pending as $index => $context) {
+        foreach ($pending as $context) {
             try {
                 Log::info('Import candidate accepted.', $context);
             } catch (Throwable $exception) {
-                // The logger is likely down as a whole: stop this batch and try one guarded notice.
                 try {
-                    Log::warning('Import candidate diagnostics were not emitted.', [
-                        'skipped' => count($pending) - $index,
+                    @error_log('Import candidate logging failed: '.json_encode([
+                        'source' => $context['source'],
+                        'external_id' => $context['external_id'],
                         'exception' => $exception::class,
                         'message' => $exception->getMessage(),
-                    ]);
+                    ], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE));
                 } catch (Throwable) {
                 }
-
-                return;
             }
         }
     }

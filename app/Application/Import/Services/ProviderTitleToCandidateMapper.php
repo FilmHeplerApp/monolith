@@ -29,11 +29,16 @@ final readonly class ProviderTitleToCandidateMapper
         }
 
         if ($title->rating !== null && (!is_finite($title->rating) || $title->rating < 0 || $title->rating > 10)) {
+            $rating = match (true) {
+                is_nan($title->rating) => 'NAN',
+                $title->rating === INF => 'INF',
+                $title->rating === -INF => '-INF',
+                default => $title->rating,
+            };
             throw new ProviderTitleMappingException(
                 RejectionReason::MALFORMED,
-                // JSON has no INF/NAN: keep them readable so the rejection can be stored.
-                ['rating' => is_finite($title->rating) ? $title->rating : (string) $title->rating],
-                "Provider title rating must be between 0 and 10, got {$title->rating}.",
+                ['rating' => $rating],
+                "Provider title rating must be between 0 and 10, got $rating.",
             );
         }
 

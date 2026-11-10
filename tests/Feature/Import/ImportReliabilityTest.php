@@ -46,6 +46,149 @@ final class ImportReliabilityTest extends TestCase
 
 
     #[Test]
+    #[DataProvider('emptyAndExactBatches')]
+    public function it_completes_empty_rejected_only_and_exact_batches(array $ids, bool $rejectAll): void
+    {
+        config()->set('import.checkpoint_every', 2);
+        $records = iterator_to_array($this->client(...$ids)->fetchTitles(null));
+        if ($rejectAll) {
+            $records = array_map(static fn ($record) => new ProviderTitleRecord($record->source, $record->externalId, array_replace($record->payload, ['status' => 'unknown'])), $records);
+        }
+        $this->bindClient(new MockProviderClient($records));
+        $sink = $this->sink();
+
+        $result = $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+
+        self::assertSame(count($ids), $result->checkpoint);
+        self::assertSame($rejectAll ? 0 : count($ids), $result->counters->accepted);
+        self::assertSame($rejectAll ? count($ids) : 0, $result->counters->rejected);
+        self::assertSame($rejectAll ? [] : $ids, $sink->saved);
+        $this->assertDatabaseHas('import_runs', ['status' => 'completed']);
+        $this->assertDatabaseCount('import_processed_titles', count($ids));
+    }
+
+    public static function emptyAndExactBatches(): array
+    {
+        return ['empty source' => [[], false], 'only rejected records' => [['1', '2'], true], 'exact batch size' => [['1', '2'], false]];
+    }
+
+    #[Test]
+    #[DataProvider('nonPositiveValues')]
+    public function it_rejects_invalid_limits_before_creating_a_run(int $value): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        try {
+            $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api, limit: $value);
+        } finally {
+            $this->assertDatabaseCount('import_runs', 0);
+        }
+    }
+
+    #[Test]
+    #[DataProvider('nonPositiveValues')]
+    public function it_rejects_invalid_checkpoint_intervals(int $value): void
+    {
+        config()->set('import.checkpoint_every', $value);
+        $this->expectException(\InvalidArgumentException::class);
+        $this->importer();
+    }
+
+    public static function nonPositiveValues(): array
+    {
+        return [[0], [-1]];
+    }
+
+    #[Test]
+    public function it_preserves_the_original_failure_when_discarding_the_buffer_also_fails(): void
+    {
+        $original = new ProviderUnavailableException(ProviderSource::Mock, 'Original provider failure');
+        $client = $this->client('1');
+        $client->failWith($original);
+        $this->bindClient($client);
+        $sink = $this->createStub(CandidateSinkContract::class);
+        $sink->method('abort')->willThrowException(new RuntimeException('Abort failed'));
+        $this->app->instance(CandidateSinkContract::class, $sink);
+
+        try {
+            $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+            self::fail('The original failure must propagate.');
+        } catch (ProviderUnavailableException $exception) {
+            self::assertSame($original, $exception);
+        }
+        $this->assertDatabaseHas('import_runs', ['status' => 'failed', 'checkpoint' => 0, 'error_message' => 'Original provider failure']);
+    }
+
+    #[Test]
+    #[DataProvider('nonFiniteRatings')]
+    public function it_persists_non_finite_rating_rejections_without_losing_neighboring_records(float $rating, string $expected): void
+    {
+        config()->set('import.checkpoint_every', 3);
+        $records = iterator_to_array($this->client('1', '2', '3')->fetchTitles(null));
+        $client = new MockProviderClient(array_map(static fn (ProviderTitleRecord $record) => new ProviderTitleRecord(
+            $record->source,
+            $record->externalId,
+            array_replace($record->payload, ['rating' => $record->externalId === '2' ? $rating : 8.0]),
+        ), $records));
+        $this->bindClient($client);
+        $sink = $this->sink();
+
+        $result = $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+
+        self::assertSame(3, $result->checkpoint);
+        self::assertSame(2, $result->counters->accepted);
+        self::assertSame(1, $result->counters->rejected);
+        self::assertSame(['1', '3'], $sink->saved);
+        $context = json_decode(DB::table('import_rejections')->where('external_id', '2')->value('context'), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(['rating' => $expected], $context);
+        $this->assertDatabaseHas('import_rejections', ['external_id' => '2', 'reason' => 'malformed']);
+        $this->assertDatabaseCount('import_processed_titles', 3);
+
+        $sink = $this->sink();
+        $resumed = $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api, resume: true);
+        self::assertSame($result->runId, $resumed->runId);
+        self::assertSame(1, $resumed->counters->rejected);
+        self::assertSame([], $sink->saved);
+        $this->assertDatabaseCount('import_rejections', 1);
+    }
+
+    public static function nonFiniteRatings(): array
+    {
+        return ['positive infinity' => [INF, 'INF'], 'negative infinity' => [-INF, '-INF'], 'not a number' => [NAN, 'NAN']];
+    }
+
+    #[Test]
+    public function it_starts_a_new_run_when_resume_has_no_matching_run(): void
+    {
+        $this->bindClient($this->client('1'));
+        $sink = $this->sink();
+
+        $result = $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api, resume: true);
+
+        self::assertFalse($result->resumed);
+        self::assertSame(1, $result->checkpoint);
+        self::assertSame(['1'], $sink->saved);
+        $this->assertDatabaseCount('import_runs', 1);
+        $this->assertDatabaseHas('import_runs', ['status' => 'completed']);
+    }
+
+    #[Test]
+    public function it_processes_the_same_identities_in_a_separate_run_without_resume(): void
+    {
+        $this->bindClient($this->client('1', '2'));
+        $this->sink();
+        $first = $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+        $sink = $this->sink();
+
+        $second = $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+
+        self::assertNotSame($first->runId, $second->runId);
+        self::assertFalse($second->resumed);
+        self::assertSame(['1', '2'], $sink->saved);
+        $this->assertDatabaseCount('import_runs', 2);
+        $this->assertDatabaseCount('import_processed_titles', 4);
+    }
+
+    #[Test]
     #[DataProvider('rawSources')]
     public function it_commits_mapping_rejections_and_resumes_the_remaining_raw_records(ProviderDataSource $source): void
     {
@@ -499,8 +642,8 @@ final class ImportReliabilityTest extends TestCase
         config()->set('import.checkpoint_every', 2);
         $this->bindClient($this->client('1', '2', '3'));
         $this->app->instance(CandidateSinkContract::class, new LogCandidateSink);
-        Log::shouldReceive('info')->twice()->andThrow(new RuntimeException('Logger down'));
-        Log::shouldReceive('warning')->twice()->andThrow(new RuntimeException('Logger down'));
+        Log::shouldReceive('info')->times(3)->andThrow(new RuntimeException('Logger down'));
+        Log::shouldReceive('warning')->never();
 
         $result = $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
 

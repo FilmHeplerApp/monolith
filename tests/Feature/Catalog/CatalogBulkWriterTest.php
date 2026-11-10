@@ -13,6 +13,10 @@ use App\Application\Catalog\DTOs\TitleData;
 use App\Application\Import\DTOs\CatalogAttributePackData;
 use App\Application\Import\DTOs\CatalogPackInput;
 use App\Application\Import\DTOs\CatalogTitlePackData;
+use App\Application\Import\DTOs\ImportBatch;
+use App\Application\Import\DTOs\ImportCounters;
+use App\Application\Import\Enums\ProviderDataSource;
+use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\Services\CatalogPacker;
 use App\Application\Import\Services\ImportAttributeRegistry;
 use App\Application\Import\Services\ProviderTitleToCandidateMapper;
@@ -31,18 +35,18 @@ use App\Domain\Import\Services\TitleCanonicalKeyFactory;
 use App\Domain\Import\Services\TitleKeyResolver;
 use App\Infrastructure\Persistence\Eloquent\Bulk\Catalog\TitleContentTypeMismatchException;
 use App\Infrastructure\Persistence\Eloquent\Bulk\Catalog\UnresolvedCatalogReferenceException;
+use App\Infrastructure\Persistence\Eloquent\Import\EloquentImportRunRecorder;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeDefinition;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeOption;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\Title;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\TitleAttribute;
 use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
 use Database\Seeders\AttributeDefinitionSeeder;
-use Illuminate\Contracts\Container\BindingResolutionException;
-use Illuminate\Contracts\Container\CircularDependencyException;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use JsonException;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use Tests\Support\ProviderRecords;
@@ -74,7 +78,121 @@ final class CatalogBulkWriterTest extends TestCase
 
 
     private CatalogBulkWriterContract $writer;
+    private ?string $testSchema = null;
+    private ?string $testConnection = null;
+    private ?string $previousConnection = null;
 
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_commits_the_real_catalog_with_import_checkpoint_and_reimports_without_duplicates(): void
+    {
+        $recorder = $this->importRecorder();
+        foreach ([1, 2] as $attempt) {
+            $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+            $saved = $recorder->commit($run, new ImportBatch(new ImportCounters(fetched: 1, accepted: 1), 1, ['1'], []), fn () => $this->writer->write($this->preparedCatalog()), true);
+
+            self::assertTrue($saved->completed);
+            $this->assertDatabaseHas('import_runs', ['id' => $run->runId, 'status' => 'completed', 'checkpoint' => 1]);
+            $this->assertDatabaseCount('import_processed_titles', $attempt);
+            $this->assertDatabaseCount(Title::TABLE_NAME, 1);
+            $this->assertDatabaseCount(TitleAttribute::TABLE_NAME, 2);
+            $this->assertDatabaseCount(AttributeDefinition::TABLE_NAME, 2);
+            $this->assertDatabaseCount(AttributeOption::TABLE_NAME, 2);
+        }
+    }
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_rolls_back_real_catalog_writes_and_resumes_without_duplicate_attributes(): void
+    {
+        $recorder = $this->importRecorder();
+        $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $batch = new ImportBatch(new ImportCounters(fetched: 1, accepted: 1), 1, ['1'], []);
+        try {
+            $recorder->commit($run, $batch, function (): void {
+                $this->writer->write($this->preparedCatalog());
+                throw new RuntimeException('Failure after catalog write');
+            }, true);
+            self::fail('All catalog writes must roll back.');
+        } catch (RuntimeException $exception) {
+            self::assertSame('Failure after catalog write', $exception->getMessage());
+        }
+        foreach ([Title::TABLE_NAME, TitleAttribute::TABLE_NAME, AttributeDefinition::TABLE_NAME, AttributeOption::TABLE_NAME, 'import_processed_titles'] as $table) {
+            $this->assertDatabaseCount($table, 0);
+        }
+        $this->assertDatabaseHas('import_runs', ['checkpoint' => 0, 'accepted' => 0, 'status' => 'running']);
+        $recorder->fail($run, 'Failure after catalog write');
+        $resumed = $recorder->resume(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $saved = $recorder->commit($resumed, $batch, fn () => $this->writer->write($this->preparedCatalog()), true);
+
+        self::assertTrue($saved->completed);
+        $this->assertDatabaseCount(Title::TABLE_NAME, 1);
+        $this->assertDatabaseCount(TitleAttribute::TABLE_NAME, 2);
+        $this->assertDatabaseCount('import_processed_titles', 1);
+        $this->assertDatabaseHas('import_runs', ['checkpoint' => 1, 'accepted' => 1, 'status' => 'completed']);
+    }
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_rolls_back_the_catalog_when_the_import_journal_insert_fails(): void
+    {
+        $recorder = $this->importRecorder();
+        $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        try {
+            $recorder->commit($run, new ImportBatch(new ImportCounters(fetched: 1, accepted: 1), 1, ['1'], []), function () use ($run): void {
+                $this->writer->write($this->preparedCatalog());
+                DB::table('import_processed_titles')->insert(['import_run_id' => $run->runId, 'external_id' => '1']);
+            }, true);
+            self::fail('The journal conflict must roll back the catalog.');
+        } catch (QueryException) {
+            foreach ([Title::TABLE_NAME, TitleAttribute::TABLE_NAME, AttributeDefinition::TABLE_NAME, AttributeOption::TABLE_NAME, 'import_processed_titles'] as $table) {
+                $this->assertDatabaseCount($table, 0);
+            }
+        }
+        $this->assertDatabaseHas('import_runs', ['checkpoint' => 0, 'status' => 'running']);
+    }
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_completes_an_empty_final_batch_without_rewriting_the_catalog(): void
+    {
+        $recorder = $this->importRecorder();
+        $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $run = $recorder->commit($run, new ImportBatch(new ImportCounters(fetched: 1, accepted: 1), 1, ['1'], []), fn () => $this->writer->write($this->preparedCatalog()));
+        $before = DB::table(Title::TABLE_NAME)->first();
+
+        $saved = $recorder->commit($run, new ImportBatch($run->counters, 1, [], []), fn () => $this->writer->write(new PreparedCatalogDto), true);
+
+        self::assertTrue($saved->completed);
+        self::assertEquals($before, DB::table(Title::TABLE_NAME)->first());
+        $this->assertDatabaseCount(TitleAttribute::TABLE_NAME, 2);
+        $this->assertDatabaseCount('import_processed_titles', 1);
+        $this->assertDatabaseHas('import_runs', ['status' => 'completed', 'checkpoint' => 1]);
+    }
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_rolls_back_catalog_changes_during_failed_empty_finalization(): void
+    {
+        $recorder = $this->importRecorder();
+        $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $run = $recorder->commit($run, new ImportBatch(new ImportCounters(fetched: 1, accepted: 1), 1, ['1'], []), fn () => $this->writer->write($this->preparedCatalog()));
+        try {
+            $recorder->commit($run, new ImportBatch($run->counters, 1, [], []), function (): void {
+                $this->writer->write($this->preparedCatalog(titleRu: 'Uncommitted update'));
+                throw new RuntimeException('Empty finalization failed');
+            }, true);
+            self::fail('Finalization must roll back.');
+        } catch (RuntimeException $exception) {
+            self::assertSame('Empty finalization failed', $exception->getMessage());
+        }
+        $this->assertDatabaseHas(Title::TABLE_NAME, [Title::FIELD_TITLE_RU => self::TITLE_RU]);
+        $this->assertDatabaseCount(Title::TABLE_NAME, 1);
+        $this->assertDatabaseCount(TitleAttribute::TABLE_NAME, 2);
+        $this->assertDatabaseCount('import_processed_titles', 1);
+        $this->assertDatabaseHas('import_runs', ['status' => 'running', 'checkpoint' => 1, 'finished_at' => null]);
+    }
 
     #[Test]
     public function it_inserts_catalog_collections_and_resolves_foreign_keys(): void
@@ -574,11 +692,6 @@ final class CatalogBulkWriterTest extends TestCase
         }
     }
 
-    /**
-     * @throws CircularDependencyException
-     * @throws BindingResolutionException
-     * @throws JsonException
-     */
     #[Test]
     public function it_saves_the_provider_fixture_through_evaluation_resolution_and_packing(): void
     {
@@ -642,10 +755,45 @@ final class CatalogBulkWriterTest extends TestCase
     {
         parent::setUp();
 
+        if (DB::getDriverName() === 'pgsql') {
+            $this->previousConnection = DB::getDefaultConnection();
+            $this->testSchema = 'catalog_bulk_test_'.bin2hex(random_bytes(8));
+            $this->testConnection = $this->testSchema;
+            $config = DB::connection()->getConfig();
+            DB::statement('CREATE SCHEMA '.$this->testSchema);
+            $config['search_path'] = $this->testSchema.', public';
+            $config['name'] = $this->testConnection;
+            config(['database.connections.'.$this->testConnection => $config, 'database.default' => $this->testConnection]);
+        }
         $this->createCatalogSchema();
         $this->writer = $this->app->make(CatalogBulkWriterContract::class);
     }
 
+    protected function tearDown(): void
+    {
+        if ($this->testSchema !== null) {
+            DB::purge($this->testConnection);
+            config(['database.default' => $this->previousConnection]);
+            DB::statement('DROP SCHEMA '.$this->testSchema.' CASCADE');
+        }
+        parent::tearDown();
+    }
+
+
+    private function importRecorder(): EloquentImportRunRecorder
+    {
+        foreach ([
+            '2026_09_24_000001_create_import_runs_table.php',
+            '2026_09_24_000002_create_import_rejections_table.php',
+            '2026_10_22_105000_add_snapshot_id_to_import_runs_table.php',
+            '2026_10_22_110000_create_import_processed_titles_table.php',
+            '2026_10_29_090000_add_owner_token_to_import_runs.php',
+        ] as $name) {
+            (require database_path('migrations/'.$name))->up();
+        }
+
+        return app(EloquentImportRunRecorder::class);
+    }
 
     private function packTitle(string $key, array $studios): CatalogTitlePackData
     {

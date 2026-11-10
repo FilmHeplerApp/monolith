@@ -19,6 +19,8 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use InvalidArgumentException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use Tests\Support\ProviderRecords;
@@ -27,9 +29,185 @@ use Throwable;
 
 final class ImportBatchCommitTest extends TestCase
 {
-    /**
-     * @throws Throwable
-     */
+    #[Test]
+    public function it_refuses_to_attach_a_snapshot_to_a_legacy_nonzero_checkpoint(): void
+    {
+        $recorder = app(EloquentImportRunRecorder::class);
+        $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Dump, null);
+        $run = $recorder->commit($run, $this->rejectedBatch(), static fn () => null);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Legacy import checkpoint has no dump snapshot.');
+        $recorder->bindSnapshot($run, 'new-snapshot');
+    }
+
+    #[Test]
+    public function it_completes_an_empty_final_batch_without_repeating_confirmed_results(): void
+    {
+        $recorder = app(EloquentImportRunRecorder::class);
+        $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $run = $recorder->commit($run, $this->rejectedBatch(), static fn () => null);
+        $finished = false;
+
+        $saved = $recorder->commit($run, new ImportBatch($run->counters, $run->checkpoint, [], []), function () use (&$finished): void {
+            $finished = true;
+        }, true);
+
+        self::assertTrue($finished);
+        self::assertTrue($saved->completed);
+        self::assertSame(1, $saved->checkpoint);
+        $this->assertDatabaseHas('import_runs', ['status' => 'completed', 'checkpoint' => 1, 'rejected' => 1]);
+        $this->assertDatabaseCount('import_processed_titles', 1);
+        $this->assertDatabaseCount('import_rejections', 1);
+    }
+
+    #[Test]
+    public function it_rolls_back_failed_finalization_of_an_empty_batch_and_preserves_the_previous_checkpoint(): void
+    {
+        $recorder = app(EloquentImportRunRecorder::class);
+        $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $run = $recorder->commit($run, $this->rejectedBatch(), static fn () => null);
+
+        try {
+            $recorder->commit($run, new ImportBatch($run->counters, $run->checkpoint, [], []), function (): void {
+                DB::table('saved_candidates')->insert(['external_id' => 'unexpected-finalization-write']);
+                throw new RuntimeException('Finalization failed');
+            }, true);
+            self::fail('Failed finalization must roll back.');
+        } catch (RuntimeException $exception) {
+            self::assertSame('Finalization failed', $exception->getMessage());
+        }
+
+        $this->assertDatabaseCount('saved_candidates', 0);
+        $this->assertDatabaseHas('import_runs', ['status' => 'running', 'checkpoint' => 1, 'rejected' => 1, 'finished_at' => null]);
+        $this->assertDatabaseCount('import_processed_titles', 1);
+        $this->assertDatabaseCount('import_rejections', 1);
+    }
+
+    #[Test]
+    #[DataProvider('invalidBatches')]
+    public function it_rejects_inconsistent_batches_before_writing_sink_data(ImportBatch $batch): void
+    {
+        $recorder = app(EloquentImportRunRecorder::class);
+        $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $called = false;
+
+        try {
+            $recorder->commit($run, $batch, function () use (&$called): void {
+                $called = true;
+                DB::table('saved_candidates')->insert(['external_id' => 'unexpected']);
+            });
+            self::fail('An inconsistent batch must be rejected.');
+        } catch (InvalidArgumentException) {
+            self::assertFalse($called);
+        }
+
+        $this->assertDatabaseHas('import_runs', ['checkpoint' => 0, 'fetched' => 0, 'status' => 'running']);
+        $this->assertDatabaseCount('saved_candidates', 0);
+        $this->assertDatabaseCount('import_processed_titles', 0);
+        $this->assertDatabaseCount('import_rejections', 0);
+    }
+
+    public static function invalidBatches(): array
+    {
+        return [
+            'duplicate ids' => [new ImportBatch(new ImportCounters(fetched: 2, accepted: 2), 2, ['1', '1'], [])],
+            'checkpoint does not match id count' => [new ImportBatch(new ImportCounters(fetched: 2, accepted: 2), 2, ['1'], [])],
+            'fetched does not match checkpoint' => [new ImportBatch(new ImportCounters(fetched: 1, accepted: 1), 2, ['1', '2'], [])],
+            'missing rejection details' => [new ImportBatch(new ImportCounters(fetched: 1, rejected: 1), 1, ['1'], [])],
+            'foreign rejection id' => [new ImportBatch(new ImportCounters(fetched: 1, rejected: 1), 1, ['1'], [new ImportRejectionData('other', RejectionReason::NO_TITLE)])],
+            'duplicate rejection id' => [new ImportBatch(new ImportCounters(fetched: 2, rejected: 2), 2, ['1', '2'], [
+                new ImportRejectionData('1', RejectionReason::NO_TITLE),
+                new ImportRejectionData('1', RejectionReason::MALFORMED),
+            ])],
+        ];
+    }
+
+    #[Test]
+    public function it_rejects_an_already_committed_identity_in_a_new_batch(): void
+    {
+        $recorder = app(EloquentImportRunRecorder::class);
+        $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $run = $recorder->commit($run, $this->rejectedBatch(), static fn () => null);
+        $called = false;
+
+        try {
+            $recorder->commit($run, new ImportBatch(new ImportCounters(fetched: 2, accepted: 1, rejected: 1), 2, ['1'], []), function () use (&$called): void {
+                $called = true;
+            });
+            self::fail('An identity must not be counted twice.');
+        } catch (RuntimeException $exception) {
+            self::assertSame('Import identity was already committed.', $exception->getMessage());
+            self::assertFalse($called);
+        }
+
+        $this->assertDatabaseHas('import_runs', ['checkpoint' => 1, 'rejected' => 1, 'accepted' => 0]);
+        $this->assertDatabaseCount('import_processed_titles', 1);
+        $this->assertDatabaseCount('import_rejections', 1);
+    }
+
+    #[Test]
+    public function it_preserves_the_original_limit_when_resume_omits_it(): void
+    {
+        $recorder = app(EloquentImportRunRecorder::class);
+        $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, 10);
+        $recorder->fail($run, 'Interrupted');
+
+        $resumed = $recorder->resume(ProviderSource::Mock, ProviderDataSource::Api, null);
+
+        self::assertSame($run->runId, $resumed->runId);
+        self::assertSame(10, $resumed->limit);
+        self::assertNotSame($run->ownerToken, $resumed->ownerToken);
+        $this->assertDatabaseHas('import_runs', ['status' => 'running', 'finished_at' => null, 'error_message' => null]);
+    }
+
+    #[Test]
+    public function it_rejects_a_changed_resume_limit_without_claiming_the_run(): void
+    {
+        $recorder = app(EloquentImportRunRecorder::class);
+        $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, 10);
+        $recorder->fail($run, 'Interrupted');
+
+        try {
+            $recorder->resume(ProviderSource::Mock, ProviderDataSource::Api, 20);
+            self::fail('The original limit must be preserved.');
+        } catch (InvalidArgumentException $exception) {
+            self::assertStringContainsString('does not match', $exception->getMessage());
+        }
+
+        $this->assertDatabaseHas('import_runs', ['owner_token' => $run->ownerToken, 'status' => 'failed', 'limit' => 10, 'error_message' => 'Interrupted']);
+    }
+
+    #[Test]
+    public function it_resumes_the_latest_run_for_the_requested_provider_and_source_only(): void
+    {
+        $recorder = app(EloquentImportRunRecorder::class);
+        $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, 1);
+        $expected = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, 2);
+        $foreignProvider = $recorder->start(ProviderSource::Shikimori, ProviderDataSource::Api, 3);
+        $foreignSource = $recorder->start(ProviderSource::Mock, ProviderDataSource::Dump, 4);
+
+        $resumed = $recorder->resume(ProviderSource::Mock, ProviderDataSource::Api, null);
+
+        self::assertSame($expected->runId, $resumed->runId);
+        self::assertSame(2, $resumed->limit);
+        $this->assertDatabaseHas('import_runs', ['id' => $foreignProvider->runId, 'owner_token' => $foreignProvider->ownerToken]);
+        $this->assertDatabaseHas('import_runs', ['id' => $foreignSource->runId, 'owner_token' => $foreignSource->ownerToken]);
+    }
+
+    #[Test]
+    public function it_refuses_resume_when_a_confirmed_rejection_is_missing(): void
+    {
+        $recorder = app(EloquentImportRunRecorder::class);
+        $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $run = $recorder->commit($run, $this->rejectedBatch(), static fn () => null);
+        DB::table('import_rejections')->where('import_run_id', $run->runId)->delete();
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Legacy rejection report is inconsistent.');
+        $recorder->resume(ProviderSource::Mock, ProviderDataSource::Api, null);
+    }
+
     #[Test]
     public function it_commits_sink_rows_rejections_identities_and_checkpoint_together(): void
     {
@@ -95,9 +273,6 @@ final class ImportBatchCommitTest extends TestCase
         $this->assertDatabaseCount('import_rejections', 0);
     }
 
-    /**
-     * @throws Throwable
-     */
     #[Test]
     public function it_fences_a_previous_owner_before_any_sink_write(): void
     {
@@ -126,9 +301,6 @@ final class ImportBatchCommitTest extends TestCase
         $this->assertDatabaseCount('import_rejections', 1);
     }
 
-    /**
-     * @throws Throwable
-     */
     #[Test]
     public function it_rejects_a_repeated_batch_before_calling_the_sink(): void
     {
@@ -148,9 +320,6 @@ final class ImportBatchCommitTest extends TestCase
         }
     }
 
-    /**
-     * @throws Throwable
-     */
     #[Test]
     public function it_preserves_a_committed_checkpoint_when_failure_uses_an_older_local_checkpoint(): void
     {
@@ -164,9 +333,6 @@ final class ImportBatchCommitTest extends TestCase
         self::assertSame(1, $resumed->checkpoint);
     }
 
-    /**
-     * @throws Throwable
-     */
     #[Test]
     public function it_discards_legacy_unconfirmed_rejections_when_claiming_a_run(): void
     {
@@ -179,9 +345,6 @@ final class ImportBatchCommitTest extends TestCase
         $this->assertDatabaseHas('import_runs', ['checkpoint' => 0, 'rejected' => 0]);
     }
 
-    /**
-     * @throws Throwable
-     */
     #[Test]
     public function it_emits_candidate_logs_only_after_a_successful_batch_commit(): void
     {
@@ -209,17 +372,11 @@ final class ImportBatchCommitTest extends TestCase
     }
 
 
-    /**
-     * @throws Throwable
-     */
     #[Test]
     public function it_returns_the_committed_checkpoint_when_candidate_logging_fails_after_commit(): void
     {
-        Log::shouldReceive('info')->once()->andThrow(new RuntimeException('Logger down'));
-        Log::shouldReceive('warning')->once()->with(
-            'Import candidate diagnostics were not emitted.',
-            \Mockery::on(static fn (array $context): bool => $context['skipped'] === 2 && $context['message'] === 'Logger down'),
-        );
+        Log::shouldReceive('info')->twice()->andThrow(new RuntimeException('Logger down'));
+        Log::shouldReceive('warning')->never();
         $recorder = app(EloquentImportRunRecorder::class);
         $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
         $sink = new LogCandidateSink;

@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Infrastructure\Providers;
 
+use App\Application\Import\Contracts\ProviderClientContract;
 use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
 use App\Infrastructure\Providers\Factories\ProviderClientFactory;
 use App\Infrastructure\Providers\Mock\MockProviderClient;
+use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriDumpProviderClient;
 use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriProviderClient;
 use Illuminate\Container\Container;
 use InvalidArgumentException;
@@ -152,6 +154,33 @@ final class ProviderClientFactoryTest extends TestCase
         );
 
         self::assertSame([ProviderSource::Shikimori], $factory->getEnabledSources());
+    }
+
+    #[Test]
+    public function it_preserves_both_data_source_registrations_for_the_same_provider(): void
+    {
+        $api = $this->createStub(ProviderClientContract::class);
+        $dump = $this->createStub(ProviderClientContract::class);
+        $container = new Container;
+        $container->instance(ShikimoriProviderClient::class, $api);
+        $container->instance(ShikimoriDumpProviderClient::class, $dump);
+        $factory = new ProviderClientFactory($container, ['shikimori' => [
+            'api' => ShikimoriProviderClient::class,
+            'dump' => ShikimoriDumpProviderClient::class,
+        ]], ['shikimori'], false);
+
+        self::assertSame($api, $factory->make(ProviderSource::Shikimori, ProviderDataSource::Api));
+        self::assertSame($dump, $factory->make(ProviderSource::Shikimori, ProviderDataSource::Dump));
+    }
+
+    #[Test]
+    public function it_does_not_use_a_dump_registration_for_an_api_request(): void
+    {
+        $factory = new ProviderClientFactory(new Container, ['mock' => ['dump' => MockProviderClient::class]], ['mock'], false);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('No [api] client registered for provider [mock].');
+        $factory->make(ProviderSource::Mock, ProviderDataSource::Api);
     }
 
     #[Test]
