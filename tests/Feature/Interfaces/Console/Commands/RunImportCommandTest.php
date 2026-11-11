@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Interfaces\Console\Commands;
 
 use App\Application\Import\Contracts\CandidateSinkContract;
+use App\Application\Import\Contracts\ProviderClientFactoryContract;
 use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
 use App\Domain\Import\DTOs\FilterDecision;
@@ -112,6 +113,29 @@ final class RunImportCommandTest extends TestCase
 
         $this->assertDatabaseHas('import_runs', [
             'status' => ImportRunStatus::Failed->value,
+            'fetched' => 0,
+            'checkpoint' => 0,
+        ]);
+    }
+
+    #[Test]
+    public function it_reports_that_the_provider_is_disabled(): void
+    {
+        config()->set('import.providers.enabled', [ProviderSource::Mock->value]);
+        $this->app->forgetInstance(ProviderClientFactoryContract::class);
+
+        $this->artisan('import:run', [
+            'provider' => 'shikimori',
+            '--source' => 'dump',
+            '--limit' => '1',
+        ])->assertFailed()->expectsOutputToContain('Provider [shikimori] is disabled.');
+
+        self::assertSame([], $this->sink->items);
+        $this->assertDatabaseHas('import_runs', [
+            'provider' => ProviderSource::Shikimori->value,
+            'data_source' => ProviderDataSource::Dump->value,
+            'status' => ImportRunStatus::Failed->value,
+            'error_message' => 'Provider [shikimori] is disabled.',
             'fetched' => 0,
             'checkpoint' => 0,
         ]);

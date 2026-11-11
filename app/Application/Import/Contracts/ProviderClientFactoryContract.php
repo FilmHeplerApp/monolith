@@ -9,6 +9,9 @@ use App\Application\Import\Enums\ProviderSource;
 
 interface ProviderClientFactoryContract
 {
+    /**
+     * @throws \InvalidArgumentException When the provider is disabled or has no client for the data source.
+     */
     public function make(
         ProviderSource     $source,
         ProviderDataSource $dataSource = ProviderDataSource::Api,

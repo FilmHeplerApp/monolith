@@ -23,7 +23,7 @@ final class ProviderClientFactoryTest extends TestCase
     #[Test]
     public function it_makes_the_client_mapped_to_a_source(): void
     {
-        $client = $this->factory()->make(ProviderSource::Mock);
+        $client = $this->factory(enabled: [ProviderSource::Mock->value])->make(ProviderSource::Mock);
 
         self::assertSame(MockProviderClient::class, $client::class);
     }
@@ -33,8 +33,47 @@ final class ProviderClientFactoryTest extends TestCase
     public function it_throws_when_no_client_is_registered_for_a_source(): void
     {
         $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('No [dump] client registered for provider [mock].');
 
-        $this->factory()->make(ProviderSource::Shikimori);
+        $this->factory(enabled: [ProviderSource::Mock->value])->make(ProviderSource::Mock, ProviderDataSource::Dump);
+    }
+
+    #[Test]
+    #[DataProvider('dataSources')]
+    public function it_refuses_to_make_a_registered_client_of_a_disabled_provider(ProviderDataSource $dataSource): void
+    {
+        $factory = $this->factoryWithAllClients(enabled: [ProviderSource::Mock->value]);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Provider [shikimori] is disabled.');
+
+        $factory->make(ProviderSource::Shikimori, $dataSource);
+    }
+
+    public static function dataSources(): array
+    {
+        return [
+            'api' => [ProviderDataSource::Api],
+            'dump' => [ProviderDataSource::Dump],
+        ];
+    }
+
+    #[Test]
+    public function it_refuses_a_disabled_provider_that_has_no_registered_client(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Provider [shikimori] is disabled.');
+
+        $this->factory(enabled: [ProviderSource::Mock->value])->make(ProviderSource::Shikimori);
+    }
+
+    #[Test]
+    public function it_returns_only_enabled_clients_when_a_disabled_provider_is_registered(): void
+    {
+        $factory = $this->factoryWithAllClients(enabled: [ProviderSource::Mock->value]);
+
+        self::assertSame([ProviderSource::Mock], $factory->getEnabledSources());
+        self::assertSame([ProviderSource::Mock->value], array_keys($factory->enabled()));
     }
 
 
@@ -105,12 +144,12 @@ final class ProviderClientFactoryTest extends TestCase
 
 
     #[Test]
-    public function it_forbids_making_the_mock_client_in_production(): void
+    public function it_refuses_to_make_a_disabled_mock_client_in_production(): void
     {
         $factory = $this->factory(isProduction: true);
 
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('MockProviderClient is not allowed in production.');
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Provider [mock] is disabled.');
 
         $factory->make(ProviderSource::Mock);
     }
@@ -317,6 +356,22 @@ final class ProviderClientFactoryTest extends TestCase
             clients: [ProviderSource::Mock->value => MockProviderClient::class],
             enabled: $enabled,
             isProduction: $isProduction,
+        );
+    }
+
+    private function factoryWithAllClients(array $enabled): ProviderClientFactory
+    {
+        return new ProviderClientFactory(
+            container: new Container,
+            clients: [
+                ProviderSource::Mock->value => MockProviderClient::class,
+                ProviderSource::Shikimori->value => [
+                    ProviderDataSource::Api->value => ShikimoriProviderClient::class,
+                    ProviderDataSource::Dump->value => ShikimoriDumpProviderClient::class,
+                ],
+            ],
+            enabled: $enabled,
+            isProduction: false,
         );
     }
 }

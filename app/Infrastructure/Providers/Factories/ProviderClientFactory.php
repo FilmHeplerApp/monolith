@@ -32,10 +32,10 @@ final readonly class ProviderClientFactory implements ProviderClientFactoryContr
         }
 
         $classes = $this->normalizeClients($clients, $sources);
-        $missing = array_diff_key($sources, $classes);
+        $missingRegistrations = array_diff_key($sources, $classes);
 
-        if ($missing !== []) {
-            $provider = array_key_first($missing);
+        if ($missingRegistrations !== []) {
+            $provider = array_key_first($missingRegistrations);
             throw new InvalidArgumentException("No client registered for provider [$provider].");
         }
 
@@ -45,9 +45,12 @@ final readonly class ProviderClientFactory implements ProviderClientFactoryContr
 
     public function make(ProviderSource $source, ProviderDataSource $dataSource = ProviderDataSource::Api): ProviderClientContract
     {
+        if (!in_array($source, $this->sources, true)) {
+            throw new InvalidArgumentException("Provider [$source->value] is disabled.");
+        }
+
         $class = $this->classes[$source->value][$dataSource->value]
             ?? throw new InvalidArgumentException("No [$dataSource->value] client registered for provider [$source->value].");
-        $this->assertAllowed($class);
 
         return $this->container->make($class);
     }
@@ -95,9 +98,8 @@ final readonly class ProviderClientFactory implements ProviderClientFactoryContr
 
                 if ($isEnabled) {
                     $this->assertAllowed($class);
+                    $classes[$source->value][$dataSource->value] = $class;
                 }
-
-                $classes[$source->value][$dataSource->value] = $class;
             }
         }
 
