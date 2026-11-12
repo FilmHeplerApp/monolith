@@ -208,6 +208,17 @@ Run tests:
 docker compose exec app php artisan test
 ```
 
+Most tests use in-memory SQLite. Tests that need real PostgreSQL (pgvector, functional indexes) use the
+`pgsql_testing` connection and a separate `filmhelper_test` database, so they never touch the application data.
+It is configured with `DB_TEST_*` variables (`DB_TEST_HOST`, `DB_TEST_PORT`, `DB_TEST_DATABASE`,
+`DB_TEST_USERNAME`, `DB_TEST_PASSWORD`); host, port and credentials fall back to the `DB_*` values.
+
+The test database is created by `docker/postgres/init.sql` on a fresh volume. For an existing volume, create it once:
+
+```bash
+docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < docker/postgres/init.sql
+```
+
 Clear Laravel caches:
 
 ```bash

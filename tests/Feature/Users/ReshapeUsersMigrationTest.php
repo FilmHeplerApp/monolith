@@ -15,6 +15,7 @@ use Tests\TestCase;
 
 final class ReshapeUsersMigrationTest extends TestCase
 {
+    private const string BASE_CONNECTION = 'pgsql_testing';
     private const string CONNECTION = 'pgsql_users_migration';
     private const string SCHEMA = 'users_migration_test';
 
@@ -123,55 +124,10 @@ final class ReshapeUsersMigrationTest extends TestCase
      */
     private function connectionConfig(string $searchPath): array
     {
-        return [
-            'driver' => 'pgsql',
-            'host' => $this->envValue('DB_HOST', 'postgres'),
-            'port' => $this->envValue('DB_PORT', '5432'),
-            'database' => $this->envValue('DB_DATABASE', 'filmhelper'),
-            'username' => $this->envValue('DB_USERNAME', 'filmhelper'),
-            'password' => $this->envValue('DB_PASSWORD', 'secret'),
-            'charset' => 'utf8',
-            'prefix' => '',
-            'prefix_indexes' => true,
-            'search_path' => $searchPath,
-            'sslmode' => 'prefer',
-        ];
-    }
+        /** @var array<string, mixed> $config */
+        $config = config('database.connections.'.self::BASE_CONNECTION);
 
-    private function envValue(string $key, string $fallback): string
-    {
-        $path = base_path('.env');
-
-        if (!is_file($path)) {
-            return $fallback;
-        }
-
-        $lines = file($path, FILE_IGNORE_NEW_LINES);
-
-        if ($lines === false) {
-            return $fallback;
-        }
-
-        foreach ($lines as $line) {
-            $line = trim($line);
-
-            if ($line === '' || str_starts_with($line, '#') || !str_contains($line, '=')) {
-                continue;
-            }
-
-            [$name, $value] = explode('=', $line, 2);
-
-            if (trim($name) !== $key) {
-                continue;
-            }
-
-            $value = trim($value);
-            $value = trim($value, "\"'");
-
-            return $value !== '' ? $value : $fallback;
-        }
-
-        return $fallback;
+        return [...$config, 'search_path' => $searchPath];
     }
 
     private function migrateLaravelUsersTable(): void
