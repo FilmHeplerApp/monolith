@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Infrastructure\Providers\Shikimori\Dumps;
 
+use App\Infrastructure\Import\Dumps\DumpLocation;
 use App\Infrastructure\Providers\Shikimori\Dumps\ShikimoriDumpWriter;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\Storage;
@@ -14,6 +15,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use Tests\TestCase;
+use Throwable;
 
 final class ShikimoriDumpWriterTest extends TestCase
 {
@@ -27,10 +29,13 @@ final class ShikimoriDumpWriterTest extends TestCase
     private FilesystemAdapter $disk;
 
 
+    /**
+     * @throws JsonException
+     */
     #[Test]
     public function it_stores_seen_pages_with_the_committed_page(): void
     {
-        $writer = new ShikimoriDumpWriter($this->disk);
+        $writer = new ShikimoriDumpWriter($this->disk, DumpLocation::fromConfig('shikimori'));
         $seen = $this->seenPages([1 => ['1']]);
 
         try {
@@ -51,6 +56,7 @@ final class ShikimoriDumpWriterTest extends TestCase
         self::assertSame(1, $writer->titleCount());
     }
 
+
     /**
      * @throws JsonException
      */
@@ -61,7 +67,7 @@ final class ShikimoriDumpWriterTest extends TestCase
         $seen = $this->seenPages([1 => ['1']]);
         $this->disk->put(self::ANIME_PATH, $committed);
         $this->saveCheckpoint(1, strlen($committed), 1, $seen);
-        $writer = new ShikimoriDumpWriter($this->disk);
+        $writer = new ShikimoriDumpWriter($this->disk, DumpLocation::fromConfig('shikimori'));
 
         try {
             self::assertSame(2, $writer->start(true));
@@ -71,16 +77,14 @@ final class ShikimoriDumpWriterTest extends TestCase
         }
     }
 
-    /**
-     * @throws JsonException
-     */
+
     #[Test]
     public function it_truncates_an_uncommitted_tail_when_resuming(): void
     {
         $committed = "{\"id\":\"1\"}\n";
-        $this->disk->put(self::ANIME_PATH, $committed . "{\"id\":\"2\"}\n{\"id\":");
+        $this->disk->put(self::ANIME_PATH, $committed."{\"id\":\"2\"}\n{\"id\":");
         $this->saveCheckpoint(1, strlen($committed), 1);
-        $writer = new ShikimoriDumpWriter($this->disk);
+        $writer = new ShikimoriDumpWriter($this->disk, DumpLocation::fromConfig('shikimori'));
 
         try {
             self::assertSame(2, $writer->start(true));
@@ -94,7 +98,7 @@ final class ShikimoriDumpWriterTest extends TestCase
     #[Test]
     public function it_rejects_an_empty_page_and_a_page_that_is_not_next(): void
     {
-        $writer = new ShikimoriDumpWriter($this->disk);
+        $writer = new ShikimoriDumpWriter($this->disk, DumpLocation::fromConfig('shikimori'));
 
         try {
             $writer->start(false);
@@ -122,7 +126,7 @@ final class ShikimoriDumpWriterTest extends TestCase
     {
         $previous = "{\"id\":\"10\"}\n";
         $this->disk->put(self::GENRES_PATH, $previous);
-        $writer = new ShikimoriDumpWriter($this->disk);
+        $writer = new ShikimoriDumpWriter($this->disk, DumpLocation::fromConfig('shikimori'));
 
         try {
             $writer->start(false);
@@ -132,7 +136,7 @@ final class ShikimoriDumpWriterTest extends TestCase
         }
 
         self::assertSame($previous, $this->disk->get(self::GENRES_PATH));
-        $this->disk->assertMissing(self::GENRES_PATH . '.tmp');
+        $this->disk->assertMissing(self::GENRES_PATH.'.tmp');
     }
 
     #[Test]
@@ -143,12 +147,12 @@ final class ShikimoriDumpWriterTest extends TestCase
         $faulty = $this->partialDisk();
 
         if ($operation === 'put') {
-            $faulty->shouldReceive('put')->with(self::GENRES_PATH . '.tmp', Mockery::any())->andReturn(false);
+            $faulty->shouldReceive('put')->with(self::GENRES_PATH.'.tmp', Mockery::any())->andReturn(false);
         } else {
-            $faulty->shouldReceive('move')->with(self::GENRES_PATH . '.tmp', self::GENRES_PATH)->andReturn(false);
+            $faulty->shouldReceive('move')->with(self::GENRES_PATH.'.tmp', self::GENRES_PATH)->andReturn(false);
         }
 
-        $writer = new ShikimoriDumpWriter($faulty);
+        $writer = new ShikimoriDumpWriter($faulty, DumpLocation::fromConfig('shikimori'));
 
         try {
             $writer->start(false);
@@ -156,7 +160,7 @@ final class ShikimoriDumpWriterTest extends TestCase
             self::fail('Genre write must fail.');
         } catch (RuntimeException $exception) {
             self::assertSame(
-                'Cannot ' . ($operation === 'put' ? 'write ' : 'commit ') . self::GENRES_PATH . '.',
+                'Cannot '.($operation === 'put' ? 'write ' : 'commit ').self::GENRES_PATH.'.',
                 $exception->getMessage(),
             );
         } finally {
@@ -165,6 +169,7 @@ final class ShikimoriDumpWriterTest extends TestCase
 
         self::assertSame('previous genres', $this->disk->get(self::GENRES_PATH));
     }
+
 
     /**
      * @throws JsonException
@@ -178,7 +183,7 @@ final class ShikimoriDumpWriterTest extends TestCase
 
         if ($operation === 'put') {
             $faulty->shouldReceive('put')->andReturnUsing(function ($path, $contents) use (&$failed): bool {
-                if (!$failed && $path === self::CHECKPOINT_PATH . '.tmp'
+                if (!$failed && $path === self::CHECKPOINT_PATH.'.tmp'
                     && json_decode($contents, true)['page'] === 2) {
                     $failed = true;
 
@@ -200,7 +205,7 @@ final class ShikimoriDumpWriterTest extends TestCase
             });
         }
 
-        $writer = new ShikimoriDumpWriter($faulty);
+        $writer = new ShikimoriDumpWriter($faulty, DumpLocation::fromConfig('shikimori'));
 
         try {
             $writer->start(false);
@@ -211,7 +216,7 @@ final class ShikimoriDumpWriterTest extends TestCase
                 self::fail('The second checkpoint must fail.');
             } catch (RuntimeException $exception) {
                 self::assertSame(
-                    'Cannot ' . ($operation === 'put' ? 'write ' : 'commit ') . self::CHECKPOINT_PATH . '.',
+                    'Cannot '.($operation === 'put' ? 'write ' : 'commit ').self::CHECKPOINT_PATH.'.',
                     $exception->getMessage(),
                 );
             }
@@ -229,7 +234,7 @@ final class ShikimoriDumpWriterTest extends TestCase
             'seen_pages' => $this->seenPages([1 => ['1']]),
         ], $this->checkpoint());
 
-        $resume = new ShikimoriDumpWriter($this->disk);
+        $resume = new ShikimoriDumpWriter($this->disk, DumpLocation::fromConfig('shikimori'));
 
         try {
             self::assertSame(2, $resume->start(true));
@@ -239,6 +244,7 @@ final class ShikimoriDumpWriterTest extends TestCase
 
         self::assertSame(['1'], $this->ids());
     }
+
 
     /**
      * @throws JsonException
@@ -261,7 +267,7 @@ final class ShikimoriDumpWriterTest extends TestCase
         if ($operation === 'put') {
             $faulty->shouldReceive('put')
                 ->once()
-                ->with(self::CHECKPOINT_PATH . '.tmp', Mockery::any())
+                ->with(self::CHECKPOINT_PATH.'.tmp', Mockery::any())
                 ->andReturnUsing(function (string $path, string $contents) use ($assertReset): bool {
                     $assertReset($contents);
 
@@ -270,7 +276,7 @@ final class ShikimoriDumpWriterTest extends TestCase
         } else {
             $faulty->shouldReceive('move')
                 ->once()
-                ->with(self::CHECKPOINT_PATH . '.tmp', self::CHECKPOINT_PATH)
+                ->with(self::CHECKPOINT_PATH.'.tmp', self::CHECKPOINT_PATH)
                 ->andReturnUsing(function (string $from, string $to) use ($assertReset): bool {
                     $assertReset($this->disk->get($from));
 
@@ -278,14 +284,14 @@ final class ShikimoriDumpWriterTest extends TestCase
                 });
         }
 
-        $writer = new ShikimoriDumpWriter($faulty);
+        $writer = new ShikimoriDumpWriter($faulty, DumpLocation::fromConfig('shikimori'));
 
         try {
             $writer->start(false);
             self::fail('The initial checkpoint must fail.');
         } catch (RuntimeException $exception) {
             self::assertSame(
-                'Cannot ' . ($operation === 'put' ? 'write ' : 'commit ') . self::CHECKPOINT_PATH . '.',
+                'Cannot '.($operation === 'put' ? 'write ' : 'commit ').self::CHECKPOINT_PATH.'.',
                 $exception->getMessage(),
             );
         } finally {
@@ -297,7 +303,7 @@ final class ShikimoriDumpWriterTest extends TestCase
             'version' => 1, 'page' => 1, 'bytes' => strlen($dump), 'titles' => 1,
         ], $this->checkpoint());
 
-        $resume = new ShikimoriDumpWriter($this->disk);
+        $resume = new ShikimoriDumpWriter($this->disk, DumpLocation::fromConfig('shikimori'));
 
         try {
             $resume->start(true);
@@ -322,9 +328,7 @@ final class ShikimoriDumpWriterTest extends TestCase
         self::assertSame(['1'], $this->ids());
     }
 
-    /**
-     * @throws JsonException
-     */
+
     #[Test]
     #[DataProvider('nonArraySeenPages')]
     public function it_refuses_to_resume_when_seen_pages_is_not_a_map(mixed $seenPages): void
@@ -340,6 +344,9 @@ final class ShikimoriDumpWriterTest extends TestCase
         self::assertSame($dump, $this->disk->get(self::ANIME_PATH));
     }
 
+    /**
+     * @throws JsonException
+     */
     #[Test]
     public function it_refuses_to_resume_a_dump_shorter_than_the_checkpoint(): void
     {
@@ -361,6 +368,9 @@ final class ShikimoriDumpWriterTest extends TestCase
         self::assertSame($dump, $this->disk->get(self::ANIME_PATH));
     }
 
+    /**
+     * @throws JsonException
+     */
     #[Test]
     public function it_refuses_a_checkpoint_in_the_middle_of_a_record(): void
     {
@@ -384,8 +394,8 @@ final class ShikimoriDumpWriterTest extends TestCase
     #[Test]
     public function it_rejects_a_second_exclusive_lock(): void
     {
-        $first = new ShikimoriDumpWriter($this->disk);
-        $second = new ShikimoriDumpWriter($this->disk);
+        $first = new ShikimoriDumpWriter($this->disk, DumpLocation::fromConfig('shikimori'));
+        $second = new ShikimoriDumpWriter($this->disk, DumpLocation::fromConfig('shikimori'));
 
         try {
             $first->start(false);
@@ -427,7 +437,7 @@ final class ShikimoriDumpWriterTest extends TestCase
 
     private function assertStartFails(bool $resume, string $message): void
     {
-        $writer = new ShikimoriDumpWriter($this->disk);
+        $writer = new ShikimoriDumpWriter($this->disk, DumpLocation::fromConfig('shikimori'));
 
         try {
             $writer->start($resume);
@@ -439,6 +449,9 @@ final class ShikimoriDumpWriterTest extends TestCase
         }
     }
 
+    /**
+     * @throws Throwable
+     */
     private function partialDisk(): FilesystemAdapter&MockInterface
     {
         $mock = Mockery::mock(FilesystemAdapter::class, [$this->disk->getDriver(), $this->disk->getAdapter(), $this->disk->getConfig()])->makePartial();
@@ -449,9 +462,7 @@ final class ShikimoriDumpWriterTest extends TestCase
         return $mock;
     }
 
-    /**
-     * @throws JsonException
-     */
+
     private function saveCheckpoint(
         int   $page,
         int   $bytes,
@@ -467,6 +478,7 @@ final class ShikimoriDumpWriterTest extends TestCase
         $this->disk->put(self::CHECKPOINT_PATH, json_encode($checkpoint, JSON_THROW_ON_ERROR));
     }
 
+
     /**
      * @throws JsonException
      */
@@ -475,10 +487,7 @@ final class ShikimoriDumpWriterTest extends TestCase
         return json_decode($this->disk->get(self::CHECKPOINT_PATH), true, 512, JSON_THROW_ON_ERROR);
     }
 
-    /**
-     * @param array<int, list<string>> $pages
-     * @return array<string, int>
-     */
+
     private function seenPages(array $pages): array
     {
         $seen = [];
@@ -493,9 +502,7 @@ final class ShikimoriDumpWriterTest extends TestCase
     private function ids(): array
     {
         return array_map(
-        /**
-         * @throws JsonException
-         */ static fn(string $line): string => json_decode($line, true, 512, JSON_THROW_ON_ERROR)['id'],
+            static fn (string $line): string => json_decode($line, true, 512, JSON_THROW_ON_ERROR)['id'],
             explode("\n", trim($this->disk->get(self::ANIME_PATH))),
         );
     }

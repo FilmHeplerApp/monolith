@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Interfaces\Console\Commands;
 
+use App\Infrastructure\Import\Dumps\DumpLocation;
 use App\Infrastructure\Providers\Shikimori\Dumps\ShikimoriDumpWriter;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\File;
@@ -62,7 +63,7 @@ final class BuildShikimoriFixtureCommandTest extends TestCase
     public function it_fails_immediately_while_the_dump_writer_holds_the_lock(): void
     {
         $this->saveCuratedDump();
-        $writer = new ShikimoriDumpWriter($this->disk);
+        $writer = new ShikimoriDumpWriter($this->disk, DumpLocation::fromConfig('shikimori'));
         $writer->start(false);
         File::shouldReceive('put')->never();
 
