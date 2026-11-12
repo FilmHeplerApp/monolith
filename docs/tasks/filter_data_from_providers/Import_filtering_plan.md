@@ -273,7 +273,7 @@ snapshot с учётом сохранённых записей.
 | `titles.last_synced_at` | Требование ТЗ 6.3.3 |
 | `import_runs` (+ `import_rejections`) | ТЗ 6.3.3 п.9 и «логировать причины отсева» |
 | `attribute_definitions`: UNIQUE `(content_type_code, code)` вместо глобального `code` | Сделано миграцией `2026_10_17_191400`: иначе `genres` для аниме и для фильмов не сосуществуют |
-| `attribute_definitions`: `studios` -> `value_type = ARRAY` | Решение 3.4 |
+| `attribute_definitions`: `studios` -> `value_type = ARRAY` | Решение 3.4; миграция `2026_10_22_090000` переносит строковые значения в массивы с сохранением ID |
 | Разрешить противоречие `titles.external_id` | Сейчас это `uuid()` с неуникальным индексом, а `ExternalId` VO требует UUID — при этом id провайдера это `"52991"`. Читаем так: `external_id` это внутренний публичный UUID тайтла, а id провайдеров живут в `external_ids` |
 
 ### 5.1. Две ловушки массовых операций
@@ -302,7 +302,7 @@ snapshot с учётом сохранённых записей.
 | `status` | `titles.status` | `anons -> announced`, `ongoing`, `released` — почти 1:1 |
 | `score` | `titles.provider_score` | **Не** в `rating_avg` (решение 3.3) |
 | `scoresStats[].count` сумма | `titles.provider_score_count` | Метаданные поставщика для ранжирования; не ограничивает импорт. Отсутствие статистики -> null, явно переданный ноль -> 0 |
-| `duration` | `titles.duration` | Уже в минутах |
+| `duration` | `titles.duration` | Уже в минутах; сырой 0 у Shikimori преобразуется адаптером в null до упаковки |
 | `airedOn.year` | `titles.release_year` | Для `dedup_key` |
 | `poster.originalUrl` | `titles.poster_url` | Абсолютный URL |
 | `genres[kind=genre]` | атрибут `genres` | 22 значения, RU+EN готовые |

@@ -2,43 +2,45 @@
 
 namespace Database\Seeders;
 
-use App\Domain\Catalog\Enums\AttributeDefinition\AttributeValueType;
+use App\Application\Import\Services\ImportAttributeRegistry;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeDefinition;
-use Illuminate\Database\Eloquent\Factories\Sequence;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
+use RuntimeException;
+use Throwable;
 
 class AttributeDefinitionSeeder extends Seeder
 {
-    private const array ATTRIBUTE_DEFINITION_CODES = [
-        'genres',
-        'moods',
-        'tags',
-        'target_audience',
-        'studios',
-        'pace',
-    ];
-    private const array VALUE_TYPE_BY_CODE = [
-        'genres' => AttributeValueType::ARRAY,
-        'moods' => AttributeValueType::ARRAY,
-        'tags' => AttributeValueType::ARRAY,
-        'target_audience' => AttributeValueType::STRING,
-        'studios' => AttributeValueType::STRING,
-        'pace' => AttributeValueType::STRING,
-    ];
-
-
-    public function run(): void
+    /**
+     * @throws Throwable
+     */
+    public function run(ImportAttributeRegistry $registry): void
     {
-        AttributeDefinition::factory()
-            ->count(count(self::ATTRIBUTE_DEFINITION_CODES))
-            ->state(new Sequence(
-                fn(Sequence $sequence) => [
-                    AttributeDefinition::FIELD_CODE => self::ATTRIBUTE_DEFINITION_CODES[$sequence->index],
-                    AttributeDefinition::FIELD_NAME_RU => __('titles.' . self::ATTRIBUTE_DEFINITION_CODES[$sequence->index]),
-                    AttributeDefinition::FIELD_NAME_EN => self::ATTRIBUTE_DEFINITION_CODES[$sequence->index],
-                    AttributeDefinition::FIELD_VALUE_TYPE => self::VALUE_TYPE_BY_CODE[self::ATTRIBUTE_DEFINITION_CODES[$sequence->index]],
-                ]
-            ))
-            ->create();
+        DB::transaction(function () use ($registry): void {
+            foreach ($registry->definitions() as $definition) {
+                $stored = AttributeDefinition::query()->firstOrCreate(
+                    [
+                        AttributeDefinition::FIELD_CONTENT_TYPE_CODE => $definition->contentType->value,
+                        AttributeDefinition::FIELD_CODE => $definition->code,
+                    ],
+                    [
+                        AttributeDefinition::FIELD_NAME_RU => $definition->name->getRu(),
+                        AttributeDefinition::FIELD_NAME_EN => $definition->name->getEn(),
+                        AttributeDefinition::FIELD_VALUE_TYPE => $definition->valueType->value,
+                        AttributeDefinition::FIELD_IS_FILTERABLE => $definition->isFilterable,
+                        AttributeDefinition::FIELD_IS_REQUIRED => $definition->isRequired,
+                        AttributeDefinition::FIELD_ORDER => $definition->order,
+                    ],
+                );
+
+                if ($stored->value_type !== $definition->valueType) {
+                    throw new RuntimeException(sprintf(
+                        'Import attribute [%s:%s] has an incompatible stored value type. Run the data migrations before seeding.',
+                        $definition->contentType->value,
+                        $definition->code,
+                    ));
+                }
+            }
+        });
     }
 }
