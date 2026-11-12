@@ -50,10 +50,14 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use Tests\Support\ProviderRecords;
+use Tests\Support\StartsImportRuns;
 use Tests\TestCase;
 
 final class CatalogBulkWriterTest extends TestCase
 {
+    use StartsImportRuns;
+
+
     private const string TITLE_UUID = '018fe2f8-0a2e-7a42-b0a7-6f6f5b0f0f13';
     private const string SECOND_TITLE_UUID = '018fe2f8-0a2e-7a42-b0a7-6f6f5b0f0f14';
     private const string CANONICAL_KEY = 'naruto|anime';
@@ -89,7 +93,7 @@ final class CatalogBulkWriterTest extends TestCase
     {
         $recorder = $this->importRecorder();
         foreach ([1, 2] as $attempt) {
-            $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+            $run = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
             $saved = $recorder->commit($run, new ImportBatch(new ImportCounters(fetched: 1, accepted: 1), 1, ['1'], []), fn () => $this->writer->write($this->preparedCatalog()), true);
 
             self::assertTrue($saved->completed);
@@ -107,7 +111,7 @@ final class CatalogBulkWriterTest extends TestCase
     public function it_rolls_back_real_catalog_writes_and_resumes_without_duplicate_attributes(): void
     {
         $recorder = $this->importRecorder();
-        $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $run = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
         $batch = new ImportBatch(new ImportCounters(fetched: 1, accepted: 1), 1, ['1'], []);
         try {
             $recorder->commit($run, $batch, function (): void {
@@ -123,7 +127,7 @@ final class CatalogBulkWriterTest extends TestCase
         }
         $this->assertDatabaseHas('import_runs', ['checkpoint' => 0, 'accepted' => 0, 'status' => 'running']);
         $recorder->fail($run, 'Failure after catalog write');
-        $resumed = $recorder->resume(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $resumed = $this->resumeRun(ProviderSource::Mock, ProviderDataSource::Api, null);
         $saved = $recorder->commit($resumed, $batch, fn () => $this->writer->write($this->preparedCatalog()), true);
 
         self::assertTrue($saved->completed);
@@ -138,7 +142,7 @@ final class CatalogBulkWriterTest extends TestCase
     public function it_rolls_back_the_catalog_when_the_import_journal_insert_fails(): void
     {
         $recorder = $this->importRecorder();
-        $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $run = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
         try {
             $recorder->commit($run, new ImportBatch(new ImportCounters(fetched: 1, accepted: 1), 1, ['1'], []), function () use ($run): void {
                 $this->writer->write($this->preparedCatalog());
@@ -158,7 +162,7 @@ final class CatalogBulkWriterTest extends TestCase
     public function it_completes_an_empty_final_batch_without_rewriting_the_catalog(): void
     {
         $recorder = $this->importRecorder();
-        $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $run = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
         $run = $recorder->commit($run, new ImportBatch(new ImportCounters(fetched: 1, accepted: 1), 1, ['1'], []), fn () => $this->writer->write($this->preparedCatalog()));
         $before = DB::table(Title::TABLE_NAME)->first();
 
@@ -176,7 +180,7 @@ final class CatalogBulkWriterTest extends TestCase
     public function it_rolls_back_catalog_changes_during_failed_empty_finalization(): void
     {
         $recorder = $this->importRecorder();
-        $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $run = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
         $run = $recorder->commit($run, new ImportBatch(new ImportCounters(fetched: 1, accepted: 1), 1, ['1'], []), fn () => $this->writer->write($this->preparedCatalog()));
         try {
             $recorder->commit($run, new ImportBatch($run->counters, 1, [], []), function (): void {

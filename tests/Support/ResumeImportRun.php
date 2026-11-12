@@ -18,9 +18,11 @@ config(['database.default' => 'import_peer', 'database.connections.import_peer' 
 DB::purge('import_peer');
 echo DB::selectOne('SELECT pg_backend_pid() AS pid')->pid."\n";
 flush();
-$run = app(ImportRunLockContract::class)->synchronized(
+$lock = app(ImportRunLockContract::class);
+$recorder = new EloquentImportRunRecorder($lock);
+$run = $lock->synchronized(
     ProviderSource::Mock,
     ProviderDataSource::Api,
-    fn () => app(EloquentImportRunRecorder::class)->resume(ProviderSource::Mock, ProviderDataSource::Api, null),
+    fn () => $recorder->resume(ProviderSource::Mock, ProviderDataSource::Api, null),
 );
 echo json_encode(['checkpoint' => $run->checkpoint, 'owner_token' => $run->ownerToken], JSON_THROW_ON_ERROR)."\n";

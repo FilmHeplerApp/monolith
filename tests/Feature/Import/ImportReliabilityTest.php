@@ -41,10 +41,14 @@ use RuntimeException;
 use Tests\Support\CommittedShikimoriDump;
 use Tests\Support\ProviderRecords;
 use Tests\Support\SingleProviderClientFactory;
+use Tests\Support\StartsImportRuns;
 use Tests\TestCase;
 
 final class ImportReliabilityTest extends TestCase
 {
+    use StartsImportRuns;
+
+
     private string $directory;
 
 
@@ -473,11 +477,11 @@ final class ImportReliabilityTest extends TestCase
     public function it_supersedes_an_abandoned_running_run_when_a_new_one_starts(): void
     {
         $recorder = app(EloquentImportRunRecorder::class);
-        $abandoned = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
-        $otherProvider = $recorder->start(ProviderSource::Shikimori, ProviderDataSource::Api, null);
-        $otherSource = $recorder->start(ProviderSource::Mock, ProviderDataSource::Dump, null);
+        $abandoned = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $otherProvider = $this->startRun(ProviderSource::Shikimori, ProviderDataSource::Api, null);
+        $otherSource = $this->startRun(ProviderSource::Mock, ProviderDataSource::Dump, null);
 
-        $fresh = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $fresh = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
 
         $this->assertDatabaseHas('import_runs', [
             'id' => $abandoned->runId,
@@ -494,8 +498,8 @@ final class ImportReliabilityTest extends TestCase
     public function it_fences_a_superseded_worker_from_failing_the_new_run(): void
     {
         $recorder = app(EloquentImportRunRecorder::class);
-        $abandoned = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
-        $fresh = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $abandoned = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $fresh = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
 
         try {
             $recorder->fail($abandoned, 'late failure');
@@ -512,8 +516,8 @@ final class ImportReliabilityTest extends TestCase
     public function it_fences_a_superseded_worker_from_committing_a_batch(): void
     {
         $recorder = app(EloquentImportRunRecorder::class);
-        $abandoned = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
-        $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $abandoned = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
         $written = false;
 
         try {
@@ -694,11 +698,11 @@ final class ImportReliabilityTest extends TestCase
     public function it_rejects_a_legacy_checkpoint_without_confirmed_identities(): void
     {
         $recorder = app(EloquentImportRunRecorder::class);
-        $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $run = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
         DB::table('import_runs')->where('id', $run->runId)->update(['checkpoint' => 1, 'fetched' => 1, 'accepted' => 1]);
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Legacy import checkpoint');
-        $recorder->resume(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $this->resumeRun(ProviderSource::Mock, ProviderDataSource::Api, null);
     }
 
     #[Test]
@@ -709,11 +713,11 @@ final class ImportReliabilityTest extends TestCase
             Log::shouldReceive('error')->once()->andThrow(new RuntimeException('Logger down'));
         }
         $recorder = $this->createStub(ImportRunRecorderContract::class);
-        $run = app(EloquentImportRunRecorder::class)->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $run = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
         $recorder->method('start')->willReturn($run);
         $recorder->method('processedIds')->willReturn([]);
         $recorder->method('fail')->willThrowException(new RuntimeException('Recorder failed'));
-        $this->app->instance(ImportRunRecorderContract::class, $recorder);
+        $this->app->bind(ImportRunRecorderContract::class, static fn () => $recorder);
         $client = $this->client('1');
         $original = new ProviderUnavailableException(ProviderSource::Mock, 'Original API failure');
         $client->failWith($original);
@@ -756,6 +760,9 @@ final class ImportReliabilityTest extends TestCase
         $sink = $this->sink();
         $this->app->instance(ImportRunLockContract::class, new class implements ImportRunLockContract
         {
+            private int $checks = 0;
+
+
             public function synchronized(ProviderSource $provider, ProviderDataSource $source, Closure $work): mixed
             {
                 return $work();
@@ -763,7 +770,9 @@ final class ImportReliabilityTest extends TestCase
 
             public function assertOwned(): void
             {
-                throw new RuntimeException('Simulated ownership loss');
+                if (++$this->checks > 2) {
+                    throw new RuntimeException('Simulated ownership loss');
+                }
             }
         });
         try {

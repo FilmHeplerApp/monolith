@@ -83,16 +83,21 @@ final class ImportServiceProvider extends ServiceProvider
 
         $this->app->bind(
             ImportTitlesFromProvider::class,
-            static fn (Application $app): ImportTitlesFromProvider => new ImportTitlesFromProvider(
-                contexts: $app->make(ProviderImportContextFactoryContract::class),
-                streams: new ImportTitleStreamFactory($app->make(ImportRunRecorderContract::class)),
-                candidateMapper: $app->make(ProviderTitleToCandidateMapper::class),
-                filter: $app->make(TitleCandidateEvaluator::class),
-                recorder: $app->make(ImportRunRecorderContract::class),
-                sink: $app->make(CandidateSinkContract::class),
-                lock: $app->make(ImportRunLockContract::class),
-                checkpointEvery: (int) config('import.checkpoint_every', 50),
-            ),
+            static function (Application $app): ImportTitlesFromProvider {
+                $lock = $app->make(ImportRunLockContract::class);
+                $recorder = $app->make(ImportRunRecorderContract::class, ['lock' => $lock]);
+
+                return new ImportTitlesFromProvider(
+                    contexts: $app->make(ProviderImportContextFactoryContract::class),
+                    streams: new ImportTitleStreamFactory($recorder),
+                    candidateMapper: $app->make(ProviderTitleToCandidateMapper::class),
+                    filter: $app->make(TitleCandidateEvaluator::class),
+                    recorder: $recorder,
+                    sink: $app->make(CandidateSinkContract::class),
+                    lock: $lock,
+                    checkpointEvery: (int) config('import.checkpoint_every', 50),
+                );
+            },
         );
     }
 }

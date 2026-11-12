@@ -16,14 +16,19 @@ use Illuminate\Database\Connection;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
+use Tests\Support\StartsImportRuns;
 use Tests\TestCase;
 
 #[Group('pgsql')]
 final class PostgresImportBatchCommitTest extends TestCase
 {
+    use StartsImportRuns;
+
+
     private string $previousConnection;
     private string $connectionName;
     private string $schemaName;
@@ -34,7 +39,7 @@ final class PostgresImportBatchCommitTest extends TestCase
     public function a_new_owner_waits_for_the_old_transaction_and_reads_its_committed_checkpoint(): void
     {
         $recorder = app(EloquentImportRunRecorder::class);
-        $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $run = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
         $batch = new ImportBatch(new ImportCounters(fetched: 1, accepted: 1), 1, ['1'], []);
         $process = null;
         $pipes = [];
@@ -97,7 +102,7 @@ final class PostgresImportBatchCommitTest extends TestCase
     public function an_error_after_sink_writes_rolls_back_the_entire_postgresql_batch(): void
     {
         $recorder = app(EloquentImportRunRecorder::class);
-        $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $run = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
         $batch = new ImportBatch(
             new ImportCounters(fetched: 1, rejected: 1), 1, ['1'],
             [new ImportRejectionData('1', RejectionReason::NO_TITLE)],
@@ -124,7 +129,7 @@ final class PostgresImportBatchCommitTest extends TestCase
     public function terminating_the_real_lock_session_after_sink_writes_rolls_back_the_batch(): void
     {
         $lock = new PostgresImportRunLock;
-        $recorder = app(EloquentImportRunRecorder::class);
+        $recorder = new EloquentImportRunRecorder($lock);
 
         try {
             $lock->synchronized(ProviderSource::Mock, ProviderDataSource::Api, function () use ($lock, $recorder): void {
@@ -151,6 +156,86 @@ final class PostgresImportBatchCommitTest extends TestCase
         $this->assertDatabaseCount('saved_candidates', 0);
         $this->assertDatabaseCount('import_processed_titles', 0);
         $this->assertDatabaseHas('import_runs', ['checkpoint' => 0, 'accepted' => 0]);
+    }
+
+
+    #[Test]
+    #[DataProvider('lifecycleLockLosses')]
+    public function losing_the_real_lock_rolls_back_lifecycle_changes(string $operation, bool $beforeMutation): void
+    {
+        $run = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
+        if ($operation !== 'start') {
+            DB::table('import_runs')->where('id', $run->runId)->update([
+                'status' => $operation === 'completed' ? 'completed' : 'failed',
+                'finished_at' => now(),
+            ]);
+        }
+        DB::table('import_rejections')->insert([
+            'import_run_id' => $run->runId,
+            'external_id' => 'unconfirmed',
+            'reason' => 'malformed',
+        ]);
+        $before = DB::table('import_runs')->get()->all();
+        $lock = new PostgresImportRunLock;
+        $recorder = new EloquentImportRunRecorder($lock);
+        $armed = false;
+        $terminated = false;
+        $terminate = function () use (&$terminated): void {
+            foreach (DB::getConnections() as $name => $connection) {
+                if (str_starts_with($name, 'import_lock_')) {
+                    $pid = (int) $connection->getPdo()->query('SELECT pg_backend_pid()')->fetchColumn();
+                    $statement = $this->baseConnection->getPdo()->prepare('SELECT pg_terminate_backend(?)');
+                    $statement->execute([$pid]);
+                    self::assertTrue(in_array($statement->fetchColumn(), [true, 1, '1', 't'], true));
+                    $terminated = true;
+
+                    return;
+                }
+            }
+            self::fail('The dedicated lock connection must exist.');
+        };
+        DB::listen(static function ($query) use (&$armed, $terminate): void {
+            if ($armed && (str_starts_with($query->sql, 'update "import_runs"') || str_starts_with($query->sql, 'delete from "import_rejections"'))) {
+                $armed = false;
+                $terminate();
+            }
+        });
+
+        try {
+            $lock->synchronized(ProviderSource::Mock, ProviderDataSource::Api, function () use ($beforeMutation, &$armed, $terminate, $recorder, $operation): void {
+                if ($beforeMutation) {
+                    $terminate();
+                } else {
+                    $armed = true;
+                }
+                if ($operation === 'start') {
+                    $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+                } else {
+                    $recorder->resume(ProviderSource::Mock, ProviderDataSource::Api, null);
+                }
+                self::fail('A terminated lock must abort the lifecycle transaction.');
+            });
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString('lock session was lost', $exception->getMessage());
+        } finally {
+            $armed = false;
+        }
+
+        self::assertTrue($terminated);
+        self::assertEquals($before, DB::table('import_runs')->get()->all());
+        $this->assertDatabaseHas('import_rejections', ['import_run_id' => $run->runId, 'external_id' => 'unconfirmed']);
+    }
+
+    public static function lifecycleLockLosses(): array
+    {
+        return [
+            'start before mutation' => ['start', true],
+            'start during mutation' => ['start', false],
+            'resume before mutation' => ['resume', true],
+            'resume during mutation' => ['resume', false],
+            'completed before cleanup' => ['completed', true],
+            'completed during cleanup' => ['completed', false],
+        ];
     }
 
 

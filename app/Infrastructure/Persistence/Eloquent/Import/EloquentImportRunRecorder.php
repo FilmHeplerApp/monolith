@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Persistence\Eloquent\Import;
 
+use App\Application\Import\Contracts\ImportRunLockContract;
 use App\Application\Import\Contracts\ImportRunRecorderContract;
 use App\Application\Import\DTOs\ImportBatch;
 use App\Application\Import\DTOs\ImportCounters;
@@ -19,17 +20,22 @@ use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
 
-final class EloquentImportRunRecorder implements ImportRunRecorderContract
+final readonly class EloquentImportRunRecorder implements ImportRunRecorderContract
 {
+    public function __construct(
+        private ImportRunLockContract $lock,
+    ) {}
+
     /**
      * @throws Throwable
      */
     public function start(
         ProviderSource     $provider,
         ProviderDataSource $dataSource,
-        ?int               $limit
+        ?int               $limit,
     ): ImportRunCheckpoint {
         return DB::transaction(function () use ($provider, $dataSource, $limit): ImportRunCheckpoint {
+            $this->lock->assertOwned();
             $this->supersedeRunningRuns($provider, $dataSource);
 
             $run = ImportRun::query()->create([
@@ -46,6 +52,8 @@ final class EloquentImportRunRecorder implements ImportRunRecorderContract
                 ImportRun::FIELD_STARTED_AT => now(),
             ]);
 
+            $this->lock->assertOwned();
+
             return $this->checkpoint($run);
         });
     }
@@ -57,6 +65,7 @@ final class EloquentImportRunRecorder implements ImportRunRecorderContract
     public function resume(ProviderSource $provider, ProviderDataSource $dataSource, ?int $limit): ?ImportRunCheckpoint
     {
         return DB::transaction(function () use ($provider, $dataSource, $limit): ?ImportRunCheckpoint {
+            $this->lock->assertOwned();
             $run = ImportRun::query()
                 ->where(ImportRun::FIELD_PROVIDER, $provider)
                 ->where(ImportRun::FIELD_DATA_SOURCE, $dataSource)
@@ -65,6 +74,7 @@ final class EloquentImportRunRecorder implements ImportRunRecorderContract
                 ->first();
 
             if ($run === null) {
+                $this->lock->assertOwned();
                 return null;
             }
 
@@ -86,6 +96,7 @@ final class EloquentImportRunRecorder implements ImportRunRecorderContract
             }
 
             if ($run->status === ImportRunStatus::Completed) {
+                $this->lock->assertOwned();
                 return $this->checkpoint($run);
             }
 
@@ -95,6 +106,8 @@ final class EloquentImportRunRecorder implements ImportRunRecorderContract
                 ImportRun::FIELD_FINISHED_AT => null,
                 ImportRun::FIELD_ERROR_MESSAGE => null,
             ]);
+
+            $this->lock->assertOwned();
 
             return $this->checkpoint($run);
         });

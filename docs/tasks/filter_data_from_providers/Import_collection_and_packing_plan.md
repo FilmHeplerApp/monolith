@@ -153,6 +153,16 @@ PostgresImportRunLock работает только с PostgreSQL. Advisory lock
 В production нет ветки SQLite. Тесты подменяют ImportRunLockContract объектом
 InMemoryImportRunLock; группа pgsql проверяет настоящую реализацию.
 
+При сборке ImportTitlesFromProvider создаётся один экземпляр lock и один recorder,
+получающий именно этот lock. Тот же recorder используется ImportTitleStreamFactory.
+Независимые экземпляры сценария не разделяют состояние lock через singleton.
+
+start() и resume() проверяют assertOwned() внутри транзакции до работы с журналом
+и перед каждым успешным возвратом, включая completed и отсутствие прогона.
+Потеря lock до последней проверки откатывает вытеснение running, создание нового
+прогона, смену owner_token и очистку неподтверждённых отказов. Прямые вызовы
+start()/resume() также требуют synchronized() на том же объекте lock.
+
 Запуск/возобновление получает owner_token. Resume блокирует строку прогона через
 FOR UPDATE и меняет токен. Старый worker не может подтвердить пачку, изменить
 fingerprint или пометить прогон ошибочным после передачи владения.
