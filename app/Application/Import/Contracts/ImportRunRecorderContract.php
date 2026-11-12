@@ -12,9 +12,19 @@ use Closure;
 
 interface ImportRunRecorderContract
 {
-    public function start(ProviderSource $provider, ProviderDataSource $dataSource, ?int $limit): ImportRunCheckpoint;
+    public function start(
+        ProviderSource     $provider,
+        ProviderDataSource $dataSource,
+        ?int               $limit,
+        Closure            $authorize,
+    ): ImportRunCheckpoint;
 
-    public function resume(ProviderSource $provider, ProviderDataSource $dataSource, ?int $limit): ?ImportRunCheckpoint;
+    public function resume(
+        ProviderSource     $provider,
+        ProviderDataSource $dataSource,
+        ?int               $limit,
+        Closure            $authorize,
+    ): ?ImportRunCheckpoint;
 
     public function commit(
         ImportRunCheckpoint $run,

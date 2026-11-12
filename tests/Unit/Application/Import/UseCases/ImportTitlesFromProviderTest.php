@@ -219,7 +219,6 @@ final class ImportTitlesFromProviderTest extends TestCase
 final class InMemoryImportRunRecorder implements ImportRunRecorderContract
 {
     public array $rejections = [];
-    /** @var list<ImportBatch> batches exactly as received, without copying */
     public array $batches = [];
     public bool $completed = false;
     public int $checkpoint = 0;
@@ -231,7 +230,10 @@ final class InMemoryImportRunRecorder implements ImportRunRecorderContract
         ProviderSource     $provider,
         ProviderDataSource $dataSource,
         ?int               $limit,
+        Closure            $authorize,
     ): ImportRunCheckpoint {
+        $authorize();
+
         return new ImportRunCheckpoint(1, 0, new ImportCounters, $limit, 'owner');
     }
 
@@ -239,7 +241,10 @@ final class InMemoryImportRunRecorder implements ImportRunRecorderContract
         ProviderSource     $provider,
         ProviderDataSource $dataSource,
         ?int               $limit,
+        Closure            $authorize,
     ): ?ImportRunCheckpoint {
+        $authorize();
+
         return $this->resumable;
     }
 

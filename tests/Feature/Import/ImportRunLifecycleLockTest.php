@@ -4,15 +4,14 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Import;
 
-use App\Application\Import\Contracts\ImportRunLockContract;
 use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\UseCases\ImportTitlesFromProvider;
 use App\Infrastructure\Persistence\Eloquent\Import\EloquentImportRunRecorder;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
-use ReflectionException;
 use ReflectionProperty;
 use RuntimeException;
 use Tests\Support\StartsImportRuns;
@@ -23,24 +22,19 @@ final class ImportRunLifecycleLockTest extends TestCase
     use StartsImportRuns;
 
 
-    /**
-     * @throws ReflectionException
-     */
     #[Test]
-    public function it_shares_one_lock_and_recorder_within_each_importer(): void
+    public function it_builds_each_importer_with_its_own_lock_and_one_shared_recorder(): void
     {
         $first = app(ImportTitlesFromProvider::class);
         $second = app(ImportTitlesFromProvider::class);
         $locks = [];
 
         foreach ([$first, $second] as $importer) {
-            $lock = new ReflectionProperty($importer, 'lock')->getValue($importer);
             $recorder = new ReflectionProperty($importer, 'recorder')->getValue($importer);
             $streams = new ReflectionProperty($importer, 'streams')->getValue($importer);
 
-            self::assertSame($lock, new ReflectionProperty($recorder, 'lock')->getValue($recorder));
             self::assertSame($recorder, new ReflectionProperty($streams, 'recorder')->getValue($streams));
-            $locks[] = $lock;
+            $locks[] = new ReflectionProperty($importer, 'lock')->getValue($importer);
         }
 
         self::assertNotSame($locks[0], $locks[1]);
@@ -56,15 +50,18 @@ final class ImportRunLifecycleLockTest extends TestCase
     }
 
     #[Test]
-    #[DataProvider('lostOwnershipChecks')]
-    public function it_preserves_the_current_run_when_start_loses_ownership(int $failOn): void
+    public function it_authorizes_start_after_its_changes_inside_the_transaction(): void
     {
         $peer = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
         $before = DB::table('import_runs')->where('id', $peer->runId)->first();
-        $recorder = $this->recorderLosingOwnership($failOn);
 
         try {
-            $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+            new EloquentImportRunRecorder()->start(ProviderSource::Mock, ProviderDataSource::Api, null, function () use ($peer): void {
+                self::assertSame(2, DB::table('import_runs')->count());
+                self::assertSame('superseded', DB::table('import_runs')->where('id', $peer->runId)->value('status'));
+
+                throw new RuntimeException('Lost lifecycle lock.');
+            });
             self::fail('A worker without its lock must not start or supersede a run.');
         } catch (RuntimeException $exception) {
             self::assertSame('Lost lifecycle lock.', $exception->getMessage());
@@ -74,14 +71,9 @@ final class ImportRunLifecycleLockTest extends TestCase
         self::assertEquals($before, DB::table('import_runs')->where('id', $peer->runId)->first());
     }
 
-    public static function lostOwnershipChecks(): array
-    {
-        return ['before mutation' => [1], 'before transaction commit' => [2]];
-    }
-
     #[Test]
     #[DataProvider('resumedRuns')]
-    public function it_rolls_back_resume_and_rejection_cleanup_when_ownership_is_lost(string $status, int $failOn): void
+    public function it_authorizes_resume_after_its_changes_and_rolls_them_back(string $status): void
     {
         $run = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
         DB::table('import_runs')->where('id', $run->runId)->update([
@@ -95,10 +87,14 @@ final class ImportRunLifecycleLockTest extends TestCase
             'reason' => 'malformed',
         ]);
         $before = DB::table('import_runs')->where('id', $run->runId)->first();
-        $recorder = $this->recorderLosingOwnership($failOn);
 
         try {
-            $recorder->resume(ProviderSource::Mock, ProviderDataSource::Api, null);
+            new EloquentImportRunRecorder()->resume(ProviderSource::Mock, ProviderDataSource::Api, null, function () use ($run, $status): void {
+                self::assertSame(0, DB::table('import_rejections')->where('import_run_id', $run->runId)->count());
+                self::assertSame($status === 'failed' ? 'running' : 'completed', DB::table('import_runs')->where('id', $run->runId)->value('status'));
+
+                throw new RuntimeException('Lost lifecycle lock.');
+            });
             self::fail('A worker without its lock must not resume a run.');
         } catch (RuntimeException $exception) {
             self::assertSame('Lost lifecycle lock.', $exception->getMessage());
@@ -110,23 +106,16 @@ final class ImportRunLifecycleLockTest extends TestCase
 
     public static function resumedRuns(): array
     {
-        return [
-            'failed, lost before mutation' => ['failed', 1],
-            'failed, lost after mutation' => ['failed', 2],
-            'completed, lost before cleanup' => ['completed', 1],
-            'completed, lost after cleanup' => ['completed', 2],
-        ];
+        return ['failed run' => ['failed'], 'completed run' => ['completed']];
     }
 
     #[Test]
-    #[DataProvider('lostOwnershipChecks')]
-    public function it_checks_ownership_when_no_run_exists_to_resume(int $failOn): void
+    public function it_authorizes_resume_when_no_run_exists(): void
     {
-        $recorder = $this->recorderLosingOwnership($failOn);
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Lost lifecycle lock.');
 
-        $recorder->resume(ProviderSource::Mock, ProviderDataSource::Api, null);
+        new EloquentImportRunRecorder()->resume(ProviderSource::Mock, ProviderDataSource::Api, null, static fn () => throw new RuntimeException('Lost lifecycle lock.'));
     }
 
 
@@ -142,19 +131,5 @@ final class ImportRunLifecycleLockTest extends TestCase
         ] as $name) {
             (require database_path('migrations/'.$name))->up();
         }
-    }
-
-
-    private function recorderLosingOwnership(int $failOn): EloquentImportRunRecorder
-    {
-        $checks = 0;
-        $lock = $this->createMock(ImportRunLockContract::class);
-        $lock->expects(self::exactly($failOn))->method('assertOwned')->willReturnCallback(static function () use (&$checks, $failOn): void {
-            if (++$checks === $failOn) {
-                throw new RuntimeException('Lost lifecycle lock.');
-            }
-        });
-
-        return new EloquentImportRunRecorder($lock);
     }
 }

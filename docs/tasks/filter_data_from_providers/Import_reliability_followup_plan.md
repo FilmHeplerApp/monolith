@@ -229,6 +229,29 @@ lock на InMemoryImportRunLock не считаются проверкой ме�
 Критерий: повторный запуск и восстановление после сбоя не создают дубликатов,
 а внешние задания появляются только для подтверждённых изменений.
 
+## 6. Граница транзакции в application-слое — follow-up
+
+Сейчас каждый метод EloquentImportRunRecorder сам открывает DB::transaction.
+Поэтому проверку lock, которая должна выполниться атомарно с захватом прогона,
+сценарий передаёт внутрь замыканием $authorize в start()/resume() и через $write
+в commit(). Это рабочий компромисс: recorder не зависит от lock, но контракт
+recorder знает о хуках внутри своей транзакции.
+
+Целевой вариант — вынести границу транзакции в application-слой:
+
+- Контракт вида TransactionRunner (`run(Closure $work): mixed`) в Application,
+  реализация на DB::transaction в Infrastructure.
+- Recorder становится обычным репозиторием журнала без DB::transaction:
+  вытеснение, создание, захват строки FOR UPDATE, запись пачки.
+- ImportTitlesFromProvider сам собирает транзакцию: операции журнала, запись sink
+  и lock->assertOwned() перед выходом. Замыкания $authorize и $write из контракта
+  recorder уходят.
+
+Делать вместе с разделением ImportRunRecorderContract (Orchestrator_review.md,
+«Лишние уровни абстракции»): жизненный цикл прогона, журнал ID и привязка snapshot
+получают отдельные контракты. Тесты rollback из ImportRunLifecycleLockTest и
+PostgresImportBatchCommitTest переносятся на уровень сценария.
+
 ## Порядок выполнения
 
 1. Завершённая правка фабрики и регрессионные тесты.
@@ -236,3 +259,4 @@ lock на InMemoryImportRunLock не считаются проверкой ме�
 3. Реальные проверки PostgreSQL.
 4. SQL COUNT и пакетная запись отказов. Измерения памяти отложены.
 5. Уточнение граничных контрактов и отдельное подключение сохраняющего sink.
+6. Граница транзакции в application-слое вместе с разделением контракта recorder.

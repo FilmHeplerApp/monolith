@@ -476,7 +476,6 @@ final class ImportReliabilityTest extends TestCase
     #[Test]
     public function it_supersedes_an_abandoned_running_run_when_a_new_one_starts(): void
     {
-        $recorder = app(EloquentImportRunRecorder::class);
         $abandoned = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
         $otherProvider = $this->startRun(ProviderSource::Shikimori, ProviderDataSource::Api, null);
         $otherSource = $this->startRun(ProviderSource::Mock, ProviderDataSource::Dump, null);
@@ -697,7 +696,6 @@ final class ImportReliabilityTest extends TestCase
     #[Test]
     public function it_rejects_a_legacy_checkpoint_without_confirmed_identities(): void
     {
-        $recorder = app(EloquentImportRunRecorder::class);
         $run = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
         DB::table('import_runs')->where('id', $run->runId)->update(['checkpoint' => 1, 'fetched' => 1, 'accepted' => 1]);
         $this->expectException(RuntimeException::class);
@@ -758,10 +756,12 @@ final class ImportReliabilityTest extends TestCase
     {
         $this->bindClient($this->client('1', '2'));
         $sink = $this->sink();
-        $this->app->instance(ImportRunLockContract::class, new class implements ImportRunLockContract
+        $this->app->instance(ImportRunLockContract::class, new class($sink) implements ImportRunLockContract
         {
-            private int $checks = 0;
+            private bool $lost = false;
 
+
+            public function __construct(private readonly ReliabilitySink $sink) {}
 
             public function synchronized(ProviderSource $provider, ProviderDataSource $source, Closure $work): mixed
             {
@@ -770,7 +770,9 @@ final class ImportReliabilityTest extends TestCase
 
             public function assertOwned(): void
             {
-                if (++$this->checks > 2) {
+                $this->lost = $this->lost || $this->sink->pending !== [];
+
+                if ($this->lost) {
                     throw new RuntimeException('Simulated ownership loss');
                 }
             }

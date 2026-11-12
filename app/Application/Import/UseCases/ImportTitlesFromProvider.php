@@ -61,12 +61,12 @@ final readonly class ImportTitlesFromProvider
             if (!$resume) {
                 return $this->process(
                     $context,
-                    $this->recorder->start($provider, $dataSource, $limit),
+                    $this->recorder->start($provider, $dataSource, $limit, $this->lock->assertOwned(...)),
                     ImportRunMode::New,
                 );
             }
 
-            $run = $this->recorder->resume($provider, $dataSource, $limit)
+            $run = $this->recorder->resume($provider, $dataSource, $limit, $this->lock->assertOwned(...))
                 ?? throw new RuntimeException('There is no import run to resume. Run without --resume.');
 
             if ($run->completed) {
@@ -142,7 +142,6 @@ final readonly class ImportTitlesFromProvider
         return new ImportResult($run->runId, $run->counters, $run->checkpoint, $mode);
     }
 
-    /** Secondary diagnostics must not replace the failure that is being rethrown. */
     private function logQuietly(string $message, array $context): void
     {
         try {
@@ -153,12 +152,9 @@ final readonly class ImportTitlesFromProvider
 
     private function commit(ImportRunCheckpoint $run, ImportBatch $batch, bool $complete = false): ImportRunCheckpoint
     {
-        $this->lock->assertOwned();
-
         return $this->recorder->commit($run, $batch, function () use ($complete): void {
             $this->lock->assertOwned();
             $complete ? $this->sink->finish() : $this->sink->flush();
-            $this->lock->assertOwned();
         }, $complete);
     }
 }

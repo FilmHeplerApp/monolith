@@ -33,9 +33,6 @@ final class ImportBatchCommitTest extends TestCase
     use StartsImportRuns;
 
 
-    /**
-     * @throws Throwable
-     */
     #[Test]
     public function it_refuses_to_attach_a_snapshot_to_a_legacy_nonzero_checkpoint(): void
     {
@@ -48,9 +45,6 @@ final class ImportBatchCommitTest extends TestCase
         $recorder->bindSnapshot($run, 'new-snapshot');
     }
 
-    /**
-     * @throws Throwable
-     */
     #[Test]
     public function it_completes_an_empty_final_batch_without_repeating_confirmed_results(): void
     {
@@ -71,9 +65,6 @@ final class ImportBatchCommitTest extends TestCase
         $this->assertDatabaseCount('import_rejections', 1);
     }
 
-    /**
-     * @throws Throwable
-     */
     #[Test]
     public function it_rolls_back_failed_finalization_of_an_empty_batch_and_preserves_the_previous_checkpoint(): void
     {
@@ -159,9 +150,6 @@ final class ImportBatchCommitTest extends TestCase
         $this->assertDatabaseCount('import_rejections', 1);
     }
 
-    /**
-     * @throws Throwable
-     */
     #[Test]
     public function it_preserves_the_original_limit_when_resume_omits_it(): void
     {
@@ -177,9 +165,6 @@ final class ImportBatchCommitTest extends TestCase
         $this->assertDatabaseHas('import_runs', ['status' => 'running', 'finished_at' => null, 'error_message' => null]);
     }
 
-    /**
-     * @throws Throwable
-     */
     #[Test]
     public function it_rejects_a_changed_resume_limit_without_claiming_the_run(): void
     {
@@ -227,9 +212,6 @@ final class ImportBatchCommitTest extends TestCase
         $this->resumeRun(ProviderSource::Mock, ProviderDataSource::Api, null);
     }
 
-    /**
-     * @throws Throwable
-     */
     #[Test]
     public function it_commits_sink_rows_rejections_identities_and_checkpoint_together(): void
     {
@@ -295,9 +277,6 @@ final class ImportBatchCommitTest extends TestCase
         $this->assertDatabaseCount('import_rejections', 0);
     }
 
-    /**
-     * @throws Throwable
-     */
     #[Test]
     public function it_fences_a_previous_owner_before_any_sink_write(): void
     {
@@ -326,9 +305,6 @@ final class ImportBatchCommitTest extends TestCase
         $this->assertDatabaseCount('import_rejections', 1);
     }
 
-    /**
-     * @throws Throwable
-     */
     #[Test]
     public function it_rejects_a_repeated_batch_before_calling_the_sink(): void
     {
@@ -348,9 +324,6 @@ final class ImportBatchCommitTest extends TestCase
         }
     }
 
-    /**
-     * @throws Throwable
-     */
     #[Test]
     public function it_preserves_a_committed_checkpoint_when_failure_uses_an_older_local_checkpoint(): void
     {
@@ -376,9 +349,6 @@ final class ImportBatchCommitTest extends TestCase
         $this->assertDatabaseHas('import_runs', ['checkpoint' => 0, 'rejected' => 0]);
     }
 
-    /**
-     * @throws Throwable
-     */
     #[Test]
     public function it_emits_candidate_logs_only_after_a_successful_batch_commit(): void
     {
@@ -406,9 +376,6 @@ final class ImportBatchCommitTest extends TestCase
     }
 
 
-    /**
-     * @throws Throwable
-     */
     #[Test]
     public function it_returns_the_committed_checkpoint_when_candidate_logging_fails_after_commit(): void
     {

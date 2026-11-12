@@ -15,16 +15,16 @@ trait StartsImportRuns
     private function startRun(ProviderSource $provider, ProviderDataSource $source, ?int $limit): ImportRunCheckpoint
     {
         $lock = app(ImportRunLockContract::class);
-        $recorder = app(EloquentImportRunRecorder::class, ['lock' => $lock]);
+        $recorder = app(EloquentImportRunRecorder::class);
 
-        return $lock->synchronized($provider, $source, static fn () => $recorder->start($provider, $source, $limit));
+        return $lock->synchronized($provider, $source, static fn () => $recorder->start($provider, $source, $limit, $lock->assertOwned(...)));
     }
 
     private function resumeRun(ProviderSource $provider, ProviderDataSource $source, ?int $limit): ?ImportRunCheckpoint
     {
         $lock = app(ImportRunLockContract::class);
-        $recorder = app(EloquentImportRunRecorder::class, ['lock' => $lock]);
+        $recorder = app(EloquentImportRunRecorder::class);
 
-        return $lock->synchronized($provider, $source, static fn () => $recorder->resume($provider, $source, $limit));
+        return $lock->synchronized($provider, $source, static fn () => $recorder->resume($provider, $source, $limit, $lock->assertOwned(...)));
     }
 }

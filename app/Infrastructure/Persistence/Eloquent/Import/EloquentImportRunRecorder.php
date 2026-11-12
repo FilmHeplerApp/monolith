@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Persistence\Eloquent\Import;
 
-use App\Application\Import\Contracts\ImportRunLockContract;
 use App\Application\Import\Contracts\ImportRunRecorderContract;
 use App\Application\Import\DTOs\ImportBatch;
 use App\Application\Import\DTOs\ImportCounters;
@@ -18,24 +17,16 @@ use Closure;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use RuntimeException;
-use Throwable;
 
-final readonly class EloquentImportRunRecorder implements ImportRunRecorderContract
+final class EloquentImportRunRecorder implements ImportRunRecorderContract
 {
-    public function __construct(
-        private ImportRunLockContract $lock,
-    ) {}
-
-    /**
-     * @throws Throwable
-     */
     public function start(
         ProviderSource     $provider,
         ProviderDataSource $dataSource,
         ?int               $limit,
+        Closure            $authorize,
     ): ImportRunCheckpoint {
-        return DB::transaction(function () use ($provider, $dataSource, $limit): ImportRunCheckpoint {
-            $this->lock->assertOwned();
+        return DB::transaction(function () use ($provider, $dataSource, $limit, $authorize): ImportRunCheckpoint {
             $this->supersedeRunningRuns($provider, $dataSource);
 
             $run = ImportRun::query()->create([
@@ -52,71 +43,26 @@ final readonly class EloquentImportRunRecorder implements ImportRunRecorderContr
                 ImportRun::FIELD_STARTED_AT => now(),
             ]);
 
-            $this->lock->assertOwned();
+            $authorize();
 
             return $this->checkpoint($run);
         });
     }
 
+    public function resume(
+        ProviderSource     $provider,
+        ProviderDataSource $dataSource,
+        ?int               $limit,
+        Closure            $authorize,
+    ): ?ImportRunCheckpoint {
+        return DB::transaction(function () use ($provider, $dataSource, $limit, $authorize): ?ImportRunCheckpoint {
+            $run = $this->claimLatest($provider, $dataSource, $limit);
+            $authorize();
 
-    /**
-     * @throws Throwable
-     */
-    public function resume(ProviderSource $provider, ProviderDataSource $dataSource, ?int $limit): ?ImportRunCheckpoint
-    {
-        return DB::transaction(function () use ($provider, $dataSource, $limit): ?ImportRunCheckpoint {
-            $this->lock->assertOwned();
-            $run = ImportRun::query()
-                ->where(ImportRun::FIELD_PROVIDER, $provider)
-                ->where(ImportRun::FIELD_DATA_SOURCE, $dataSource)
-                ->latest(ImportRun::FIELD_ID)
-                ->lockForUpdate()
-                ->first();
-
-            if ($run === null) {
-                $this->lock->assertOwned();
-                return null;
-            }
-
-            if ($limit !== null && $run->limit !== $limit) {
-                throw new InvalidArgumentException("Resume limit [$limit] does not match import run limit [$run->limit].");
-            }
-
-            if ($run->checkpoint > 0 && count($this->processedIds($run->getKey())) !== $run->checkpoint) {
-                throw new RuntimeException('Legacy import checkpoint cannot be resumed safely. Start without --resume.');
-            }
-
-            ImportRejection::query()->where(ImportRejection::FIELD_IMPORT_RUN_ID, $run->id)
-                ->whereNotIn(ImportRejection::FIELD_EXTERNAL_ID, DB::table('import_processed_titles')
-                    ->where('import_run_id', $run->id)->select('external_id'))
-                ->delete();
-
-            if (ImportRejection::query()->where(ImportRejection::FIELD_IMPORT_RUN_ID, $run->id)->count() !== $run->rejected) {
-                throw new RuntimeException('Legacy rejection report is inconsistent. Start without --resume.');
-            }
-
-            if ($run->status === ImportRunStatus::Completed) {
-                $this->lock->assertOwned();
-                return $this->checkpoint($run);
-            }
-
-            $run->update([
-                ImportRun::FIELD_STATUS => ImportRunStatus::Running,
-                ImportRun::FIELD_OWNER_TOKEN => bin2hex(random_bytes(16)),
-                ImportRun::FIELD_FINISHED_AT => null,
-                ImportRun::FIELD_ERROR_MESSAGE => null,
-            ]);
-
-            $this->lock->assertOwned();
-
-            return $this->checkpoint($run);
+            return $run;
         });
     }
 
-
-    /**
-     * @throws Throwable
-     */
     public function commit(
         ImportRunCheckpoint $run,
         ImportBatch         $batch,
@@ -155,9 +101,6 @@ final readonly class EloquentImportRunRecorder implements ImportRunRecorderContr
         return DB::table('import_processed_titles')->where('import_run_id', $runId)->pluck('external_id')->all();
     }
 
-    /**
-     * @throws Throwable
-     */
     public function bindSnapshot(ImportRunCheckpoint $run, string $snapshotId): void
     {
         DB::transaction(function () use ($run, $snapshotId): void {
@@ -176,10 +119,6 @@ final readonly class EloquentImportRunRecorder implements ImportRunRecorderContr
         });
     }
 
-
-    /**
-     * @throws Throwable
-     */
     public function fail(ImportRunCheckpoint $run, string $message): void
     {
         DB::transaction(function () use ($run, $message): void {
@@ -191,6 +130,48 @@ final readonly class EloquentImportRunRecorder implements ImportRunRecorderContr
         });
     }
 
+
+    private function claimLatest(ProviderSource $provider, ProviderDataSource $dataSource, ?int $limit): ?ImportRunCheckpoint
+    {
+        $run = ImportRun::query()
+            ->where(ImportRun::FIELD_PROVIDER, $provider)
+            ->where(ImportRun::FIELD_DATA_SOURCE, $dataSource)
+            ->latest(ImportRun::FIELD_ID)
+            ->lockForUpdate()
+            ->first();
+
+        if ($run === null) {
+            return null;
+        }
+
+        if ($limit !== null && $run->limit !== $limit) {
+            throw new InvalidArgumentException("Resume limit [$limit] does not match import run limit [$run->limit].");
+        }
+
+        if ($run->checkpoint > 0 && count($this->processedIds($run->getKey())) !== $run->checkpoint) {
+            throw new RuntimeException('Legacy import checkpoint cannot be resumed safely. Start without --resume.');
+        }
+
+        ImportRejection::query()->where(ImportRejection::FIELD_IMPORT_RUN_ID, $run->id)
+            ->whereNotIn(ImportRejection::FIELD_EXTERNAL_ID, DB::table('import_processed_titles')
+                ->where('import_run_id', $run->id)->select('external_id'))
+            ->delete();
+
+        if (ImportRejection::query()->where(ImportRejection::FIELD_IMPORT_RUN_ID, $run->id)->count() !== $run->rejected) {
+            throw new RuntimeException('Legacy rejection report is inconsistent. Start without --resume.');
+        }
+
+        if ($run->status !== ImportRunStatus::Completed) {
+            $run->update([
+                ImportRun::FIELD_STATUS => ImportRunStatus::Running,
+                ImportRun::FIELD_OWNER_TOKEN => bin2hex(random_bytes(16)),
+                ImportRun::FIELD_FINISHED_AT => null,
+                ImportRun::FIELD_ERROR_MESSAGE => null,
+            ]);
+        }
+
+        return $this->checkpoint($run);
+    }
 
     private function ownedRun(ImportRunCheckpoint $run): ImportRun
     {
@@ -270,7 +251,6 @@ final readonly class EloquentImportRunRecorder implements ImportRunRecorderContr
             completed: $run->status === ImportRunStatus::Completed,
         );
     }
-
 
     private function supersedeRunningRuns(ProviderSource $provider, ProviderDataSource $dataSource): void
     {

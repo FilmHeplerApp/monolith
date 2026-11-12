@@ -170,7 +170,7 @@ $run ??= $this->recorder->start($provider, $dataSource, $limit);
 - `ProviderClientContract::fetchTitleByExternalId` оркестратором не используется (нужен для ручного импорта одного тайтла из ТЗ, сценарий 2); в дамп-клиенте это линейный скан. `fetchTitles($limit = 50, $offset)` описывает не то, чем реально пользуются: API-стрим всегда передаёт `null, 0`.
 - `TitleCandidateEvaluator::mergeContext` существует ради единственного правила с флагом (`CompletenessRule`).
 - Тип контента отклоняется дважды: `ProviderTitleToCandidateMapper::mapType` и `AllowedContentTypeRule`. Проверки года/рейтинга/длительности в маппере дублируют то, что должны держать VO.
-- `lock->assertOwned()` вызывается трижды вокруг каждого commit, каждый раз с `SELECT 1`; достаточно проверки внутри транзакции.
+- ~~`lock->assertOwned()` вызывается трижды вокруг каждого commit, каждый раз с `SELECT 1`; достаточно проверки внутри транзакции.~~ — исправлено: в `commit()` одна проверка внутри транзакции перед записью sink; `start()`/`resume()` проверяют lock через замыкание `$authorize` последним действием своей транзакции. Перенос границы транзакции в application-слой — follow-up в `Import_reliability_followup_plan.md`, п. 6.
 
 ## Мелкие баги и риски
 

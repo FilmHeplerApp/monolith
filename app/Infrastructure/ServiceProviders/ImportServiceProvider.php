@@ -84,8 +84,7 @@ final class ImportServiceProvider extends ServiceProvider
         $this->app->bind(
             ImportTitlesFromProvider::class,
             static function (Application $app): ImportTitlesFromProvider {
-                $lock = $app->make(ImportRunLockContract::class);
-                $recorder = $app->make(ImportRunRecorderContract::class, ['lock' => $lock]);
+                $recorder = $app->make(ImportRunRecorderContract::class);
 
                 return new ImportTitlesFromProvider(
                     contexts: $app->make(ProviderImportContextFactoryContract::class),
@@ -94,7 +93,7 @@ final class ImportServiceProvider extends ServiceProvider
                     filter: $app->make(TitleCandidateEvaluator::class),
                     recorder: $recorder,
                     sink: $app->make(CandidateSinkContract::class),
-                    lock: $lock,
+                    lock: $app->make(ImportRunLockContract::class),
                     checkpointEvery: (int) config('import.checkpoint_every', 50),
                 );
             },

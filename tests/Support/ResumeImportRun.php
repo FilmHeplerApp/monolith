@@ -19,10 +19,10 @@ DB::purge('import_peer');
 echo DB::selectOne('SELECT pg_backend_pid() AS pid')->pid."\n";
 flush();
 $lock = app(ImportRunLockContract::class);
-$recorder = new EloquentImportRunRecorder($lock);
+$recorder = new EloquentImportRunRecorder;
 $run = $lock->synchronized(
     ProviderSource::Mock,
     ProviderDataSource::Api,
-    fn () => $recorder->resume(ProviderSource::Mock, ProviderDataSource::Api, null),
+    fn () => $recorder->resume(ProviderSource::Mock, ProviderDataSource::Api, null, $lock->assertOwned(...)),
 );
 echo json_encode(['checkpoint' => $run->checkpoint, 'owner_token' => $run->ownerToken], JSON_THROW_ON_ERROR)."\n";

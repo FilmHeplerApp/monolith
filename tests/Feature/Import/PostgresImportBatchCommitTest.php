@@ -129,11 +129,11 @@ final class PostgresImportBatchCommitTest extends TestCase
     public function terminating_the_real_lock_session_after_sink_writes_rolls_back_the_batch(): void
     {
         $lock = new PostgresImportRunLock;
-        $recorder = new EloquentImportRunRecorder($lock);
+        $recorder = new EloquentImportRunRecorder;
 
         try {
             $lock->synchronized(ProviderSource::Mock, ProviderDataSource::Api, function () use ($lock, $recorder): void {
-                $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+                $run = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null, $lock->assertOwned(...));
                 $batch = new ImportBatch(new ImportCounters(fetched: 1, accepted: 1), 1, ['1'], []);
                 $recorder->commit($run, $batch, function () use ($lock): void {
                     DB::table('saved_candidates')->insert(['external_id' => '1']);
@@ -177,7 +177,7 @@ final class PostgresImportBatchCommitTest extends TestCase
         ]);
         $before = DB::table('import_runs')->get()->all();
         $lock = new PostgresImportRunLock;
-        $recorder = new EloquentImportRunRecorder($lock);
+        $recorder = new EloquentImportRunRecorder;
         $armed = false;
         $terminated = false;
         $terminate = function () use (&$terminated): void {
@@ -202,16 +202,16 @@ final class PostgresImportBatchCommitTest extends TestCase
         });
 
         try {
-            $lock->synchronized(ProviderSource::Mock, ProviderDataSource::Api, function () use ($beforeMutation, &$armed, $terminate, $recorder, $operation): void {
+            $lock->synchronized(ProviderSource::Mock, ProviderDataSource::Api, function () use ($beforeMutation, &$armed, $terminate, $recorder, $lock, $operation): void {
                 if ($beforeMutation) {
                     $terminate();
                 } else {
                     $armed = true;
                 }
                 if ($operation === 'start') {
-                    $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+                    $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null, $lock->assertOwned(...));
                 } else {
-                    $recorder->resume(ProviderSource::Mock, ProviderDataSource::Api, null);
+                    $recorder->resume(ProviderSource::Mock, ProviderDataSource::Api, null, $lock->assertOwned(...));
                 }
                 self::fail('A terminated lock must abort the lifecycle transaction.');
             });
