@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Interfaces\Console\Commands;
 
+use App\Application\Import\Contracts\ProviderClientFactoryContract;
+use App\Application\Import\Enums\ImportRunMode;
 use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\UseCases\ImportTitlesFromProvider;
@@ -15,18 +17,18 @@ use Throwable;
 final class RunImportCommand extends Command
 {
     protected $signature = 'import:run
-        {provider=shikimori : Provider name}
+        {provider : Provider name (one of the enabled providers)}
         {--source=api : Data source (api or dump)}
         {--limit= : Maximum total number of titles for this run}
-        {--resume : Continue the latest matching run or return its completed result}';
+        {--resume : Continue the latest matching run (fails if there is none)}';
     protected $description = 'Collect, normalize and filter titles from a provider';
 
 
-    public function handle(ImportTitlesFromProvider $importer): int
+    public function handle(ImportTitlesFromProvider $importer, ProviderClientFactoryContract $clients): int
     {
         try {
             $provider = ProviderSource::tryFrom((string) $this->argument('provider'))
-                ?? throw new InvalidArgumentException('Unknown provider.');
+                ?? throw new InvalidArgumentException('Unknown provider. Enabled: '.$this->enabledList($clients).'.');
             $dataSource = ProviderDataSource::tryFrom((string) $this->option('source'))
                 ?? throw new InvalidArgumentException('Source must be api or dump.');
             $limit = $this->parseLimit($this->option('limit'));
@@ -44,7 +46,12 @@ final class RunImportCommand extends Command
             return self::FAILURE;
         }
 
-        $action = $result->resumed ? 'resumed and completed' : 'completed';
+        $action = match ($result->mode) {
+            ImportRunMode::New => 'completed',
+            ImportRunMode::Resumed => 'resumed and completed',
+            ImportRunMode::AlreadyCompleted => 'was already completed, nothing to do',
+        };
+
         $this->info("Import run #{$result->runId} {$action}.");
         $this->table(
             ['Fetched', 'Accepted', 'Flagged', 'Rejected', 'Checkpoint'],
@@ -62,6 +69,13 @@ final class RunImportCommand extends Command
         return self::SUCCESS;
     }
 
+
+    private function enabledList(ProviderClientFactoryContract $clients): string
+    {
+        $sources = array_map(static fn (ProviderSource $source): string => $source->value, $clients->getEnabledSources());
+
+        return $sources === [] ? 'none' : implode(', ', $sources);
+    }
 
     private function parseLimit(mixed $value): ?int
     {

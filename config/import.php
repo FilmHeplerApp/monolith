@@ -40,9 +40,7 @@ return [
     ],
     'filter' => [
         'allowed_types' => [TitleContentType::ANIME->value],
-        'min_release_year' => filled(env('IMPORT_MIN_RELEASE_YEAR'))
-            ? (int) env('IMPORT_MIN_RELEASE_YEAR')
-            : null,
+        'min_release_year' => (int) (env('IMPORT_MIN_RELEASE_YEAR') ?: 1895),
     ],
     'checkpoint_every' => (int) env('IMPORT_CHECKPOINT_EVERY', 50),
 ];

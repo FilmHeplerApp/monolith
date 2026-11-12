@@ -11,6 +11,8 @@ use App\Application\Import\Enums\ProviderSource;
 use App\Domain\Import\DTOs\FilterDecision;
 use App\Domain\Import\DTOs\TitleCandidate;
 use App\Domain\Import\Enums\ImportRunStatus;
+use App\Domain\Import\Services\TitleCandidateEvaluator;
+use App\Infrastructure\Import\Exceptions\ImportConfigException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -19,6 +21,7 @@ use Illuminate\Support\Facades\Schema;
 use JsonException;
 use PHPUnit\Framework\Attributes\Test;
 use Random\RandomException;
+use RuntimeException;
 use Tests\Support\CommittedShikimoriDump;
 use Tests\TestCase;
 
@@ -93,9 +96,32 @@ final class RunImportCommandTest extends TestCase
     }
 
     #[Test]
+    public function it_fails_when_there_is_nothing_to_resume(): void
+    {
+        $this->artisan('import:run', [
+            'provider' => 'shikimori',
+            '--source' => 'dump',
+            '--resume' => true,
+        ])->assertFailed()->expectsOutputToContain('no import run to resume');
+
+        $this->assertDatabaseCount('import_runs', 0);
+    }
+
+    #[Test]
+    public function it_reports_an_already_completed_run(): void
+    {
+        $this->artisan('import:run', ['provider' => 'shikimori', '--source' => 'dump'])->assertSuccessful();
+        $runId = (int) DB::table('import_runs')->value('id');
+
+        $this->artisan('import:run', ['provider' => 'shikimori', '--source' => 'dump', '--resume' => true])
+            ->assertSuccessful()
+            ->expectsOutputToContain("Import run #{$runId} was already completed, nothing to do.");
+    }
+
+    #[Test]
     public function it_rejects_an_invalid_limit(): void
     {
-        $this->artisan('import:run', ['--limit' => '0'])
+        $this->artisan('import:run', ['provider' => 'shikimori', '--limit' => '0'])
             ->assertFailed()
             ->expectsOutputToContain('Limit must be a positive integer.');
     }
@@ -128,17 +154,83 @@ final class RunImportCommandTest extends TestCase
             'provider' => 'shikimori',
             '--source' => 'dump',
             '--limit' => '1',
-        ])->assertFailed()->expectsOutputToContain('Provider [shikimori] is disabled.');
+        ])->assertFailed()->expectsOutputToContain('Provider [shikimori] is disabled. Enabled: mock.');
 
         self::assertSame([], $this->sink->items);
-        $this->assertDatabaseHas('import_runs', [
+        $this->assertDatabaseCount('import_runs', 0);
+    }
+
+    #[Test]
+    public function it_leaves_the_runs_of_a_disabled_provider_untouched(): void
+    {
+        $runId = (int) DB::table('import_runs')->insertGetId([
             'provider' => ProviderSource::Shikimori->value,
             'data_source' => ProviderDataSource::Dump->value,
             'status' => ImportRunStatus::Failed->value,
-            'error_message' => 'Provider [shikimori] is disabled.',
-            'fetched' => 0,
+            'owner_token' => 'previous-owner',
             'checkpoint' => 0,
+            'fetched' => 0,
+            'accepted' => 0,
+            'flagged' => 0,
+            'rejected' => 0,
+            'error_message' => 'Network down',
+            'started_at' => now(),
+            'finished_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
+        config()->set('import.providers.enabled', [ProviderSource::Mock->value]);
+        $this->app->forgetInstance(ProviderClientFactoryContract::class);
+
+        foreach ([[], ['--resume' => true]] as $options) {
+            $this->artisan('import:run', ['provider' => 'shikimori', '--source' => 'dump', ...$options])
+                ->assertFailed()
+                ->expectsOutputToContain('Provider [shikimori] is disabled.');
+        }
+
+        $this->assertDatabaseCount('import_runs', 1);
+        $this->assertDatabaseHas('import_runs', [
+            'id' => $runId,
+            'status' => ImportRunStatus::Failed->value,
+            'owner_token' => 'previous-owner',
+            'error_message' => 'Network down',
+        ]);
+    }
+
+    #[Test]
+    public function it_lists_the_enabled_providers_for_an_unknown_one(): void
+    {
+        $this->artisan('import:run', ['provider' => 'shikimor'])
+            ->assertFailed()
+            ->expectsOutputToContain('Unknown provider. Enabled: mock, shikimori.');
+
+        $this->assertDatabaseCount('import_runs', 0);
+    }
+
+    #[Test]
+    public function it_refuses_a_broken_filter_config_before_creating_a_run(): void
+    {
+        config()->set('import.filter.allowed_types', ['animee']);
+        $this->app->forgetInstance(TitleCandidateEvaluator::class);
+
+        try {
+            $this->artisan('import:run', ['provider' => 'shikimori', '--source' => 'dump'])->run();
+            self::fail('A broken filter config must stop the command.');
+        } catch (ImportConfigException $exception) {
+            self::assertStringContainsString('Unknown content type [animee]', $exception->getMessage());
+        }
+
+        self::assertSame([], $this->sink->items);
+        $this->assertDatabaseCount('import_runs', 0);
+    }
+
+    #[Test]
+    public function it_requires_an_explicit_provider(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Not enough arguments (missing: "provider")');
+
+        $this->artisan('import:run', ['--source' => 'dump'])->run();
     }
 
 

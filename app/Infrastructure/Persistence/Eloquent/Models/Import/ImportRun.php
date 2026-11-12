@@ -8,9 +8,31 @@ use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
 use App\Domain\Import\Enums\ImportRunStatus;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
+/**
+ * @property int $id
+ * @property ProviderSource $provider
+ * @property ProviderDataSource $data_source
+ * @property ImportRunStatus $status
+ * @property string|null $snapshot_id
+ * @property string|null $owner_token
+ * @property int|null $limit
+ * @property int $checkpoint
+ * @property int $fetched
+ * @property int $accepted
+ * @property int $flagged
+ * @property int $rejected
+ * @property string|null $error_message
+ * @property Carbon $started_at
+ * @property Carbon|null $finished_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
+ * @property-read Collection<int, ImportRejection> $rejections
+ */
 #[Fillable([
     self::FIELD_PROVIDER,
     self::FIELD_DATA_SOURCE,

@@ -13,6 +13,7 @@ use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use App\Domain\Import\Services\TitleCandidateEvaluator;
 use App\Domain\Import\Services\TitleCanonicalKeyFactory;
 use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriProviderClient;
+use App\Infrastructure\Providers\Shikimori\Exceptions\ShikimoriConfigException;
 use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -229,6 +230,71 @@ final class ShikimoriProviderClientTest extends TestCase
         $titles = iterator_to_array($this->client()->fetchTitles(null));
         self::assertSame(['1', '2', '3'], array_column($titles, 'externalId'));
         Http::assertSentCount(3);
+    }
+
+    #[Test]
+    public function it_fails_when_the_first_page_is_empty_twice(): void
+    {
+        Http::fakeSequence()
+            ->push(['data' => ['animes' => []]])
+            ->push(['data' => ['animes' => []]]);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('empty first page');
+
+        iterator_to_array($this->client()->fetchTitles(null));
+    }
+
+    #[Test]
+    public function it_continues_after_a_single_empty_first_page(): void
+    {
+        Http::fakeSequence()
+            ->push(['data' => ['animes' => []]])
+            ->push(['data' => ['animes' => [$this->animeRow('1')]]]);
+
+        $titles = iterator_to_array($this->client()->fetchTitles(null));
+
+        self::assertSame(['1'], array_column($titles, 'externalId'));
+    }
+
+    #[Test]
+    public function it_ends_quietly_on_an_empty_page_after_the_first(): void
+    {
+        config()->set('shikimori.page_size', 2);
+        Http::fakeSequence()
+            ->push(['data' => ['animes' => [$this->animeRow('1'), $this->animeRow('2')]]])
+            ->push(['data' => ['animes' => []]])
+            ->push(['data' => ['animes' => []]]);
+
+        $titles = iterator_to_array($this->client()->fetchTitles(null));
+
+        self::assertSame(['1', '2'], array_column($titles, 'externalId'));
+    }
+
+    #[Test]
+    public function it_rejects_a_page_size_above_the_api_limit_before_any_request(): void
+    {
+        config()->set('shikimori.page_size', 51);
+        Http::fake();
+
+        try {
+            $this->client()->fetchTitles(null);
+            self::fail('Expected ShikimoriConfigException.');
+        } catch (ShikimoriConfigException $exception) {
+            self::assertStringContainsString('must not exceed 50', $exception->getMessage());
+        }
+
+        Http::assertNothingSent();
+    }
+
+    #[Test]
+    public function it_accepts_the_maximum_page_size(): void
+    {
+        config()->set('shikimori.page_size', 50);
+        Http::fake(['*' => Http::response(['data' => ['animes' => [$this->animeRow('1')]]])]);
+
+        self::assertCount(1, iterator_to_array($this->client()->fetchTitles(null)));
+        Http::assertSent(static fn (Request $request): bool => $request['variables']['limit'] === 50);
     }
 
 

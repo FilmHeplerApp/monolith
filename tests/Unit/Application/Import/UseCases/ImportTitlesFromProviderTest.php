@@ -13,6 +13,7 @@ use App\Application\Import\DTOs\ImportCounters;
 use App\Application\Import\DTOs\ImportRunCheckpoint;
 use App\Application\Import\DTOs\ProviderTitle;
 use App\Application\Import\DTOs\ProviderTitleRecord;
+use App\Application\Import\Enums\ImportRunMode;
 use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\Services\ImportTitleStreamFactory;
@@ -87,7 +88,7 @@ final class ImportTitlesFromProviderTest extends TestCase
             resume: true,
         );
 
-        self::assertTrue($result->resumed);
+        self::assertSame(ImportRunMode::Resumed, $result->mode);
         self::assertSame(2, $result->checkpoint);
         self::assertSame(2, $result->counters->fetched);
         self::assertSame(2, $result->counters->accepted);
@@ -123,6 +124,47 @@ final class ImportTitlesFromProviderTest extends TestCase
         self::assertSame([], $recorder->batches[3]->processedIds, 'The completing batch carries no new identities.');
         self::assertEquals(new ImportCounters(fetched: 1, accepted: 1), $resumed);
         self::assertSame($recorder->batches[3]->counters, $result->counters);
+    }
+
+    #[Test]
+    public function it_starts_a_new_run_without_resume(): void
+    {
+        $result = $this->importer(
+            new MockProviderClient([$this->title('1')]),
+            new InMemoryImportRunRecorder,
+            new CollectingCandidateSink,
+        )->execute(ProviderSource::Mock, ProviderDataSource::Api);
+
+        self::assertSame(ImportRunMode::New, $result->mode);
+    }
+
+    #[Test]
+    public function it_fails_when_there_is_nothing_to_resume(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('There is no import run to resume');
+
+        $this->importer(
+            new MockProviderClient([$this->title('1')]),
+            new InMemoryImportRunRecorder,
+            new CollectingCandidateSink,
+        )->execute(ProviderSource::Mock, ProviderDataSource::Api, resume: true);
+    }
+
+    #[Test]
+    public function it_reports_an_already_completed_run_without_reading_the_provider(): void
+    {
+        $recorder = new InMemoryImportRunRecorder(
+            new ImportRunCheckpoint(10, 1, new ImportCounters(fetched: 1, accepted: 1), null, 'owner', true),
+        );
+        $sink = new CollectingCandidateSink;
+
+        $result = $this->importer(new MockProviderClient([$this->title('2')]), $recorder, $sink)
+            ->execute(ProviderSource::Mock, ProviderDataSource::Api, resume: true);
+
+        self::assertSame(ImportRunMode::AlreadyCompleted, $result->mode);
+        self::assertSame(10, $result->runId);
+        self::assertSame([], $sink->items);
     }
 
     private function importer(

@@ -46,7 +46,7 @@ final readonly class ProviderClientFactory implements ProviderClientFactoryContr
     public function make(ProviderSource $source, ProviderDataSource $dataSource = ProviderDataSource::Api): ProviderClientContract
     {
         if (!in_array($source, $this->sources, true)) {
-            throw new InvalidArgumentException("Provider [$source->value] is disabled.");
+            throw new InvalidArgumentException("Provider [$source->value] is disabled. Enabled: {$this->enabledList()}.");
         }
 
         $class = $this->classes[$source->value][$dataSource->value]
@@ -70,6 +70,13 @@ final readonly class ProviderClientFactory implements ProviderClientFactoryContr
         return $this->sources;
     }
 
+
+    private function enabledList(): string
+    {
+        return $this->sources === []
+            ? 'none'
+            : implode(', ', array_map(static fn (ProviderSource $source): string => $source->value, $this->sources));
+    }
 
     private function assertAllowed(string $class): void
     {

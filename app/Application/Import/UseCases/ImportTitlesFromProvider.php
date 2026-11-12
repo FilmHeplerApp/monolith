@@ -12,10 +12,12 @@ use App\Application\Import\DTOs\ImportBatch;
 use App\Application\Import\DTOs\ImportRejectionData;
 use App\Application\Import\DTOs\ImportResult;
 use App\Application\Import\DTOs\ImportRunCheckpoint;
+use App\Application\Import\Enums\ImportRunMode;
 use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\Exceptions\ProviderTitleMappingException;
 use App\Application\Import\Services\ImportTitleStreamFactory;
+use App\Application\Import\Services\ProviderImportContext;
 use App\Application\Import\Services\ProviderTitleToCandidateMapper;
 use App\Domain\Import\Services\TitleCandidateEvaluator;
 use Illuminate\Support\Facades\Log;
@@ -50,25 +52,36 @@ final readonly class ImportTitlesFromProvider
             throw new InvalidArgumentException('Import limit must be positive or null.');
         }
 
-        return $this->lock->synchronized($provider, $dataSource, function () use ($provider, $dataSource, $limit, $resume): ImportResult {
-            $run = $resume ? $this->recorder->resume($provider, $dataSource, $limit) : null;
-            $resumed = $run !== null;
-            $run ??= $this->recorder->start($provider, $dataSource, $limit);
+        $context = $this->contexts->create($provider, $dataSource);
+        if ($context->source() !== $provider) {
+            throw new RuntimeException('Import context does not match the requested provider.');
+        }
 
-            if ($run->completed) {
-                return new ImportResult($run->runId, $run->counters, $run->checkpoint, true);
+        return $this->lock->synchronized($provider, $dataSource, function () use ($context, $provider, $dataSource, $limit, $resume): ImportResult {
+            if (!$resume) {
+                return $this->process(
+                    $context,
+                    $this->recorder->start($provider, $dataSource, $limit),
+                    ImportRunMode::New,
+                );
             }
 
-            return $this->process($provider, $dataSource, $run, $resumed);
+            $run = $this->recorder->resume($provider, $dataSource, $limit)
+                ?? throw new RuntimeException('There is no import run to resume. Run without --resume.');
+
+            if ($run->completed) {
+                return new ImportResult($run->runId, $run->counters, $run->checkpoint, ImportRunMode::AlreadyCompleted);
+            }
+
+            return $this->process($context, $run, ImportRunMode::Resumed);
         });
     }
 
 
     private function process(
-        ProviderSource      $provider,
-        ProviderDataSource  $dataSource,
-        ImportRunCheckpoint $run,
-        bool                $resumed,
+        ProviderImportContext $context,
+        ImportRunCheckpoint   $run,
+        ImportRunMode         $mode,
     ): ImportResult {
         $counters = $run->counters;
         $checkpoint = $run->checkpoint;
@@ -77,10 +90,6 @@ final readonly class ImportTitlesFromProvider
         $stream = null;
 
         try {
-            $context = $this->contexts->create($provider, $dataSource);
-            if ($context->source() !== $provider) {
-                throw new RuntimeException('Import context does not match the requested provider.');
-            }
             $stream = $this->streams->create($context, $run);
 
             foreach ($stream->titles() as $record) {
@@ -130,7 +139,7 @@ final readonly class ImportTitlesFromProvider
             $stream?->close();
         }
 
-        return new ImportResult($run->runId, $run->counters, $run->checkpoint, $resumed);
+        return new ImportResult($run->runId, $run->counters, $run->checkpoint, $mode);
     }
 
     /** Secondary diagnostics must not replace the failure that is being rethrown. */

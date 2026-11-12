@@ -45,7 +45,7 @@ final class ProviderClientFactoryTest extends TestCase
         $factory = $this->factoryWithAllClients(enabled: [ProviderSource::Mock->value]);
 
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Provider [shikimori] is disabled.');
+        $this->expectExceptionMessage('Provider [shikimori] is disabled. Enabled: mock.');
 
         $factory->make(ProviderSource::Shikimori, $dataSource);
     }
@@ -149,7 +149,7 @@ final class ProviderClientFactoryTest extends TestCase
         $factory = $this->factory(isProduction: true);
 
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Provider [mock] is disabled.');
+        $this->expectExceptionMessage('Provider [mock] is disabled. Enabled: none.');
 
         $factory->make(ProviderSource::Mock);
     }

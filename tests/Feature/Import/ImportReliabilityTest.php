@@ -11,8 +11,11 @@ use App\Application\Import\Contracts\ProviderClientContract;
 use App\Application\Import\Contracts\ProviderClientFactoryContract;
 use App\Application\Import\Contracts\ProviderImportContextFactoryContract;
 use App\Application\Import\Contracts\ProviderTitleMapperContract;
+use App\Application\Import\DTOs\ImportBatch;
+use App\Application\Import\DTOs\ImportCounters;
 use App\Application\Import\DTOs\ProviderTitle;
 use App\Application\Import\DTOs\ProviderTitleRecord;
+use App\Application\Import\Enums\ImportRunMode;
 use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\Exceptions\ProviderUnavailableException;
@@ -157,21 +160,6 @@ final class ImportReliabilityTest extends TestCase
     }
 
     #[Test]
-    public function it_starts_a_new_run_when_resume_has_no_matching_run(): void
-    {
-        $this->bindClient($this->client('1'));
-        $sink = $this->sink();
-
-        $result = $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api, resume: true);
-
-        self::assertFalse($result->resumed);
-        self::assertSame(1, $result->checkpoint);
-        self::assertSame(['1'], $sink->saved);
-        $this->assertDatabaseCount('import_runs', 1);
-        $this->assertDatabaseHas('import_runs', ['status' => 'completed']);
-    }
-
-    #[Test]
     public function it_processes_the_same_identities_in_a_separate_run_without_resume(): void
     {
         $this->bindClient($this->client('1', '2'));
@@ -182,7 +170,7 @@ final class ImportReliabilityTest extends TestCase
         $second = $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
 
         self::assertNotSame($first->runId, $second->runId);
-        self::assertFalse($second->resumed);
+        self::assertSame(ImportRunMode::New, $second->mode);
         self::assertSame(['1', '2'], $sink->saved);
         $this->assertDatabaseCount('import_runs', 2);
         $this->assertDatabaseCount('import_processed_titles', 4);
@@ -220,7 +208,7 @@ final class ImportReliabilityTest extends TestCase
 
         $result = $this->importer()->execute(ProviderSource::Shikimori, $source, resume: true);
 
-        self::assertTrue($result->resumed);
+        self::assertSame(ImportRunMode::Resumed, $result->mode);
         self::assertSame(3, $result->checkpoint);
         self::assertSame(2, $result->counters->accepted);
         self::assertSame(1, $result->counters->rejected);
@@ -361,7 +349,7 @@ final class ImportReliabilityTest extends TestCase
             self::assertSame('Import context does not match the requested provider.', $exception->getMessage());
         }
 
-        $this->assertDatabaseHas('import_runs', ['provider' => 'shikimori', 'status' => 'failed', 'checkpoint' => 0]);
+        $this->assertDatabaseCount('import_runs', 0);
     }
 
     #[Test]
@@ -469,6 +457,114 @@ final class ImportReliabilityTest extends TestCase
     }
 
     #[Test]
+    public function it_fails_to_resume_when_no_run_exists(): void
+    {
+        try {
+            $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api, resume: true);
+            self::fail('Resume without a run must fail.');
+        } catch (RuntimeException $e) {
+            self::assertStringContainsString('no import run to resume', $e->getMessage());
+        }
+
+        $this->assertDatabaseCount('import_runs', 0);
+    }
+
+    #[Test]
+    public function it_supersedes_an_abandoned_running_run_when_a_new_one_starts(): void
+    {
+        $recorder = app(EloquentImportRunRecorder::class);
+        $abandoned = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $otherProvider = $recorder->start(ProviderSource::Shikimori, ProviderDataSource::Api, null);
+        $otherSource = $recorder->start(ProviderSource::Mock, ProviderDataSource::Dump, null);
+
+        $fresh = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+
+        $this->assertDatabaseHas('import_runs', [
+            'id' => $abandoned->runId,
+            'status' => 'superseded',
+            'error_message' => 'Superseded by run started later',
+        ]);
+        self::assertNotNull(DB::table('import_runs')->where('id', $abandoned->runId)->value('finished_at'));
+        $this->assertDatabaseHas('import_runs', ['id' => $fresh->runId, 'status' => 'running']);
+        $this->assertDatabaseHas('import_runs', ['id' => $otherProvider->runId, 'status' => 'running']);
+        $this->assertDatabaseHas('import_runs', ['id' => $otherSource->runId, 'status' => 'running']);
+    }
+
+    #[Test]
+    public function it_fences_a_superseded_worker_from_failing_the_new_run(): void
+    {
+        $recorder = app(EloquentImportRunRecorder::class);
+        $abandoned = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $fresh = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+
+        try {
+            $recorder->fail($abandoned, 'late failure');
+            self::fail('A superseded worker must not touch the run.');
+        } catch (RuntimeException $e) {
+            self::assertStringContainsString('no longer owned', $e->getMessage());
+        }
+
+        $this->assertDatabaseHas('import_runs', ['id' => $fresh->runId, 'status' => 'running']);
+        $this->assertDatabaseHas('import_runs', ['id' => $abandoned->runId, 'status' => 'superseded']);
+    }
+
+    #[Test]
+    public function it_fences_a_superseded_worker_from_committing_a_batch(): void
+    {
+        $recorder = app(EloquentImportRunRecorder::class);
+        $abandoned = $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $recorder->start(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $written = false;
+
+        try {
+            $recorder->commit(
+                $abandoned,
+                new ImportBatch(new ImportCounters(fetched: 1, accepted: 1), 1, ['1'], []),
+                static function () use (&$written): void {
+                    $written = true;
+                },
+            );
+            self::fail('A superseded worker must not commit a batch.');
+        } catch (RuntimeException $e) {
+            self::assertStringContainsString('no longer owned', $e->getMessage());
+        }
+
+        self::assertFalse($written);
+        $this->assertDatabaseHas('import_runs', ['id' => $abandoned->runId, 'status' => 'superseded', 'checkpoint' => 0, 'fetched' => 0]);
+        $this->assertDatabaseCount('import_processed_titles', 0);
+    }
+
+    #[Test]
+    #[DataProvider('brokenApiCatalogs')]
+    public function it_fails_the_run_when_the_api_cannot_serve_the_catalog(int $pageSize, string $message): void
+    {
+        Sleep::fake();
+        config()->set('shikimori.page_size', $pageSize);
+        Http::fake(['*' => Http::response(['data' => ['animes' => []]])]);
+        $sink = $this->sink();
+
+        try {
+            $this->importer()->execute(ProviderSource::Shikimori, ProviderDataSource::Api);
+            self::fail('The run must fail.');
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString($message, $exception->getMessage());
+        }
+
+        self::assertSame([], $sink->saved);
+        $this->assertDatabaseCount('import_runs', 1);
+        $this->assertDatabaseHas('import_runs', ['provider' => 'shikimori', 'status' => 'failed', 'checkpoint' => 0, 'fetched' => 0]);
+        self::assertStringContainsString($message, (string) DB::table('import_runs')->value('error_message'));
+    }
+
+    public static function brokenApiCatalogs(): array
+    {
+        return [
+            'empty first page' => [50, 'empty first page'],
+            'page size above the api limit' => [51, 'must not exceed 50'],
+        ];
+    }
+
+    #[Test]
     public function it_replays_the_uncommitted_tail_after_finish_fails(): void
     {
         $client = $this->client('1', '2');
@@ -489,7 +585,7 @@ final class ImportReliabilityTest extends TestCase
         $sink = $this->sink();
         $result = $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api, 2, true);
 
-        self::assertTrue($result->resumed);
+        self::assertSame(ImportRunMode::Resumed, $result->mode);
         self::assertSame(['1', '2'], $sink->saved);
         $this->assertDatabaseHas('import_runs', ['checkpoint' => 2, 'accepted' => 2, 'status' => 'completed']);
         $this->assertDatabaseCount('import_processed_titles', 2);
@@ -722,17 +818,13 @@ final class ImportReliabilityTest extends TestCase
         $this->sink();
         $first = $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
 
-        $contexts = $this->createMock(ProviderImportContextFactoryContract::class);
-        $contexts->expects(self::never())->method('create');
-        $this->app->instance(ProviderImportContextFactoryContract::class, $contexts);
-
         $client = $this->client('1');
         $client->failWith(new ProviderUnavailableException(ProviderSource::Mock));
         $this->bindClient($client);
         $sink = $this->sink();
         $resumed = $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api, resume: true);
 
-        self::assertTrue($resumed->resumed);
+        self::assertSame(ImportRunMode::AlreadyCompleted, $resumed->mode);
         self::assertSame($first->runId, $resumed->runId);
         self::assertSame([], $sink->saved);
         $this->assertDatabaseCount('import_runs', 1);

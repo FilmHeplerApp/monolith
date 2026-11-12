@@ -62,6 +62,10 @@ final readonly class ShikimoriProviderClient implements ProviderClientContract
             if ($rows === []) {
                 $rows = $this->fetchPage($page, $pageSize);
                 if ($rows === []) {
+                    if ($page === 1) {
+                        throw new RuntimeException('Shikimori API returned an empty first page.');
+                    }
+
                     return;
                 }
             }

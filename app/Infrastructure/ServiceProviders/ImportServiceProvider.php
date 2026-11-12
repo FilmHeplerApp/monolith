@@ -19,6 +19,7 @@ use App\Domain\Import\Rules\ExcludedTitleFormatRule;
 use App\Domain\Import\Rules\HasAnyTitleRule;
 use App\Domain\Import\Rules\MinReleaseYearRule;
 use App\Domain\Import\Services\TitleCandidateEvaluator;
+use App\Infrastructure\Import\Exceptions\ImportConfigException;
 use App\Infrastructure\Import\Locks\PostgresImportRunLock;
 use App\Infrastructure\Import\Sinks\LogCandidateSink;
 use App\Infrastructure\Persistence\Eloquent\Import\EloquentImportRunRecorder;
@@ -42,20 +43,26 @@ final class ImportServiceProvider extends ServiceProvider
         );
         $this->app->bind(
             ProviderImportContextFactoryContract::class,
-            static fn(Application $app): ProviderImportContextFactory => new ProviderImportContextFactory(
+            static fn (Application $app): ProviderImportContextFactory => new ProviderImportContextFactory(
                 $app,
                 $app->make(ProviderClientFactoryContract::class),
-                (array)config('import.providers.mappers'),
+                (array) config('import.providers.mappers'),
             ));
         $this->app->bind(ImportRunLockContract::class, PostgresImportRunLock::class);
         $this->app->bind(ImportRunRecorderContract::class, EloquentImportRunRecorder::class);
         $this->app->bind(CandidateSinkContract::class, LogCandidateSink::class);
 
         $this->app->singleton(TitleCandidateEvaluator::class, static function (): TitleCandidateEvaluator {
-            $allowedTypes = array_values(array_filter(array_map(
-                static fn (string $type): ?TitleContentType => TitleContentType::tryFrom($type),
-                (array) config('import.filter.allowed_types', []),
-            )));
+            $configuredTypes = (array) config('import.filter.allowed_types', []);
+            if ($configuredTypes === []) {
+                throw ImportConfigException::emptyAllowedTypes();
+            }
+
+            $allowedTypes = array_values(array_map(
+                static fn (mixed $type): TitleContentType => (is_string($type) ? TitleContentType::tryFrom($type) : null)
+                    ?? throw ImportConfigException::unknownAllowedType($type),
+                $configuredTypes,
+            ));
 
             $rules = [
                 new HasAnyTitleRule,

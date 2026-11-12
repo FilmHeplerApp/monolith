@@ -21,23 +21,33 @@ use Throwable;
 
 final class EloquentImportRunRecorder implements ImportRunRecorderContract
 {
-    public function start(ProviderSource $provider, ProviderDataSource $dataSource, ?int $limit): ImportRunCheckpoint
-    {
-        $run = ImportRun::query()->create([
-            ImportRun::FIELD_PROVIDER => $provider,
-            ImportRun::FIELD_DATA_SOURCE => $dataSource,
-            ImportRun::FIELD_STATUS => ImportRunStatus::Running,
-            ImportRun::FIELD_OWNER_TOKEN => bin2hex(random_bytes(16)),
-            ImportRun::FIELD_LIMIT => $limit,
-            ImportRun::FIELD_CHECKPOINT => 0,
-            ImportRun::FIELD_FETCHED => 0,
-            ImportRun::FIELD_ACCEPTED => 0,
-            ImportRun::FIELD_FLAGGED => 0,
-            ImportRun::FIELD_REJECTED => 0,
-            ImportRun::FIELD_STARTED_AT => now(),
-        ]);
+    /**
+     * @throws Throwable
+     */
+    public function start(
+        ProviderSource     $provider,
+        ProviderDataSource $dataSource,
+        ?int               $limit
+    ): ImportRunCheckpoint {
+        return DB::transaction(function () use ($provider, $dataSource, $limit): ImportRunCheckpoint {
+            $this->supersedeRunningRuns($provider, $dataSource);
 
-        return $this->checkpoint($run);
+            $run = ImportRun::query()->create([
+                ImportRun::FIELD_PROVIDER => $provider,
+                ImportRun::FIELD_DATA_SOURCE => $dataSource,
+                ImportRun::FIELD_STATUS => ImportRunStatus::Running,
+                ImportRun::FIELD_OWNER_TOKEN => bin2hex(random_bytes(16)),
+                ImportRun::FIELD_LIMIT => $limit,
+                ImportRun::FIELD_CHECKPOINT => 0,
+                ImportRun::FIELD_FETCHED => 0,
+                ImportRun::FIELD_ACCEPTED => 0,
+                ImportRun::FIELD_FLAGGED => 0,
+                ImportRun::FIELD_REJECTED => 0,
+                ImportRun::FIELD_STARTED_AT => now(),
+            ]);
+
+            return $this->checkpoint($run);
+        });
     }
 
 
@@ -246,5 +256,19 @@ final class EloquentImportRunRecorder implements ImportRunRecorderContract
             ownerToken: (string) $run->getAttribute(ImportRun::FIELD_OWNER_TOKEN),
             completed: $run->status === ImportRunStatus::Completed,
         );
+    }
+
+
+    private function supersedeRunningRuns(ProviderSource $provider, ProviderDataSource $dataSource): void
+    {
+        ImportRun::query()
+            ->where(ImportRun::FIELD_STATUS, ImportRunStatus::Running)
+            ->where(ImportRun::FIELD_PROVIDER, $provider)
+            ->where(ImportRun::FIELD_DATA_SOURCE, $dataSource)
+            ->update([
+                ImportRun::FIELD_STATUS => ImportRunStatus::Superseded,
+                ImportRun::FIELD_FINISHED_AT => now(),
+                ImportRun::FIELD_ERROR_MESSAGE => 'Superseded by run started later',
+            ]);
     }
 }
