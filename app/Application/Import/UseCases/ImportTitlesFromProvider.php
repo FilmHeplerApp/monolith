@@ -35,7 +35,7 @@ final readonly class ImportTitlesFromProvider
         private ImportRunRecorderContract            $recorder,
         private CandidateSinkContract                $sink,
         private ImportRunLockContract                $lock,
-        private int                                  $checkpointEvery = 50,
+        private int                                  $checkpointEvery = 500,
     ) {
         if ($checkpointEvery < 1) {
             throw new InvalidArgumentException('Checkpoint interval must be positive.');
