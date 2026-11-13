@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Infrastructure\Persistence\Eloquent\Bulk\Catalog;
 
 use App\Application\Catalog\DTOs\TitleData;
+use App\Domain\Catalog\Enums\Title\TitleUpdatedBy;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\Title;
 use DateTimeInterface;
+use Illuminate\Database\Query\Expression;
 use Illuminate\Support\Facades\DB;
 
 class TitleBulkWriter
@@ -30,15 +32,16 @@ class TitleBulkWriter
                 [
                     Title::FIELD_TITLE_RU,
                     Title::FIELD_TITLE_EN,
-                    Title::FIELD_DESCRIPTION_RU,
-                    Title::FIELD_DESCRIPTION_EN,
-                    Title::FIELD_SHORT_PLOT_RU,
+                    Title::FIELD_DESCRIPTION_RU => $this->preserveAdminValue(Title::FIELD_DESCRIPTION_RU),
+                    Title::FIELD_DESCRIPTION_EN => $this->preserveAdminValue(Title::FIELD_DESCRIPTION_EN),
+                    Title::FIELD_SHORT_PLOT_RU => $this->preserveOnImport(Title::FIELD_SHORT_PLOT_RU),
                     Title::FIELD_DURATION,
                     Title::FIELD_RELEASE_YEAR,
                     Title::FIELD_TYPE,
                     Title::FIELD_STATUS,
                     Title::FIELD_IS_INCOMPLETE,
-                    Title::FIELD_UPDATED_BY,
+                    Title::FIELD_UPDATED_BY => $this->preserveAdminValue(Title::FIELD_UPDATED_BY),
+                    Title::FIELD_LAST_SYNCED_AT => $this->syncTimestamp(),
                     Title::FIELD_UPDATED_AT,
                 ],
             );
@@ -106,11 +109,47 @@ class TitleBulkWriter
                 Title::FIELD_BANNER_SOURCE_HASH => $titleData->bannerSourceHash,
                 Title::FIELD_IS_INCOMPLETE => $titleData->isIncomplete,
                 Title::FIELD_UPDATED_BY => $titleData->updatedBy->value,
+                Title::FIELD_LAST_SYNCED_AT => $titleData->updatedBy === TitleUpdatedBy::PROCESS ? $now : null,
                 Title::FIELD_CREATED_AT => $now,
                 Title::FIELD_UPDATED_AT => $now,
             ];
         }
 
         return $rows;
+    }
+
+    private function preserveAdminValue(string $column): Expression
+    {
+        $grammar = DB::connection()->getQueryGrammar();
+        $stored = $grammar->wrap(Title::TABLE_NAME.'.'.$column);
+        $incoming = $grammar->wrap('excluded.'.$column);
+        $storedAuthor = $grammar->wrap(Title::TABLE_NAME.'.'.Title::FIELD_UPDATED_BY);
+        $incomingAuthor = $grammar->wrap('excluded.'.Title::FIELD_UPDATED_BY);
+        $admin = TitleUpdatedBy::ADMIN->value;
+        $process = TitleUpdatedBy::PROCESS->value;
+
+        return DB::raw("CASE WHEN $storedAuthor = '$admin' AND $incomingAuthor = '$process' THEN $stored ELSE $incoming END");
+    }
+
+    private function preserveOnImport(string $column): Expression
+    {
+        $grammar = DB::connection()->getQueryGrammar();
+        $stored = $grammar->wrap(Title::TABLE_NAME.'.'.$column);
+        $incoming = $grammar->wrap('excluded.'.$column);
+        $incomingAuthor = $grammar->wrap('excluded.'.Title::FIELD_UPDATED_BY);
+        $process = TitleUpdatedBy::PROCESS->value;
+
+        return DB::raw("CASE WHEN $incomingAuthor = '$process' THEN $stored ELSE $incoming END");
+    }
+
+    private function syncTimestamp(): Expression
+    {
+        $grammar = DB::connection()->getQueryGrammar();
+        $stored = $grammar->wrap(Title::TABLE_NAME.'.'.Title::FIELD_LAST_SYNCED_AT);
+        $incoming = $grammar->wrap('excluded.'.Title::FIELD_LAST_SYNCED_AT);
+        $incomingAuthor = $grammar->wrap('excluded.'.Title::FIELD_UPDATED_BY);
+        $process = TitleUpdatedBy::PROCESS->value;
+
+        return DB::raw("CASE WHEN $incomingAuthor = '$process' THEN $incoming ELSE $stored END");
     }
 }

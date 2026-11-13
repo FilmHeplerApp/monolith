@@ -21,7 +21,7 @@ use App\Domain\Import\Rules\MinReleaseYearRule;
 use App\Domain\Import\Services\TitleCandidateEvaluator;
 use App\Infrastructure\Import\Exceptions\ImportConfigException;
 use App\Infrastructure\Import\Locks\PostgresImportRunLock;
-use App\Infrastructure\Import\Sinks\LogCandidateSink;
+use App\Infrastructure\Import\Sinks\CatalogCandidateSink;
 use App\Infrastructure\Persistence\Eloquent\Import\EloquentImportRunRecorder;
 use App\Infrastructure\Providers\Factories\ProviderClientFactory;
 use App\Infrastructure\Providers\Factories\ProviderImportContextFactory;
@@ -50,7 +50,7 @@ final class ImportServiceProvider extends ServiceProvider
             ));
         $this->app->bind(ImportRunLockContract::class, PostgresImportRunLock::class);
         $this->app->bind(ImportRunRecorderContract::class, EloquentImportRunRecorder::class);
-        $this->app->bind(CandidateSinkContract::class, LogCandidateSink::class);
+        $this->app->bind(CandidateSinkContract::class, CatalogCandidateSink::class);
 
         $this->app->singleton(TitleCandidateEvaluator::class, static function (): TitleCandidateEvaluator {
             $configuredTypes = (array) config('import.filter.allowed_types', []);
