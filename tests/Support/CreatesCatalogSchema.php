@@ -84,6 +84,5 @@ trait CreatesCatalogSchema
             $table->timestamps();
             $table->unique([TitleAttribute::FIELD_TITLE_ID, TitleAttribute::FIELD_ATTRIBUTE_ID]);
         });
-        (require database_path('migrations/2026_11_13_000002_create_title_image_requests_and_outbox.php'))->up();
     }
 }

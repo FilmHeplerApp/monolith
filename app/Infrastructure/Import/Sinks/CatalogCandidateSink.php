@@ -14,7 +14,6 @@ use App\Domain\Import\DTOs\TitleCandidate;
 use App\Domain\Import\DTOs\TitleIdentity;
 use App\Domain\Import\Services\TitleKeyResolver;
 use App\Infrastructure\Import\Validation\CatalogAttributeDefinitionValidator;
-use App\Infrastructure\Media\Outbox\CatalogImageRequestRecorder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -31,7 +30,6 @@ final class CatalogCandidateSink implements CandidateSinkContract
         private readonly CatalogPacker                       $packer,
         private readonly CatalogBulkWriterContract           $writer,
         private readonly CatalogAttributeDefinitionValidator $definitions,
-        private readonly CatalogImageRequestRecorder         $images,
     ) {}
 
     public function consume(TitleCandidate $candidate, FilterDecision $decision): void
@@ -62,7 +60,6 @@ final class CatalogCandidateSink implements CandidateSinkContract
         if ($titles !== []) {
             $this->definitions->validate($titles);
             $this->writer->write($this->packer->pack(new CatalogPackInput($titles, [])));
-            $this->images->record($titles);
         }
 
         if ($resolution->collisions !== []) {

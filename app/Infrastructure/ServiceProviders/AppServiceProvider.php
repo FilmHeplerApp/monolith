@@ -8,7 +8,6 @@ use App\Application\Import\Contracts\ProviderClientFactoryContract;
 use App\Application\Media\Contracts\ImageCompressorContract;
 use App\Application\Media\Contracts\ImageDownloaderContract;
 use App\Application\Media\Contracts\ImageStorageContract;
-use App\Application\Media\Contracts\TitleImageRequestRepositoryContract;
 use App\Infrastructure\Media\Compression\GdImageCompressor;
 use App\Infrastructure\Media\Compression\ImageCompressor;
 use App\Infrastructure\Media\Compression\SpecImageCompressor;
@@ -17,7 +16,6 @@ use App\Infrastructure\Media\Download\IpAddressClassifier;
 use App\Infrastructure\Media\Download\PublicHostResolver;
 use App\Infrastructure\Media\Storage\S3ImageStorage;
 use App\Infrastructure\Persistence\Eloquent\Bulk\Catalog\CatalogBulkWriter;
-use App\Infrastructure\Persistence\Eloquent\Media\EloquentTitleImageRequestRepository;
 use App\Infrastructure\Persistence\Eloquent\Repositories\Catalog\EloquentTitleRepository;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Model;
@@ -30,7 +28,6 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->app->bind(TitleImageRequestRepositoryContract::class, EloquentTitleImageRequestRepository::class);
         $this->app->bind(
             CatalogBulkWriterContract::class,
             CatalogBulkWriter::class,

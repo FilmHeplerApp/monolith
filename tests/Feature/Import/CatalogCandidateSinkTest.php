@@ -25,7 +25,6 @@ use App\Domain\Import\Services\TitleKeyResolver;
 use App\Infrastructure\Import\Exceptions\CatalogAttributeDefinitionException;
 use App\Infrastructure\Import\Sinks\CatalogCandidateSink;
 use App\Infrastructure\Import\Validation\CatalogAttributeDefinitionValidator;
-use App\Infrastructure\Media\Outbox\CatalogImageRequestRecorder;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeDefinition;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeOption;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\Title;
@@ -292,7 +291,6 @@ final class CatalogCandidateSinkTest extends TestCase
             new CatalogPacker,
             $writer,
             new CatalogAttributeDefinitionValidator,
-            new CatalogImageRequestRecorder,
         );
 
         $sink->flush();

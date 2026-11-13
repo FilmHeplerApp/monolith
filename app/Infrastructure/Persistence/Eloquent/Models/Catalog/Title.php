@@ -5,7 +5,6 @@ namespace App\Infrastructure\Persistence\Eloquent\Models\Catalog;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\Enums\Title\TitleStatus;
 use App\Domain\Catalog\Enums\Title\TitleUpdatedBy;
-use App\Infrastructure\Persistence\Eloquent\Models\Media\TitleImageRequest;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -104,11 +103,6 @@ class Title extends Model
         self::FIELD_UPDATED_AT,
         self::FIELD_DELETED_AT,
     ];
-
-    public function imageRequests(): HasMany
-    {
-        return $this->hasMany(TitleImageRequest::class);
-    }
 
     public function attributes(): HasMany
     {
