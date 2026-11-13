@@ -22,15 +22,20 @@ use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use App\Domain\Import\DTOs\FilterDecision;
 use App\Domain\Import\DTOs\TitleCandidate;
 use App\Domain\Import\Services\TitleKeyResolver;
+use App\Infrastructure\Import\Exceptions\CatalogAttributeDefinitionException;
 use App\Infrastructure\Import\Sinks\CatalogCandidateSink;
-use App\Infrastructure\Persistence\Eloquent\Bulk\Catalog\UnresolvedCatalogReferenceException;
+use App\Infrastructure\Import\Validation\CatalogAttributeDefinitionValidator;
+use App\Infrastructure\Media\Outbox\CatalogImageRequestRecorder;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeDefinition;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeOption;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\Title;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\TitleAttribute;
 use App\Infrastructure\Providers\Mock\MockProviderClient;
 use Database\Seeders\AttributeDefinitionSeeder;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use Tests\Support\CreatesCatalogSchema;
@@ -50,6 +55,109 @@ final class CatalogCandidateSinkTest extends TestCase
         '2026_10_29_090000_add_owner_token_to_import_runs.php',
     ];
 
+
+    private ?string $testSchema = null;
+    private ?string $previousConnection = null;
+
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_preserves_admin_descriptions_and_refreshes_the_sync_timestamp(): void
+    {
+        $this->seed(AttributeDefinitionSeeder::class);
+        $this->travelTo(Carbon::parse('2026-11-13 12:00:00'));
+        $record = $this->record('1', 'Cowboy Bebop');
+        $this->bindRecords($record);
+        $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+        DB::table('titles')->update([
+            'description_ru' => 'Ручное описание',
+            'description_en' => 'Manual description',
+            'short_plot_ru' => 'Ручной сюжет',
+            'updated_by' => 'admin',
+        ]);
+        $this->travel(10)->minutes();
+        $updated = new ProviderTitleRecord($record->source, $record->externalId, array_replace($record->payload, ['status' => 'ongoing']));
+        $this->bindRecords($updated);
+        $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+        $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+
+        $this->assertDatabaseHas('titles', [
+            'description_ru' => 'Ручное описание',
+            'description_en' => 'Manual description',
+            'short_plot_ru' => 'Ручной сюжет',
+            'updated_by' => 'admin',
+            'status' => 'ongoing',
+        ]);
+        self::assertTrue(Title::query()->firstOrFail()->last_synced_at->equalTo(now()));
+    }
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_updates_imported_descriptions_without_clearing_a_short_plot(): void
+    {
+        $this->seed(AttributeDefinitionSeeder::class);
+        $this->travelTo(Carbon::parse('2026-11-13 12:00:00'));
+        $record = $this->record('1', 'Cowboy Bebop');
+        $this->bindRecords($record);
+        $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+        self::assertTrue(Title::query()->firstOrFail()->last_synced_at->equalTo(now()));
+        DB::table('titles')->update(['short_plot_ru' => 'Существующий сюжет']);
+        $this->travel(10)->minutes();
+        $this->bindRecords(new ProviderTitleRecord($record->source, $record->externalId, array_replace($record->payload, [
+            'description' => LocalizedText::create('Новое описание', 'New description'),
+        ])));
+        $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+
+        $this->assertDatabaseHas('titles', ['description_ru' => 'Новое описание', 'description_en' => 'New description', 'short_plot_ru' => 'Существующий сюжет', 'updated_by' => 'process']);
+        self::assertTrue(Title::query()->firstOrFail()->last_synced_at->equalTo(now()));
+    }
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_rolls_back_last_synced_at_when_the_catalog_write_fails(): void
+    {
+        $this->seed(AttributeDefinitionSeeder::class);
+        $this->travelTo(Carbon::parse('2026-11-13 12:00:00'));
+        $record = $this->record('1', 'Cowboy Bebop');
+        $this->bindRecords($record);
+        $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+        $before = Title::query()->firstOrFail()->last_synced_at;
+        $this->travel(10)->minutes();
+        $this->app->instance(CatalogBulkWriterContract::class, new FailingCatalogWriter(app(CatalogBulkWriterContract::class), 1));
+
+        try {
+            $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+            self::fail('The write must fail after updating the title.');
+        } catch (RuntimeException $exception) {
+            self::assertSame('Catalog write failed.', $exception->getMessage());
+        }
+
+        self::assertTrue(Title::query()->firstOrFail()->last_synced_at->equalTo($before));
+        $this->assertDatabaseHas('import_runs', ['status' => 'failed', 'checkpoint' => 0]);
+    }
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_refuses_incompatible_definitions_before_writing_the_catalog(): void
+    {
+        $this->seed(AttributeDefinitionSeeder::class);
+        DB::table('attribute_definitions')->where('code', 'genres')->update(['value_type' => 'number']);
+        $this->bindRecords($this->record('1', 'Cowboy Bebop'));
+        $writer = $this->createMock(CatalogBulkWriterContract::class);
+        $writer->expects(self::never())->method('write');
+        $this->app->instance(CatalogBulkWriterContract::class, $writer);
+
+        try {
+            $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+            self::fail('An incompatible definition must fail the batch.');
+        } catch (CatalogAttributeDefinitionException $exception) {
+            self::assertSame('Catalog attribute definition [anime:genres] has type [number], expected [array].', $exception->getMessage());
+        }
+
+        $this->assertDatabaseCount('titles', 0);
+        $this->assertDatabaseHas('import_runs', ['status' => 'failed', 'checkpoint' => 0]);
+        $this->assertDatabaseCount('import_processed_titles', 0);
+    }
 
     #[Test]
     public function it_saves_accepted_and_flagged_titles_and_reimports_without_duplicates(): void
@@ -143,7 +251,8 @@ final class CatalogCandidateSinkTest extends TestCase
         try {
             $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
             self::fail('Unseeded definitions must stop the import.');
-        } catch (UnresolvedCatalogReferenceException) {
+        } catch (CatalogAttributeDefinitionException $exception) {
+            self::assertStringContainsString('Missing catalog attribute definition [anime:genres]', $exception->getMessage());
         }
 
         $this->assertDatabaseCount(AttributeDefinition::TABLE_NAME, 0);
@@ -182,6 +291,8 @@ final class CatalogCandidateSinkTest extends TestCase
             app(CatalogTitlePackDataFactory::class),
             new CatalogPacker,
             $writer,
+            new CatalogAttributeDefinitionValidator,
+            new CatalogImageRequestRecorder,
         );
 
         $sink->flush();
@@ -195,12 +306,31 @@ final class CatalogCandidateSinkTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        if (DB::getDriverName() === 'pgsql') {
+            $this->previousConnection = DB::getDefaultConnection();
+            $this->testSchema = 'catalog_sink_test_'.bin2hex(random_bytes(8));
+            $config = DB::connection()->getConfig();
+            DB::statement('CREATE SCHEMA '.$this->testSchema);
+            $config['search_path'] = $this->testSchema.', public';
+            $config['name'] = $this->testSchema;
+            config(['database.connections.'.$this->testSchema => $config, 'database.default' => $this->testSchema]);
+        }
 
         foreach (self::IMPORT_MIGRATIONS as $name) {
             (require database_path('migrations/'.$name))->up();
         }
 
         $this->createCatalogSchema();
+    }
+
+    protected function tearDown(): void
+    {
+        if ($this->testSchema !== null) {
+            DB::purge($this->testSchema);
+            config(['database.default' => $this->previousConnection]);
+            DB::statement('DROP SCHEMA '.$this->testSchema.' CASCADE');
+        }
+        parent::tearDown();
     }
 
 

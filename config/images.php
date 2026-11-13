@@ -8,6 +8,12 @@ return [
 
     'queue' => 'images',
 
+    'ingestion' => [
+        'max_attempts' => 3,
+        'lease_seconds' => 300,
+        'redelivery_seconds' => 360,
+    ],
+
     'variants' => [
         ImageVariant::PosterFull->value => [
             'max_width' => 1080,

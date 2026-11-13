@@ -5,6 +5,7 @@ namespace App\Infrastructure\Persistence\Eloquent\Models\Catalog;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\Enums\Title\TitleStatus;
 use App\Domain\Catalog\Enums\Title\TitleUpdatedBy;
+use App\Infrastructure\Persistence\Eloquent\Models\Media\TitleImageRequest;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -70,6 +71,7 @@ class Title extends Model
     public const string FIELD_EMBEDDING = 'embedding';
     public const string FIELD_IS_INCOMPLETE = 'is_incomplete';
     public const string FIELD_UPDATED_BY = 'updated_by';
+    public const string FIELD_LAST_SYNCED_AT = 'last_synced_at';
     public const string FIELD_CREATED_AT = 'created_at';
     public const string FIELD_UPDATED_AT = 'updated_at';
     public const string FIELD_DELETED_AT = 'deleted_at';
@@ -97,10 +99,22 @@ class Title extends Model
         self::FIELD_EMBEDDING,
         self::FIELD_IS_INCOMPLETE,
         self::FIELD_UPDATED_BY,
+        self::FIELD_LAST_SYNCED_AT,
         self::FIELD_CREATED_AT,
         self::FIELD_UPDATED_AT,
         self::FIELD_DELETED_AT,
     ];
+
+    public function imageRequests(): HasMany
+    {
+        return $this->hasMany(TitleImageRequest::class);
+    }
+
+    public function attributes(): HasMany
+    {
+        return $this->hasMany(TitleAttribute::class);
+    }
+
 
     protected function casts(): array
     {
@@ -112,11 +126,7 @@ class Title extends Model
             self::FIELD_RELEASE_YEAR => 'integer',
             self::FIELD_IS_INCOMPLETE => 'boolean',
             self::FIELD_UPDATED_BY => TitleUpdatedBy::class,
+            self::FIELD_LAST_SYNCED_AT => 'immutable_datetime',
         ];
-    }
-
-    public function attributes(): HasMany
-    {
-        return $this->hasMany(TitleAttribute::class);
     }
 }

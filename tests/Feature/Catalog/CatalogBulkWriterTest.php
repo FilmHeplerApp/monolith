@@ -43,7 +43,9 @@ use App\Infrastructure\Persistence\Eloquent\Models\Catalog\TitleAttribute;
 use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
 use Database\Seeders\AttributeDefinitionSeeder;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
@@ -86,6 +88,55 @@ final class CatalogBulkWriterTest extends TestCase
     private ?string $testConnection = null;
     private ?string $previousConnection = null;
 
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_allows_admin_updates_without_changing_the_last_import_timestamp(): void
+    {
+        $this->travelTo(now()->startOfSecond());
+        $data = $this->createTitleData(TitleUuid::createFromString(self::TITLE_UUID));
+        $this->writer->write(new PreparedCatalogDto(titles: [$data]));
+        $syncedAt = Title::query()->firstOrFail()->last_synced_at;
+        self::assertNotNull($syncedAt);
+        $this->travel(10)->minutes();
+        $admin = new TitleData(...array_replace(get_object_vars($data), [
+            'updatedBy' => TitleUpdatedBy::ADMIN,
+            'description' => LocalizedText::create('Ручное описание', 'Manual description'),
+            'shortPlotRu' => 'Ручной сюжет',
+        ]));
+        $this->writer->write(new PreparedCatalogDto(titles: [$admin]));
+
+        $this->assertDatabaseHas('titles', ['description_ru' => 'Ручное описание', 'description_en' => 'Manual description', 'short_plot_ru' => 'Ручной сюжет', 'updated_by' => 'admin']);
+        self::assertTrue(Title::query()->firstOrFail()->last_synced_at->equalTo($syncedAt));
+    }
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_does_not_mark_a_title_created_by_an_admin_as_synced(): void
+    {
+        $data = $this->createTitleData(TitleUuid::createFromString(self::TITLE_UUID));
+        $admin = new TitleData(...array_replace(get_object_vars($data), ['updatedBy' => TitleUpdatedBy::ADMIN]));
+
+        $this->writer->write(new PreparedCatalogDto(titles: [$admin]));
+
+        self::assertNull(Title::query()->firstOrFail()->last_synced_at);
+    }
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_migrates_sync_metadata_without_inventing_a_previous_sync_time(): void
+    {
+        $this->writer->write(new PreparedCatalogDto(titles: [$this->createTitleData(TitleUuid::createFromString(self::TITLE_UUID))]));
+        Schema::table('titles', static fn (Blueprint $table) => $table->dropColumn('last_synced_at'));
+        $migration = require database_path('migrations/2026_11_13_000001_add_last_synced_at_to_titles.php');
+        $migration->up();
+
+        self::assertTrue(Schema::hasColumn('titles', 'last_synced_at'));
+        self::assertNull(DB::table('titles')->value('last_synced_at'));
+        $migration->down();
+        self::assertFalse(Schema::hasColumn('titles', 'last_synced_at'));
+        $this->assertDatabaseCount('titles', 1);
+    }
 
     #[Test]
     #[Group('catalog_import')]

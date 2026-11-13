@@ -55,6 +55,7 @@ trait CreatesCatalogSchema
             $table->text(Title::FIELD_EMBEDDING)->nullable();
             $table->boolean(Title::FIELD_IS_INCOMPLETE)->default(false);
             $table->string(Title::FIELD_UPDATED_BY)->default('process');
+            $table->timestamp(Title::FIELD_LAST_SYNCED_AT)->nullable();
             $table->timestamps();
         });
 
@@ -83,5 +84,6 @@ trait CreatesCatalogSchema
             $table->timestamps();
             $table->unique([TitleAttribute::FIELD_TITLE_ID, TitleAttribute::FIELD_ATTRIBUTE_ID]);
         });
+        (require database_path('migrations/2026_11_13_000002_create_title_image_requests_and_outbox.php'))->up();
     }
 }

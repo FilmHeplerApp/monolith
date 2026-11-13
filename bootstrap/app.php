@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -13,6 +14,9 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withCommands([
         __DIR__.'/../app/Interfaces/Console/Commands',
     ])
+    ->withSchedule(function (Schedule $schedule): void {
+        $schedule->command('images:publish-outbox')->everyMinute()->withoutOverlapping(5);
+    })
     ->withMiddleware(function (Middleware $middleware): void {
         //
     })
