@@ -27,11 +27,10 @@ final readonly class User
         public bool               $isActive,
         public UserRole           $role,
         public ?DateTimeImmutable $lastActiveAt,
-        public Birthday           $birthday,
-        public SecretPhraseHash   $secretPhraseHash,
+        public ?Birthday          $birthday,
+        public ?SecretPhraseHash  $secretPhraseHash,
         public ?DateTimeImmutable $createdAt = null,
         public ?DateTimeImmutable $updatedAt = null,
         public ?DateTimeImmutable $deletedAt = null,
-    ) {
-    }
+    ) {}
 }

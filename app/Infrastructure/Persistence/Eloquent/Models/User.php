@@ -23,8 +23,8 @@ use Illuminate\Support\Carbon;
  * @property bool $is_active
  * @property UserRole $role
  * @property Carbon|null $last_active_at
- * @property Carbon $birthday
- * @property string $secret_phrase_hash
+ * @property Carbon|null $birthday
+ * @property string|null $secret_phrase_hash
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property Carbon|null $deleted_at

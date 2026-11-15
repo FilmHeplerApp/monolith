@@ -19,6 +19,7 @@ use App\Infrastructure\Persistence\Eloquent\Models\UserPreference as UserPrefere
 use DateTimeImmutable;
 use DateTimeInterface;
 use Illuminate\Support\Facades\DB;
+use RuntimeException;
 
 final class EloquentUserRepository implements UserRepository
 {
@@ -67,7 +68,7 @@ final class EloquentUserRepository implements UserRepository
     {
         $model = UserModel::query()
             ->whereRaw(
-                'lower(' . UserModel::FIELD_NICKNAME . ') = lower(?)',
+                'lower('.UserModel::FIELD_NICKNAME.') = lower(?)',
                 [$nickname->getValue()],
             )
             ->first();
@@ -86,28 +87,33 @@ final class EloquentUserRepository implements UserRepository
 
     public function forceDelete(User $user): void
     {
-        $model = $this->findModel($user, withTrashed: true);
-
-        DB::transaction(function () use ($model): void {
-            $this->purgeOwnedRows($model->id);
-            $model->forceDelete();
+        DB::transaction(function () use ($user): void {
+            $model = $this->findModel($user, withTrashed: true, lock: true);
+            $this->purgeOwnedRows($model);
+            if (!$model->forceDelete()) {
+                throw new RuntimeException('User deletion was cancelled; related data cleanup has been rolled back.');
+            }
         });
     }
 
 
-    /**
-     * Hard-delete rows that belong to the user.
-     * Watch history, ratings, lists, tokens and recommendation cache attach here.
-     */
-    private function purgeOwnedRows(int $userId): void
+    private function purgeOwnedRows(UserModel $model): void
     {
         UserPreferenceModel::query()
-            ->where(UserPreferenceModel::FIELD_USER_ID, $userId)
+            ->where(UserPreferenceModel::FIELD_USER_ID, $model->id)
+            ->delete();
+
+        DB::table('sessions')->where('user_id', $model->id)->delete();
+        DB::table('password_reset_tokens')
+            ->whereRaw('lower(email) = lower(?)', [$model->email])
             ->delete();
     }
 
-    private function findModel(User $user, bool $withTrashed = false): UserModel
-    {
+    private function findModel(
+        User $user,
+        bool $withTrashed = false,
+        bool $lock = false,
+    ): UserModel {
         if ($user->id === null) {
             throw InvalidUserValueException::nonExistentUser();
         }
@@ -116,6 +122,10 @@ final class EloquentUserRepository implements UserRepository
 
         if ($withTrashed) {
             $query->withTrashed();
+        }
+
+        if ($lock) {
+            $query->lockForUpdate();
         }
 
         $model = $query->find($user->id);
@@ -142,8 +152,8 @@ final class EloquentUserRepository implements UserRepository
             UserModel::FIELD_IS_ACTIVE => $user->isActive,
             UserModel::FIELD_ROLE => $user->role,
             UserModel::FIELD_LAST_ACTIVE_AT => $user->lastActiveAt,
-            UserModel::FIELD_BIRTHDAY => $user->birthday->getValue(),
-            UserModel::FIELD_SECRET_PHRASE_HASH => $user->secretPhraseHash->getValue(),
+            UserModel::FIELD_BIRTHDAY => $user->birthday?->getValue(),
+            UserModel::FIELD_SECRET_PHRASE_HASH => $user->secretPhraseHash?->getValue(),
         ];
     }
 
@@ -160,8 +170,8 @@ final class EloquentUserRepository implements UserRepository
             isActive: $model->is_active,
             role: $model->role,
             lastActiveAt: $this->toImmutable($model->last_active_at),
-            birthday: Birthday::createFromDateTime($this->requireImmutable($model->birthday)),
-            secretPhraseHash: SecretPhraseHash::createFromHash($model->secret_phrase_hash),
+            birthday: $model->birthday === null ? null : Birthday::createFromDateTime(DateTimeImmutable::createFromInterface($model->birthday)),
+            secretPhraseHash: $model->secret_phrase_hash === null ? null : SecretPhraseHash::createFromHash($model->secret_phrase_hash),
             createdAt: $this->toImmutable($model->created_at),
             updatedAt: $this->toImmutable($model->updated_at),
             deletedAt: $this->toImmutable($model->deleted_at),
@@ -174,11 +184,6 @@ final class EloquentUserRepository implements UserRepository
             return null;
         }
 
-        return DateTimeImmutable::createFromInterface($value);
-    }
-
-    private function requireImmutable(DateTimeInterface $value): DateTimeImmutable
-    {
         return DateTimeImmutable::createFromInterface($value);
     }
 }

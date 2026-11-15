@@ -42,6 +42,29 @@ return new class extends Migration
 
     public function up(): void
     {
+        $duplicateEmail = DB::table(User::TABLE_NAME)
+            ->selectRaw('lower(email) as normalized_email')
+            ->groupByRaw('lower(email)')
+            ->havingRaw('count(*) > 1')
+            ->exists();
+
+        if ($duplicateEmail) {
+            throw new RuntimeException('Cannot make users.email case-insensitive: resolve existing email duplicates that differ only by case before migrating.');
+        }
+
+        $duplicateNickname = DB::table(User::TABLE_NAME)
+            ->selectRaw('lower(name) as normalized_nickname')
+            ->groupByRaw('lower(name)')
+            ->havingRaw('count(*) > 1')
+            ->exists();
+
+        if ($duplicateNickname) {
+            throw new RuntimeException('Cannot create unique nicknames: resolve existing user names that match regardless of case before migrating.');
+        }
+
+        DB::statement('create extension if not exists citext with schema public');
+        DB::statement('alter table users alter column email type public.citext using email::public.citext');
+
         Schema::table(User::TABLE_NAME, function (Blueprint $table): void {
             $table->renameColumn('name', User::FIELD_NICKNAME);
         });
@@ -54,8 +77,8 @@ return new class extends Migration
             $table->boolean(User::FIELD_IS_ACTIVE)->default(true);
             $table->enum(User::FIELD_ROLE, self::ROLES)->default(self::ROLE_USER);
             $table->timestamp(User::FIELD_LAST_ACTIVE_AT)->nullable();
-            $table->date(User::FIELD_BIRTHDAY);
-            $table->string(User::FIELD_SECRET_PHRASE_HASH);
+            $table->date(User::FIELD_BIRTHDAY)->nullable();
+            $table->string(User::FIELD_SECRET_PHRASE_HASH)->nullable();
             $table->softDeletes();
         });
 
@@ -82,6 +105,8 @@ return new class extends Migration
 
     public function down(): void
     {
+        DB::statement('alter table users alter column email type varchar(255) using email::text');
+
         Schema::dropIfExists(UserPreference::TABLE_NAME);
 
         DB::statement(sprintf(

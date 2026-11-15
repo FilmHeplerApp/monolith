@@ -28,10 +28,14 @@ use App\Infrastructure\Persistence\Eloquent\Repositories\Users\EloquentUserPrefe
 use App\Infrastructure\Persistence\Eloquent\Repositories\Users\EloquentUserRepository;
 use DateTimeImmutable;
 use Illuminate\Database\Query\Expression;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Events\Dispatcher;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\Test;
+use RuntimeException;
 use Tests\TestCase;
 
 final class EloquentUserRepositoryTest extends TestCase
@@ -253,6 +257,80 @@ final class EloquentUserRepositoryTest extends TestCase
     }
 
 
+    #[Test]
+    public function it_purges_sessions_and_reset_tokens_without_touching_other_accounts(): void
+    {
+        $user = $this->users->save($this->makeUser());
+        $other = $this->users->save($this->makeUser(nickname: 'other', email: 'other@example.com'));
+        DB::table('sessions')->insert([
+            ['id' => 'target-session', 'user_id' => $user->id],
+            ['id' => 'other-session', 'user_id' => $other->id],
+            ['id' => 'guest-session', 'user_id' => null],
+        ]);
+        DB::table('password_reset_tokens')->insert([
+            ['email' => strtoupper(self::EMAIL), 'token' => 'target-token'],
+            ['email' => 'other@example.com', 'token' => 'other-token'],
+        ]);
+        $this->users->delete($user);
+        $this->users->forceDelete($user);
+
+        self::assertSame(['guest-session', 'other-session'], DB::table('sessions')->orderBy('id')->pluck('id')->all());
+        self::assertSame(['other@example.com'], DB::table('password_reset_tokens')->pluck('email')->all());
+        self::assertNotNull($this->users->findById($other->id));
+    }
+
+    #[Test]
+    public function it_rolls_back_all_cleanup_when_user_deletion_fails(): void
+    {
+        $user = $this->users->save($this->makeUser());
+        $this->preferences->save($this->makePreference($user->id));
+        DB::table('sessions')->insert(['id' => 'session', 'user_id' => $user->id]);
+        DB::table('password_reset_tokens')->insert(['email' => self::EMAIL, 'token' => 'token']);
+        DB::unprepared("CREATE TRIGGER reject_user_delete BEFORE DELETE ON users BEGIN SELECT RAISE(ABORT, 'delete failed'); END");
+
+        try {
+            $this->users->forceDelete($user);
+            self::fail('Deletion must fail.');
+        } catch (QueryException $exception) {
+            self::assertStringContainsString('delete failed', $exception->getMessage());
+        }
+
+        self::assertNotNull($this->users->findById($user->id));
+        self::assertNotNull($this->preferences->findByUserId($user->id));
+        self::assertSame(1, DB::table('sessions')->count());
+        self::assertSame(1, DB::table('password_reset_tokens')->count());
+    }
+
+
+    #[Test]
+    public function it_rolls_back_cleanup_when_a_model_observer_cancels_deletion(): void
+    {
+        $user = $this->users->save($this->makeUser());
+        $this->preferences->save($this->makePreference($user->id));
+        DB::table('sessions')->insert(['id' => 'session', 'user_id' => $user->id]);
+        DB::table('password_reset_tokens')->insert(['email' => self::EMAIL, 'token' => 'token']);
+        $dispatcher = UserModel::getEventDispatcher();
+        UserModel::setEventDispatcher(new Dispatcher($this->app));
+        UserModel::deleting(static fn (): bool => false);
+
+        try {
+            try {
+                $this->users->forceDelete($user);
+                self::fail('Cancelled deletion must not commit cleanup.');
+            } catch (RuntimeException $exception) {
+                self::assertStringContainsString('deletion was cancelled', $exception->getMessage());
+            }
+        } finally {
+            UserModel::setEventDispatcher($dispatcher);
+        }
+
+        self::assertNotNull($this->users->findById($user->id));
+        self::assertNotNull($this->preferences->findByUserId($user->id));
+        self::assertSame(1, DB::table('sessions')->count());
+        self::assertSame(1, DB::table('password_reset_tokens')->count());
+    }
+
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -314,6 +392,16 @@ final class EloquentUserRepositoryTest extends TestCase
 
     private function createTables(): void
     {
+        Schema::dropIfExists('sessions');
+        Schema::dropIfExists('password_reset_tokens');
+        Schema::create('sessions', function (Blueprint $table): void {
+            $table->string('id')->primary();
+            $table->unsignedBigInteger('user_id')->nullable()->index();
+        });
+        Schema::create('password_reset_tokens', function (Blueprint $table): void {
+            $table->string('email')->primary();
+            $table->string('token');
+        });
         Schema::dropIfExists(UserPreferenceModel::TABLE_NAME);
         Schema::dropIfExists(UserModel::TABLE_NAME);
 
@@ -328,12 +416,12 @@ final class EloquentUserRepositoryTest extends TestCase
             $table->boolean(UserModel::FIELD_IS_ACTIVE)->default(true);
             $table->string(UserModel::FIELD_ROLE)->default(UserRole::USER->value);
             $table->timestamp(UserModel::FIELD_LAST_ACTIVE_AT)->nullable();
-            $table->date(UserModel::FIELD_BIRTHDAY);
-            $table->string(UserModel::FIELD_SECRET_PHRASE_HASH);
+            $table->date(UserModel::FIELD_BIRTHDAY)->nullable();
+            $table->string(UserModel::FIELD_SECRET_PHRASE_HASH)->nullable();
             $table->timestamps();
             $table->softDeletes();
             $table->unique(
-                [new Expression('lower(' . UserModel::FIELD_NICKNAME . ')')],
+                [new Expression('lower('.UserModel::FIELD_NICKNAME.')')],
                 UserModel::NICKNAME_LOWER_UNIQUE_INDEX,
             );
         });

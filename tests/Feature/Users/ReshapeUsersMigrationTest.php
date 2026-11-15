@@ -5,22 +5,25 @@ declare(strict_types=1);
 namespace Tests\Feature\Users;
 
 use App\Domain\Shared\ValueObjects\Embedding;
+use App\Domain\Users\ValueObjects\User\Email;
 use App\Infrastructure\Persistence\Eloquent\Models\User as UserModel;
 use App\Infrastructure\Persistence\Eloquent\Models\UserPreference as UserPreferenceModel;
-use Illuminate\Database\Schema\Blueprint;
+use App\Infrastructure\Persistence\Eloquent\Repositories\Users\EloquentUserRepository;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\Test;
+use RuntimeException;
 use Tests\TestCase;
 
 final class ReshapeUsersMigrationTest extends TestCase
 {
     private const string BASE_CONNECTION = 'pgsql_testing';
     private const string CONNECTION = 'pgsql_users_migration';
-    private const string SCHEMA = 'users_migration_test';
 
     private string $previousConnection = 'sqlite';
     private bool $schemaReady = false;
+    private string $schema;
 
 
     #[Test]
@@ -45,7 +48,7 @@ final class ReshapeUsersMigrationTest extends TestCase
 
         $index = DB::selectOne(
             'select indexdef from pg_indexes where schemaname = ? and indexname = ?',
-            [self::SCHEMA, UserModel::NICKNAME_LOWER_UNIQUE_INDEX],
+            [$this->schema, UserModel::NICKNAME_LOWER_UNIQUE_INDEX],
         );
 
         self::assertNotNull($index);
@@ -79,25 +82,132 @@ final class ReshapeUsersMigrationTest extends TestCase
     }
 
 
+    #[Test]
+    public function it_preserves_existing_users_with_unknown_profile_fields(): void
+    {
+        $base = require database_path('migrations/0001_01_01_000000_create_users_table.php');
+        $base->up();
+        $id = DB::table('users')->insertGetId([
+            'name' => 'Legacy', 'email' => 'Legacy@Example.com', 'password' => 'existing-hash',
+        ]);
+
+        $migration = require database_path('migrations/2026_10_19_210600_reshape_users_and_create_user_preferences.php');
+        $migration->up();
+
+        $repository = new EloquentUserRepository;
+        $user = $repository->findByEmail(Email::createFromString('LEGACY@example.com'));
+        self::assertSame($id, $user?->id);
+        self::assertSame('existing-hash', $user?->password->getValue());
+        self::assertNull($user?->birthday);
+        self::assertNull($user?->secretPhraseHash);
+        self::assertNotNull($user);
+        $saved = $repository->save($user);
+        self::assertNull($saved->birthday);
+        self::assertNull($saved->secretPhraseHash);
+
+        $migration->down();
+        self::assertSame('character varying(255)', $this->formattedColumnType('users', 'email'));
+        self::assertSame('Legacy', DB::table('users')->where('id', $id)->value('name'));
+    }
+
+    #[Test]
+    public function it_enforces_case_insensitive_email_uniqueness(): void
+    {
+        $this->migrateLaravelUsersTable();
+        self::assertSame('citext', $this->formattedColumnType('users', 'email'));
+        DB::table('users')->insert(['nickname' => 'one', 'email' => 'Case@Example.com', 'password' => 'hash']);
+
+        $this->expectException(UniqueConstraintViolationException::class);
+        DB::table('users')->insert(['nickname' => 'two', 'email' => 'case@example.com', 'password' => 'hash']);
+    }
+
+    #[Test]
+    public function it_reports_legacy_email_collisions_before_changing_the_schema(): void
+    {
+        $base = require database_path('migrations/0001_01_01_000000_create_users_table.php');
+        $base->up();
+        DB::table('users')->insert([
+            ['name' => 'one', 'email' => 'Case@Example.com', 'password' => 'hash'],
+            ['name' => 'two', 'email' => 'case@example.com', 'password' => 'hash'],
+        ]);
+
+        $migration = require database_path('migrations/2026_10_19_210600_reshape_users_and_create_user_preferences.php');
+        try {
+            $migration->up();
+            self::fail('Email collision must be resolved explicitly.');
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString('resolve existing email duplicates', $exception->getMessage());
+        }
+
+        self::assertTrue(Schema::hasColumn('users', 'name'));
+        self::assertSame(2, DB::table('users')->count());
+    }
+
+
+    #[Test]
+    public function it_purges_existing_user_data_on_postgresql(): void
+    {
+        $this->migrateLaravelUsersTable();
+        $id = DB::table('users')->insertGetId(['nickname' => 'legacy', 'email' => 'Case@Example.com', 'password' => 'hash']);
+        DB::table('user_preferences')->insert(['user_id' => $id]);
+        DB::table('sessions')->insert(['id' => 'session', 'user_id' => $id, 'payload' => 'data', 'last_activity' => time()]);
+        DB::table('password_reset_tokens')->insert(['email' => 'CASE@example.com', 'token' => 'token']);
+
+        $repository = new EloquentUserRepository;
+        $user = $repository->findById($id);
+        self::assertNotNull($user);
+        $repository->forceDelete($user);
+
+        foreach (['users', 'user_preferences', 'sessions', 'password_reset_tokens'] as $table) {
+            self::assertSame(0, DB::table($table)->count());
+        }
+    }
+
+
+    #[Test]
+    public function it_reports_legacy_nickname_collisions_without_renaming_or_removing_users(): void
+    {
+        $base = require database_path('migrations/0001_01_01_000000_create_users_table.php');
+        $base->up();
+        DB::table('users')->insert([
+            ['name' => 'Anton', 'email' => 'one@example.com', 'password' => 'hash'],
+            ['name' => 'anton', 'email' => 'two@example.com', 'password' => 'hash'],
+        ]);
+
+        $migration = require database_path('migrations/2026_10_19_210600_reshape_users_and_create_user_preferences.php');
+        try {
+            $migration->up();
+            self::fail('Nickname collision must be resolved explicitly.');
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString('resolve existing user names', $exception->getMessage());
+        }
+
+        self::assertSame(['Anton', 'anton'], DB::table('users')->orderBy('id')->pluck('name')->all());
+        self::assertSame('character varying(255)', $this->formattedColumnType('users', 'email'));
+        self::assertFalse(Schema::hasColumn('users', 'nickname'));
+    }
+
+
     protected function setUp(): void
     {
         parent::setUp();
 
+        $this->schema = 'users_migration_'.bin2hex(random_bytes(8));
         $this->previousConnection = (string) config('database.default');
         config([
             'database.connections.'.self::CONNECTION => $this->connectionConfig('public'),
         ]);
         DB::purge(self::CONNECTION);
         DB::connection(self::CONNECTION)->statement(
-            'drop schema if exists '.self::SCHEMA.' cascade',
+            'drop schema if exists '.$this->schema.' cascade',
         );
         DB::connection(self::CONNECTION)->statement(
-            'create schema '.self::SCHEMA,
+            'create schema '.$this->schema,
         );
         $this->schemaReady = true;
 
         config([
-            'database.connections.'.self::CONNECTION.'.search_path' => self::SCHEMA.', public',
+            'database.connections.'.self::CONNECTION.'.search_path' => $this->schema.', public',
             'database.default' => self::CONNECTION,
         ]);
         DB::purge(self::CONNECTION);
@@ -108,7 +218,7 @@ final class ReshapeUsersMigrationTest extends TestCase
     {
         if ($this->schemaReady) {
             DB::connection(self::CONNECTION)->statement(
-                'drop schema if exists '.self::SCHEMA.' cascade',
+                'drop schema if exists '.$this->schema.' cascade',
             );
         }
 
@@ -132,15 +242,8 @@ final class ReshapeUsersMigrationTest extends TestCase
 
     private function migrateLaravelUsersTable(): void
     {
-        Schema::create(UserModel::TABLE_NAME, function (Blueprint $table): void {
-            $table->id();
-            $table->string('name');
-            $table->string('email')->unique();
-            $table->timestamp('email_verified_at')->nullable();
-            $table->string('password');
-            $table->rememberToken();
-            $table->timestamps();
-        });
+        $base = require database_path('migrations/0001_01_01_000000_create_users_table.php');
+        $base->up();
 
         $migration = require database_path(
             'migrations/2026_10_19_210600_reshape_users_and_create_user_preferences.php',
@@ -162,7 +265,7 @@ final class ReshapeUsersMigrationTest extends TestCase
               and a.attnum > 0
               and not a.attisdropped
             SQL,
-            [self::SCHEMA, $table, $column],
+            [$this->schema, $table, $column],
         );
 
         self::assertNotNull($row);
