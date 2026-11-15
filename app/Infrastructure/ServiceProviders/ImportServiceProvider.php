@@ -9,6 +9,7 @@ use App\Application\Import\Contracts\ImportRunLockContract;
 use App\Application\Import\Contracts\ImportRunRecorderContract;
 use App\Application\Import\Contracts\ProviderClientFactoryContract;
 use App\Application\Import\Contracts\ProviderImportContextFactoryContract;
+use App\Application\Import\DTOs\ImportCheckpointIntervals;
 use App\Application\Import\Services\ImportTitleStreamFactory;
 use App\Application\Import\Services\ProviderTitleToCandidateMapper;
 use App\Application\Import\UseCases\ImportTitlesFromProvider;
@@ -94,7 +95,16 @@ final class ImportServiceProvider extends ServiceProvider
                     recorder: $recorder,
                     sink: $app->make(CandidateSinkContract::class),
                     lock: $app->make(ImportRunLockContract::class),
-                    checkpointEvery: (int) config('import.checkpoint_every', 50),
+                    checkpointIntervals: new ImportCheckpointIntervals(
+                        (int) config('import.checkpoint_every', 500),
+                        array_map(
+                            'intval',
+                            array_filter(
+                                (array) config('import.providers.checkpoint_every', []),
+                                static fn (mixed $interval): bool => $interval !== null && $interval !== '',
+                            ),
+                        ),
+                    ),
                 );
             },
         );

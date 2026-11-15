@@ -621,7 +621,10 @@ users/avatars/{ingestion_uuid}/avatar.webp
 
 ## 10. Точка стыковки с импортом
 
-Оркестратора импорта в коде пока нет. Когда он появится, порядок обязан быть таким:
+Обновлено 2026-11-15: оркестратор импорта и запись каталога через `CatalogCandidateSink`
+уже есть ([сохраняющий sink](../catalog_candidate_sink/Catalog_candidate_sink.md)), но
+постановка `IngestTitleImagesJob` к ним не подключена. Шаг 1 ниже выполняется, шаги 2–4 —
+отдельная задача. Порядок обязан быть таким:
 
 ```text
 1. Импорт пишет тайтлы через CatalogBulkWriterContract

@@ -30,7 +30,8 @@ ImportTitlesFromProvider
     lock->assertOwned()
     sink->flush() | sink->finish()
       TitleKeyResolver::resolve()      canonical key, коллизии внутри пачки
-      CatalogTitlePackDataFactory      TitleCandidate → CatalogTitlePackData
+      CatalogTitlePackDataFactory      TitleCandidate → CatalogTitlePackData, тип из реестра
+      CatalogAttributeDefinitionValidator::validate()  дефиниции пачки есть в базе, типы совпадают
       CatalogPacker::pack()            → PreparedCatalogDto
       CatalogBulkWriter::write()       вложенная транзакция (savepoint)
     отказы, журнал ID, checkpoint, счётчики
@@ -42,14 +43,34 @@ ImportTitlesFromProvider
 
 ### Граница пачки — это пачка checkpoint
 
-Sink пишет каталог на каждом `flush()` и `finish()`. Пачка равна
-`import.checkpoint_every` (по умолчанию 50), а не 500, как предполагалось в доке упаковщика.
+Sink пишет каталог на каждом `flush()` и `finish()`. Размер пачки задаётся отдельно
+для каждого поставщика: объёмы у поставщиков разные.
+
+- `import.providers.checkpoint_every.<provider>` — размер пачки поставщика. Для
+  Shikimori — `SHIKIMORI_IMPORT_CHECKPOINT_EVERY`.
+- `import.checkpoint_every` (`IMPORT_CHECKPOINT_EVERY`, по умолчанию 500) — для
+  поставщиков без своего значения, например `mock`.
+
+`ImportServiceProvider` собирает из конфига `ImportCheckpointIntervals`, use case берёт
+размер через `forProvider($context->source())` в начале обработки прогона.
+Неположительное значение или неизвестный код поставщика в конфиге —
+`InvalidArgumentException` при сборке use case, до создания строки в `import_runs`.
+Пустая переменная окружения означает «взять значение по умолчанию»: для поставщика —
+общее значение, для `IMPORT_CHECKPOINT_EVERY` — 500.
+
+Размер пачки не связан с размером страницы поставщика. Shikimori отдаёт не больше
+50 записей за запрос (`SHIKIMORI_PAGE_SIZE`, `config/shikimori.php`), поэтому при
+пачке 500 оркестратор собирает её за 10 страниц.
+
+`--resume` берёт размер пачки из текущего конфига, а не из исходного прогона.
+Менять его между падением и возобновлением безопасно: checkpoint хранит число
+подтверждённых записей, а не номер пачки.
 
 Копить кандидатов между вызовами `flush()` нельзя. `flush()` вызывается внутри
 `recorder->commit()`, который в той же транзакции подтверждает журнал ID и checkpoint.
 Если пачка не записана в каталог, а её ID уже подтверждены, resume их не перечитает,
-и тайтлы потеряются. Крупнее пачка — через `IMPORT_CHECKPOINT_EVERY`. Цена: больше
-повторного чтения при resume.
+и тайтлы потеряются. Цена большой пачки: после сбоя повторно читается до 499 записей
+неподтверждённого хвоста, для API это до 10 страниц.
 
 ### Canonical key
 
@@ -64,8 +85,20 @@ commit пишет `Log::warning('Import title key collision.')` с ключом 
 ### Тип значения атрибута
 
 `CatalogTitlePackDataFactory` берёт `valueType` из `ImportAttributeRegistry`.
-Неизвестный код атрибута — `InvalidArgumentException`, прогон падает. Это ошибка
+Неизвестный код атрибута — `InvalidArgumentException`
+(`Import attribute [anime:<code>] is not registered.`), прогон падает. Это ошибка
 конфигурации нового поставщика, а не отказ одной записи.
+
+Новый код и новое значение — разные случаи:
+
+- **Новое значение** существующего кода (новый жанр, тема, студия) — штатный путь.
+  Упаковщик создаёт опцию в `attribute_options`, импорт не падает. У Shikimori
+  неизвестный `kind` таксономии уходит в `tags`, поэтому новые жанры и темы
+  поставщика — тоже новые значения.
+- **Новый код** (например, `directors`) — падение на реестре, ещё до обращения к базе.
+  Чтобы принять код: добавить его в `ImportAttributeRegistry`, выполнить
+  `AttributeDefinitionSeeder` и только потом импорт. Если реестр обновлён, а сидер
+  не выполнен, прогон падает уже на валидаторе (`Missing catalog attribute definition`).
 
 ### Дефиниции атрибутов
 
@@ -80,8 +113,14 @@ commit пишет `Log::warning('Import title key collision.')` с ключом 
 сохранённый тип расходится с реестром, сидер останавливается.
 
 Перед первым импортом нужен `php artisan db:seed --class=AttributeDefinitionSeeder`.
-Без дефиниций первая же пачка падает на `UnresolvedCatalogReferenceException`,
-транзакция откатывается, прогон получает статус `failed`.
+Без дефиниций первая пачка, в которой у тайтлов есть атрибуты, падает в
+`CatalogAttributeDefinitionValidator` на `CatalogAttributeDefinitionException`
+(`Missing catalog attribute definition [anime:genres]. Seed the attribute definitions
+before importing.`) ещё до упаковки и записи. Транзакция пачки откатывается, checkpoint
+не сдвигается, прогон получает статус `failed`. Тот же исход, если `value_type`
+дефиниции в базе не совпадает с реестром (`... has type [number], expected [array].`).
+`UnresolvedCatalogReferenceException` сейвера остаётся последним рубежом и при
+работающем валидаторе на импорте не срабатывает.
 
 2026-11-12 пробовали передавать в пачку весь реестр. Импорт тогда перезаписывал
 правки админа и создавал дефиниции, которых нет ни у одного тайтла (`moods`, `pace`).
@@ -138,7 +177,8 @@ commit пишет `Log::warning('Import title key collision.')` с ключом 
    Исправление — отдельная таблица связей, а не колонка в `titles`: один тайтл приходит
    от нескольких поставщиков, поэтому связь «многие к одному»:
    `external_ids(title_id, source, external_id)`, уникальность `(source, external_id)`.
-   Поле `external_id` в `Title` из ТЗ 7.1.2 противоречит 6.3.3 и из ТЗ убирается.
+   Поле `external_id` в `Title` из ТЗ 7.1.2 противоречит 6.3.3. ТЗ пока не исправлено:
+   правка 7.1.2 — часть задачи про `external_ids`.
 
    Порядок по ТЗ 6.3.3: найти тайтл по `source + external_id`; не нашли — искать
    кандидата на склейку по ключу (название, год, тип); нашли — привязать новую пару к
@@ -251,31 +291,68 @@ Laravel вызывает его `setUp…`/`tearDown…` автоматичес�
 ## Код
 
 - `app/Application/Import/Services/CatalogTitlePackDataFactory.php` — кандидат с ключом и флагом → `CatalogTitlePackData`.
-- `app/Infrastructure/Import/Sinks/CatalogCandidateSink.php` — буфер, resolve → pack → write, лог коллизий.
-- `app/Infrastructure/ServiceProviders/ImportServiceProvider.php` — привязка `CandidateSinkContract`.
+- `app/Infrastructure/Import/Sinks/CatalogCandidateSink.php` — буфер, resolve → проверка дефиниций → pack → write, лог коллизий.
+- `app/Infrastructure/Import/Validation/CatalogAttributeDefinitionValidator.php` — наличие и `value_type` дефиниций пачки, `FOR SHARE`.
+- `app/Infrastructure/Import/Exceptions/CatalogAttributeDefinitionException.php` — отсутствующая или несовместимая дефиниция.
+- `app/Infrastructure/Persistence/Eloquent/Bulk/Catalog/TitleBulkWriter.php` — защита описаний, `is_incomplete` и метки `admin`, неизменный `short_plot_ru`, `last_synced_at`.
+- `app/Infrastructure/Persistence/Eloquent/Models/Catalog/Title.php` — поле `last_synced_at`.
+- `database/migrations/2026_11_13_000001_add_last_synced_at_to_titles.php` — колонка `last_synced_at`.
+- `app/Infrastructure/ServiceProviders/ImportServiceProvider.php` — привязка `CandidateSinkContract`, сборка `ImportCheckpointIntervals` из конфига.
+- `app/Application/Import/DTOs/ImportCheckpointIntervals.php` — размер пачки по поставщику и по умолчанию, проверка значений.
+- `app/Application/Import/UseCases/ImportTitlesFromProvider.php` — размер пачки берётся по поставщику прогона.
+- `config/import.php`, `.env.example` — `IMPORT_CHECKPOINT_EVERY`, `SHIKIMORI_IMPORT_CHECKPOINT_EVERY`.
 
 ## Тесты
 
 - `tests/Unit/Application/Import/Services/CatalogTitlePackDataFactoryTest.php` — перенос полей,
   тип из реестра, неизвестный код, кандидат без названия.
 - `tests/Feature/Import/CatalogCandidateSinkTest.php` — полный сценарий через
-  `ImportTitlesFromProvider` с привязкой из контейнера: запись принятых и помеченных
-  тайтлов, повторный прогон без дублей и с теми же UUID, rollback второй пачки при сбое
-  сейвера и resume без дублей, коллизия ключей (оба тайтла не записаны, warning после
-  commit, `accepted` их учитывает), падение прогона без сидирования дефиниций,
-  сохранность отредактированной админом дефиниции, пустой и сброшенный буфер не
-  вызывают сейвер.
+  `ImportTitlesFromProvider` с привязкой из контейнера:
+  - запись принятых и помеченных тайтлов, повторный прогон без дублей и с теми же UUID;
+  - rollback второй пачки при сбое сейвера и resume без дублей;
+  - коллизия ключей: оба тайтла не записаны, warning, `accepted` их учитывает;
+  - при откате пачки после `flush()` warning о коллизии не пишется (проверка, что
+    лог идёт через `DB::afterCommit`; без него тест падает);
+  - реальная фикстура `static/Fixtures/Shikimori/animes.ndjson` через дамп-клиент
+    Shikimori, sink, упаковщик и сейвер: 286 записей → 159 accepted, 107 flagged,
+    20 отказов, 266 тайтлов, 6 дефиниций, 148 опций, 716 связей; атрибуты Cowboy Bebop
+    и целевая аудитория Дораэмона; повторный прогон без дублей и с теми же UUID;
+  - падение прогона без сидирования и при несовместимом типе дефиниции, сейвер не вызывается;
+  - сохранность отредактированной админом дефиниции;
+  - сохранность описаний, `short_plot_ru`, метки `admin` и `is_incomplete` у строк админа,
+    обновление описаний у строк импорта, `last_synced_at` и его откат;
+  - пустой и сброшенный буфер не вызывают сейвер.
+- `tests/Feature/Import/CatalogAttributeDefinitionValidatorTest.php` — один запрос на чанк,
+  нет запроса без атрибутов, чанки по 500, один код у разных типов контента,
+  отсутствующая дефиниция.
+- `tests/Unit/Application/Import/DTOs/ImportCheckpointIntervalsTest.php` — значение
+  поставщика и значение по умолчанию, отказ на нуле, отрицательном, нецелом значении
+  и неизвестном поставщике.
+- `tests/Unit/Application/Import/UseCases/ImportTitlesFromProviderTest.php` — пачки
+  размером поставщика (`[1,2] [3,4] [5]`) и размером по умолчанию для другого поставщика.
+- `tests/Feature/Import/ImportReliabilityTest.php` — размер пачки поставщика читается из
+  конфига (строка, как из env); неверное значение отклоняется до создания прогона.
+- `tests/Feature/Catalog/CatalogBulkWriterTest.php` — запись админа не трогает
+  `last_synced_at`, тайтл админа не помечается синхронизированным, миграция
+  `last_synced_at`, `is_incomplete` у строк админа.
+
+Оба ранее непокрытых случая (warning при откате пачки и прогон реальной фикстуры
+через sink) покрыты тестами 2026-11-15.
 
 Сопутствующие изменения тестов:
 
 - Ручная схема каталога вынесена из `CatalogBulkWriterTest` в трейт
   `tests/Support/CreatesCatalogSchema.php`. Настоящие миграции каталога в SQLite не
   выполняются: колонка `embedding` имеет тип `vector`.
+- Изолированная схема PostgreSQL — трейт `tests/Support/UsesIsolatedPostgresSchema.php`.
 - `LogCandidateSinkTest` и `ImportRunLifecycleLockTest::it_executes_an_import_with_the_container_resolved_lock`
   явно привязывают `LogCandidateSink`: раньше они полагались на привязку по умолчанию.
 
 ## Проверка
 
-2026-11-12, Docker, PHP 8.4.26, SQLite: полный suite — 819 тестов, 3307 assertions,
-12 пропущено (PostgreSQL-группы). Pint для изменённых файлов и `git diff --check` проходят.
-Группы `pgsql` и `catalog_import` на PostgreSQL в этот раз не запускались.
+2026-11-15, Docker, PHP 8.4.26:
+
+- SQLite, полный suite — 845 тестов, 3391 assertions, 12 пропущено (PostgreSQL-группы).
+- PostgreSQL (`filmhelper_test`), группы `pgsql` и `catalog_import` — 28 из 28,
+  временных схем после прогона не остаётся.
+- `git diff --check` и Pint по PHP-файлам ветки проходят.

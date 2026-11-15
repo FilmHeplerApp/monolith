@@ -6,6 +6,7 @@ namespace Tests\Feature\Import;
 
 use App\Application\Catalog\Contracts\CatalogBulkWriterContract;
 use App\Application\Catalog\DTOs\PreparedCatalogDto;
+use App\Application\Import\Contracts\CandidateSinkContract;
 use App\Application\Import\Contracts\ProviderClientFactoryContract;
 use App\Application\Import\DTOs\ProviderAttribute;
 use App\Application\Import\DTOs\ProviderTitleRecord;
@@ -33,10 +34,12 @@ use App\Infrastructure\Providers\Mock\MockProviderClient;
 use Database\Seeders\AttributeDefinitionSeeder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
+use Tests\Support\CommittedShikimoriDump;
 use Tests\Support\CreatesCatalogSchema;
 use Tests\Support\SingleProviderClientFactory;
 use Tests\Support\UsesIsolatedPostgresSchema;
@@ -265,6 +268,75 @@ final class CatalogCandidateSinkTest extends TestCase
     }
 
     #[Test]
+    #[Group('catalog_import')]
+    public function it_does_not_log_a_collision_when_the_batch_rolls_back(): void
+    {
+        $this->seed(AttributeDefinitionSeeder::class);
+        Log::spy();
+        $this->bindRecords(
+            $this->record('1', 'Cowboy Bebop'),
+            $this->record('2', 'Cowboy  Bebop!'),
+            $this->record('3', 'Trigun'),
+        );
+        $this->app->instance(CandidateSinkContract::class, new FailingAfterFlushSink(app(CatalogCandidateSink::class)));
+
+        try {
+            $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+            self::fail('The batch must fail after the sink has written the catalog.');
+        } catch (RuntimeException $exception) {
+            self::assertSame('Failure after catalog flush.', $exception->getMessage());
+        }
+
+        $this->assertDatabaseCount(Title::TABLE_NAME, 0);
+        $this->assertDatabaseHas('import_runs', ['status' => 'failed', 'checkpoint' => 0]);
+        Log::shouldNotHaveReceived('warning');
+    }
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_imports_the_shikimori_fixture_dump_into_the_catalog_and_reimports_without_duplicates(): void
+    {
+        $this->seed(AttributeDefinitionSeeder::class);
+        $directory = sys_get_temp_dir().'/catalog-sink-fixture-'.bin2hex(random_bytes(8));
+        CommittedShikimoriDump::configure(CommittedShikimoriDump::create(
+            $directory,
+            (string) file_get_contents(base_path('static/Fixtures/Shikimori/animes.ndjson')),
+        ));
+
+        try {
+            $first = $this->importer()->execute(ProviderSource::Shikimori, ProviderDataSource::Dump);
+            $uuids = Title::query()->orderBy(Title::FIELD_ID)->pluck(Title::FIELD_UUID)->all();
+            $second = $this->importer()->execute(ProviderSource::Shikimori, ProviderDataSource::Dump);
+        } finally {
+            File::deleteDirectory($directory);
+        }
+
+        foreach ([$first, $second] as $result) {
+            self::assertSame(286, $result->counters->fetched);
+            self::assertSame(159, $result->counters->accepted);
+            self::assertSame(107, $result->counters->flagged);
+            self::assertSame(20, $result->counters->rejected);
+            $this->assertDatabaseHas('import_runs', ['id' => $result->runId, 'status' => 'completed', 'checkpoint' => 286]);
+        }
+        self::assertSame($uuids, Title::query()->orderBy(Title::FIELD_ID)->pluck(Title::FIELD_UUID)->all());
+        $this->assertDatabaseCount(Title::TABLE_NAME, 266);
+        self::assertSame(107, Title::query()->where(Title::FIELD_IS_INCOMPLETE, true)->count());
+        $this->assertDatabaseCount(AttributeDefinition::TABLE_NAME, 6);
+        $this->assertDatabaseCount(AttributeOption::TABLE_NAME, 148);
+        $this->assertDatabaseCount(TitleAttribute::TABLE_NAME, 716);
+        self::assertSame(
+            [
+                'genres' => ['Экшен', 'Фантастика'],
+                'tags' => ['Удостоено наград', 'Взрослые персонажи', 'Космос'],
+                'studios' => ['Sunrise'],
+            ],
+            $this->attributesOf('Cowboy Bebop'),
+        );
+        self::assertSame(['Детское', 'Сёнен'], $this->attributesOf('Дораэмон (2005)', Title::FIELD_TITLE_RU)['target_audience']);
+        $this->assertDatabaseHas(AttributeOption::TABLE_NAME, [AttributeOption::FIELD_VALUE_RU => 'Удостоено наград', AttributeOption::FIELD_VALUE_EN => 'Award Winning']);
+    }
+
+    #[Test]
     public function it_fails_the_run_when_attribute_definitions_are_not_seeded(): void
     {
         $this->bindRecords($this->record('1', 'Cowboy Bebop'));
@@ -340,6 +412,21 @@ final class CatalogCandidateSinkTest extends TestCase
         return app(ImportTitlesFromProvider::class);
     }
 
+    private function attributesOf(string $title, string $column = Title::FIELD_TITLE_EN): array
+    {
+        $titleId = Title::query()->where($column, $title)->value(Title::FIELD_ID);
+
+        return DB::table(TitleAttribute::TABLE_NAME)
+            ->join(AttributeDefinition::TABLE_NAME, AttributeDefinition::TABLE_NAME.'.'.AttributeDefinition::FIELD_ID, '=', TitleAttribute::TABLE_NAME.'.'.TitleAttribute::FIELD_ATTRIBUTE_ID)
+            ->where(TitleAttribute::TABLE_NAME.'.'.TitleAttribute::FIELD_TITLE_ID, $titleId)
+            ->orderBy(AttributeDefinition::TABLE_NAME.'.'.AttributeDefinition::FIELD_ORDER)
+            ->get([AttributeDefinition::TABLE_NAME.'.'.AttributeDefinition::FIELD_CODE, TitleAttribute::TABLE_NAME.'.'.TitleAttribute::FIELD_VALUE_ARRAY])
+            ->mapWithKeys(static fn (object $row): array => [
+                $row->{AttributeDefinition::FIELD_CODE} => json_decode($row->{TitleAttribute::FIELD_VALUE_ARRAY}, true, 512, JSON_THROW_ON_ERROR),
+            ])
+            ->all();
+    }
+
     private function bindRecords(ProviderTitleRecord ...$records): void
     {
         $this->app->instance(ProviderClientFactoryContract::class, new SingleProviderClientFactory(new MockProviderClient($records)));
@@ -405,5 +492,32 @@ final class FailingCatalogWriter implements CatalogBulkWriterContract
         if (++$this->writes === $this->failOnWrite) {
             throw new RuntimeException('Catalog write failed.');
         }
+    }
+}
+
+final class FailingAfterFlushSink implements CandidateSinkContract
+{
+    public function __construct(private readonly CandidateSinkContract $sink) {}
+
+    public function consume(TitleCandidate $candidate, FilterDecision $decision): void
+    {
+        $this->sink->consume($candidate, $decision);
+    }
+
+    public function flush(): void
+    {
+        $this->sink->flush();
+
+        throw new RuntimeException('Failure after catalog flush.');
+    }
+
+    public function finish(): void
+    {
+        $this->flush();
+    }
+
+    public function abort(): void
+    {
+        $this->sink->abort();
     }
 }

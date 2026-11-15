@@ -9,6 +9,7 @@ use App\Application\Import\Contracts\ImportRunLockContract;
 use App\Application\Import\Contracts\ImportRunRecorderContract;
 use App\Application\Import\Contracts\ProviderImportContextFactoryContract;
 use App\Application\Import\DTOs\ImportBatch;
+use App\Application\Import\DTOs\ImportCheckpointIntervals;
 use App\Application\Import\DTOs\ImportRejectionData;
 use App\Application\Import\DTOs\ImportResult;
 use App\Application\Import\DTOs\ImportRunCheckpoint;
@@ -35,12 +36,8 @@ final readonly class ImportTitlesFromProvider
         private ImportRunRecorderContract            $recorder,
         private CandidateSinkContract                $sink,
         private ImportRunLockContract                $lock,
-        private int                                  $checkpointEvery = 500,
-    ) {
-        if ($checkpointEvery < 1) {
-            throw new InvalidArgumentException('Checkpoint interval must be positive.');
-        }
-    }
+        private ImportCheckpointIntervals            $checkpointIntervals,
+    ) {}
 
     public function execute(
         ProviderSource     $provider,
@@ -83,6 +80,7 @@ final readonly class ImportTitlesFromProvider
         ImportRunCheckpoint   $run,
         ImportRunMode         $mode,
     ): ImportResult {
+        $checkpointEvery = $this->checkpointIntervals->forProvider($context->source());
         $counters = $run->counters;
         $checkpoint = $run->checkpoint;
         $pendingIds = [];
@@ -112,7 +110,7 @@ final readonly class ImportTitlesFromProvider
                 $pendingIds[] = $record->externalId;
                 $checkpoint++;
 
-                if (count($pendingIds) >= $this->checkpointEvery) {
+                if (count($pendingIds) >= $checkpointEvery) {
                     $run = $this->commit($run, new ImportBatch($counters, $checkpoint, $pendingIds, $rejections));
                     $pendingIds = [];
                     $rejections = [];
