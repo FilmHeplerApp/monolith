@@ -9,6 +9,7 @@ use App\Application\Import\Contracts\ImportRunLockContract;
 use App\Application\Import\Contracts\ImportRunRecorderContract;
 use App\Application\Import\Contracts\ProviderClientContract;
 use App\Application\Import\DTOs\ImportBatch;
+use App\Application\Import\DTOs\ImportCheckpointIntervals;
 use App\Application\Import\DTOs\ImportCounters;
 use App\Application\Import\DTOs\ImportRunCheckpoint;
 use App\Application\Import\DTOs\ProviderTitle;
@@ -71,6 +72,31 @@ final class ImportTitlesFromProviderTest extends TestCase
         self::assertSame(4, $recorder->checkpoint);
     }
 
+
+    #[Test]
+    public function it_commits_batches_of_the_provider_specific_size(): void
+    {
+        $client = new MockProviderClient([$this->title('1'), $this->title('2'), $this->title('3'), $this->title('4'), $this->title('5')]);
+        $recorder = new InMemoryImportRunRecorder;
+
+        $this->importer($client, $recorder, new CollectingCandidateSink, new ImportCheckpointIntervals(1, ['mock' => 2]))
+            ->execute(ProviderSource::Mock, ProviderDataSource::Api);
+
+        self::assertSame([['1', '2'], ['3', '4'], ['5']], array_map(static fn (ImportBatch $batch): array => $batch->processedIds, $recorder->batches));
+        self::assertSame(5, $recorder->checkpoint);
+    }
+
+    #[Test]
+    public function it_falls_back_to_the_default_batch_size_for_other_providers(): void
+    {
+        $client = new MockProviderClient([$this->title('1'), $this->title('2'), $this->title('3')]);
+        $recorder = new InMemoryImportRunRecorder;
+
+        $this->importer($client, $recorder, new CollectingCandidateSink, new ImportCheckpointIntervals(2, ['shikimori' => 500]))
+            ->execute(ProviderSource::Mock, ProviderDataSource::Api);
+
+        self::assertSame([['1', '2'], ['3']], array_map(static fn (ImportBatch $batch): array => $batch->processedIds, $recorder->batches));
+    }
 
     #[Test]
     public function it_resumes_from_the_recorded_checkpoint(): void
@@ -168,9 +194,10 @@ final class ImportTitlesFromProviderTest extends TestCase
     }
 
     private function importer(
-        ProviderClientContract    $client,
-        InMemoryImportRunRecorder $recorder,
-        CollectingCandidateSink   $sink,
+        ProviderClientContract     $client,
+        InMemoryImportRunRecorder  $recorder,
+        CollectingCandidateSink    $sink,
+        ?ImportCheckpointIntervals $intervals = null,
     ): ImportTitlesFromProvider {
         return new ImportTitlesFromProvider(
             contexts: new ProviderImportContextFactory(new Container, new SingleProviderClientFactory($client), ['mock' => ['api' => MockTitleMapper::class]]),
@@ -188,7 +215,7 @@ final class ImportTitlesFromProviderTest extends TestCase
 
                 public function assertOwned(): void {}
             },
-            checkpointEvery: 1,
+            checkpointIntervals: $intervals ?? new ImportCheckpointIntervals(1),
         );
     }
 

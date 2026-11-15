@@ -196,7 +196,7 @@ $run ??= $this->recorder->start($provider, $dataSource, $limit);
 - API при resume читается с начала, уже подтверждённые external id пропускаются по `import_processed_titles`. Исчезновение записи до места чтения не сдвигает offset и не прячет оставшиеся id.
 - Дамп сверяет SHA-256 зафиксированного префикса. Другой снимок требует новый прогон. Тот же снимок продолжается с offset. Число строк проверяется при отпечатке до первого кандидата, в том числе при `--limit`.
 - Доставка at least once. Контракт sink: `abort()` сохраняет уже подтверждённый вывод, `flush()` и `finish()` безопасны на пустом буфере.
-- `completed` означает конец этого этапа. `LogCandidateSink` пишет принятых и помеченных кандидатов. Запись каталога, `external_ids` и `IngestTitleImagesJob` подключаются отдельной реализацией sink.
+- `completed` означает конец этого этапа. `LogCandidateSink` пишет принятых и помеченных кандидатов. Запись каталога, `external_ids` и `IngestTitleImagesJob` подключаются отдельной реализацией sink. Обновлено 2026-11-15: запись каталога подключена через `CatalogCandidateSink` ([сохраняющий sink](../catalog_candidate_sink/Catalog_candidate_sink.md)); `external_ids` и `IngestTitleImagesJob` по-прежнему не подключены.
 - Отказы с причиной сохраняются в `import_rejections` (ТЗ: «логировать причины отсева»); неполные тайтлы получают флаг и попадают в sink.
 
 Очередь, расписание, сверка `ImportAttributeRegistry` с базой перед упаковкой и постановка media jobs в этот этап не входят.

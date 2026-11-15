@@ -80,6 +80,12 @@
 
 ## Что ещё не эта задача
 
+Обновлено 2026-11-12: буфер и вызов `write()` реализованы в `CatalogCandidateSink`.
+Размер пачки задаётся по поставщику (`import.providers.checkpoint_every.<provider>`),
+иначе `import.checkpoint_every`, по умолчанию 500. `attributeDefinitions` пустой:
+дефиниции создаёт `AttributeDefinitionSeeder`. Подробности в
+[сохраняющем sink](../catalog_candidate_sink/Catalog_candidate_sink.md).
+
 - Буфер на 500 и `finish()` для хвоста. Чекпоинт прогона нужно писать после успешного `write()` пачки, иначе resume пропустит несохранённый хвост.
 - Вызов `CatalogBulkWriterContract::write()`.
 - Таблица `external_ids` из ТЗ 6.3.3. Сейвер её пока не пишет.

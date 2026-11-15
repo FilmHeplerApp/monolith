@@ -106,6 +106,40 @@ final class ImportReliabilityTest extends TestCase
     }
 
     #[Test]
+    public function it_reads_the_provider_checkpoint_interval_from_config(): void
+    {
+        config()->set('import.checkpoint_every', 1);
+        config()->set('import.providers.checkpoint_every.mock', '2');
+        $this->bindClient($this->client('1', '2', '3'));
+        $sink = $this->sink(failFlush: 2);
+
+        try {
+            $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+            self::fail('The second batch must fail.');
+        } catch (RuntimeException $exception) {
+            self::assertSame('Flush failed', $exception->getMessage());
+        }
+
+        self::assertSame(['1', '2'], $sink->saved);
+        $this->assertDatabaseHas('import_runs', ['status' => 'failed', 'checkpoint' => 2]);
+    }
+
+    #[Test]
+    public function it_rejects_an_invalid_provider_checkpoint_interval_before_creating_a_run(): void
+    {
+        config()->set('import.providers.checkpoint_every.shikimori', '0');
+
+        try {
+            $this->importer();
+            self::fail('A non-positive provider interval must be rejected.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertSame('Checkpoint interval for provider [shikimori] must be positive.', $exception->getMessage());
+        }
+
+        $this->assertDatabaseCount('import_runs', 0);
+    }
+
+    #[Test]
     public function it_preserves_the_original_failure_when_discarding_the_buffer_also_fails(): void
     {
         $original = new ProviderUnavailableException(ProviderSource::Mock, 'Original provider failure');

@@ -9,6 +9,7 @@ use App\Application\Import\Contracts\ImportRunLockContract;
 use App\Application\Import\Contracts\ImportRunRecorderContract;
 use App\Application\Import\Contracts\ProviderClientFactoryContract;
 use App\Application\Import\Contracts\ProviderImportContextFactoryContract;
+use App\Application\Import\DTOs\ImportCheckpointIntervals;
 use App\Application\Import\Services\ImportTitleStreamFactory;
 use App\Application\Import\Services\ProviderTitleToCandidateMapper;
 use App\Application\Import\UseCases\ImportTitlesFromProvider;
@@ -21,7 +22,7 @@ use App\Domain\Import\Rules\MinReleaseYearRule;
 use App\Domain\Import\Services\TitleCandidateEvaluator;
 use App\Infrastructure\Import\Exceptions\ImportConfigException;
 use App\Infrastructure\Import\Locks\PostgresImportRunLock;
-use App\Infrastructure\Import\Sinks\LogCandidateSink;
+use App\Infrastructure\Import\Sinks\CatalogCandidateSink;
 use App\Infrastructure\Persistence\Eloquent\Import\EloquentImportRunRecorder;
 use App\Infrastructure\Providers\Factories\ProviderClientFactory;
 use App\Infrastructure\Providers\Factories\ProviderImportContextFactory;
@@ -50,7 +51,7 @@ final class ImportServiceProvider extends ServiceProvider
             ));
         $this->app->bind(ImportRunLockContract::class, PostgresImportRunLock::class);
         $this->app->bind(ImportRunRecorderContract::class, EloquentImportRunRecorder::class);
-        $this->app->bind(CandidateSinkContract::class, LogCandidateSink::class);
+        $this->app->bind(CandidateSinkContract::class, CatalogCandidateSink::class);
 
         $this->app->singleton(TitleCandidateEvaluator::class, static function (): TitleCandidateEvaluator {
             $configuredTypes = (array) config('import.filter.allowed_types', []);
@@ -94,7 +95,16 @@ final class ImportServiceProvider extends ServiceProvider
                     recorder: $recorder,
                     sink: $app->make(CandidateSinkContract::class),
                     lock: $app->make(ImportRunLockContract::class),
-                    checkpointEvery: (int) config('import.checkpoint_every', 50),
+                    checkpointIntervals: new ImportCheckpointIntervals(
+                        (int) config('import.checkpoint_every', 500),
+                        array_map(
+                            'intval',
+                            array_filter(
+                                (array) config('import.providers.checkpoint_every', []),
+                                static fn (mixed $interval): bool => $interval !== null && $interval !== '',
+                            ),
+                        ),
+                    ),
                 );
             },
         );

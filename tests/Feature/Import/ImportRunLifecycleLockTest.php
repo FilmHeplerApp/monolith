@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Import;
 
+use App\Application\Import\Contracts\CandidateSinkContract;
 use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\UseCases\ImportTitlesFromProvider;
+use App\Infrastructure\Import\Sinks\LogCandidateSink;
 use App\Infrastructure\Persistence\Eloquent\Import\EloquentImportRunRecorder;
 use Illuminate\Support\Facades\DB;
-use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use ReflectionProperty;
@@ -43,6 +44,7 @@ final class ImportRunLifecycleLockTest extends TestCase
     #[Test]
     public function it_executes_an_import_with_the_container_resolved_lock(): void
     {
+        $this->app->bind(CandidateSinkContract::class, LogCandidateSink::class);
         $result = app(ImportTitlesFromProvider::class)->execute(ProviderSource::Mock, ProviderDataSource::Api, 1);
 
         self::assertSame(1, $result->checkpoint);

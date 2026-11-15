@@ -15,6 +15,9 @@ return [
             'trim',
             explode(',', (string) env('IMPORT_PROVIDERS', ProviderSource::Mock->value)),
         ))),
+        'checkpoint_every' => [
+            ProviderSource::Shikimori->value => env('SHIKIMORI_IMPORT_CHECKPOINT_EVERY'),
+        ],
         'mappers' => [
             'mock' => ['api' => MockTitleMapper::class],
             'shikimori' => ['api' => ShikimoriTitleMapper::class, 'dump' => ShikimoriTitleMapper::class],
@@ -42,5 +45,5 @@ return [
         'allowed_types' => [TitleContentType::ANIME->value],
         'min_release_year' => (int) (env('IMPORT_MIN_RELEASE_YEAR') ?: 1895),
     ],
-    'checkpoint_every' => (int) env('IMPORT_CHECKPOINT_EVERY', 50),
+    'checkpoint_every' => (int) (env('IMPORT_CHECKPOINT_EVERY') ?: 500),
 ];

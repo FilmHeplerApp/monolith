@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Import;
 
+use App\Application\Import\Contracts\CandidateSinkContract;
 use App\Application\Import\Contracts\ProviderClientFactoryContract;
 use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\UseCases\ImportTitlesFromProvider;
+use App\Infrastructure\Import\Sinks\LogCandidateSink;
 use App\Infrastructure\Providers\Mock\MockProviderClient;
 use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
 use Illuminate\Support\Facades\DB;
@@ -68,6 +70,7 @@ final class LogCandidateSinkTest extends TestCase
         ] as $name) {
             (require database_path('migrations/'.$name))->up();
         }
+        $this->app->bind(CandidateSinkContract::class, LogCandidateSink::class);
         $this->fallbackPath = sys_get_temp_dir().'/import-log-fallback-'.bin2hex(random_bytes(8)).'.log';
         $this->previousErrorLog = (string) ini_get('error_log');
     }
