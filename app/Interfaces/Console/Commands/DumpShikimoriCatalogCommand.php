@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Interfaces\Console\Commands;
 
+use App\Infrastructure\Import\Dumps\DumpLocation;
 use App\Infrastructure\Providers\Shikimori\Clients\ShikimoriGraphQLClient;
 use App\Infrastructure\Providers\Shikimori\Dumps\ShikimoriDumpWriter;
 use App\Infrastructure\Providers\Shikimori\ShikimoriConfig;
@@ -15,9 +16,6 @@ use Throwable;
 
 final class DumpShikimoriCatalogCommand extends Command
 {
-    private const string DISK = 'local';
-
-
     protected $signature = 'shikimori:dump {--resume : Continue from the last successful page}';
 
     protected $description = 'Anime catalog dump Shikimori in NDJSON (storage/app/private/import)';
@@ -34,7 +32,8 @@ final class DumpShikimoriCatalogCommand extends Command
                 throw new RuntimeException('Shikimori page size must be positive.');
             }
 
-            $writer = new ShikimoriDumpWriter(Storage::disk(self::DISK));
+            $location = DumpLocation::fromConfig('shikimori');
+            $writer = new ShikimoriDumpWriter(Storage::disk($location->disk), $location);
             $page = $writer->start((bool) $this->option('resume'));
             $this->info("Starting from page {$page}.");
             $seenPages = $writer->seenPages();
@@ -94,16 +93,12 @@ final class DumpShikimoriCatalogCommand extends Command
     }
 
 
-    /** @return list<array<string, mixed>> */
     private function fetchAnimes(ShikimoriGraphQLClient $client, int $page, int $limit): array
     {
         return $this->rows($client->query($this->animeQuery(), ['page' => $page, 'limit' => $limit]), 'animes');
     }
 
-    /**
-     * @param  array<string, mixed>  $data
-     * @return list<array<string, mixed>>
-     */
+
     private function rows(array $data, string $field): array
     {
         $rows = $data[$field] ?? null;

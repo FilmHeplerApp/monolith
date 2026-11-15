@@ -4,41 +4,40 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Providers\Shikimori\Dumps;
 
-use Illuminate\Filesystem\FilesystemAdapter;
-use JsonException;
+use App\Infrastructure\Import\Dumps\DumpLocation;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use RuntimeException;
 
 final class ShikimoriDumpWriter
 {
-    private const string ANIME_PATH = 'import/shikimori_anime.ndjson';
-
-    private const string GENRES_PATH = 'import/shikimori_genres.ndjson';
-
-    private const string CHECKPOINT_PATH = 'import/shikimori_anime.checkpoint';
-
-
-    /** @var resource|null */
     private $lock = null;
 
-    /** @var resource|null */
+
     private $stream = null;
 
-    /** @var array{version: int, page: int, bytes: int, titles: int, seen_pages?: array<string, int>} */
+
     private array $checkpoint = ['version' => 1, 'page' => 0, 'bytes' => 0, 'titles' => 0];
 
 
-    public function __construct(private readonly FilesystemAdapter $disk) {}
+    public function __construct(
+        private readonly Filesystem   $disk,
+        private readonly DumpLocation $location,
+    ) {}
 
-    /**
-     * @throws JsonException
-     */
+
     public function start(bool $resume): int
     {
-        if (!is_dir($this->disk->path('import')) && !$this->disk->makeDirectory('import')) {
-            throw new RuntimeException('Cannot create the dump directory.');
+        foreach ([$this->location->data, $this->location->checkpoint, $this->location->lock, $this->location->taxonomy] as $path) {
+            if ($path === null) {
+                continue;
+            }
+            $directory = dirname($path);
+            if (!is_dir($this->disk->path($directory)) && !$this->disk->makeDirectory($directory)) {
+                throw new RuntimeException('Cannot create the dump directory.');
+            }
         }
 
-        $this->lock = @fopen($this->disk->path('import/shikimori_dump.lock'), 'c+b');
+        $this->lock = @fopen($this->disk->path($this->location->lock), 'c+b');
 
         if ($this->lock === false) {
             $this->lock = null;
@@ -55,7 +54,7 @@ final class ShikimoriDumpWriter
             $this->restoreCheckpoint();
         }
 
-        $this->stream = @fopen($this->disk->path(self::ANIME_PATH), 'c+b');
+        $this->stream = @fopen($this->disk->path($this->location->data), 'c+b');
 
         if ($this->stream === false) {
             $this->stream = null;
@@ -81,30 +80,29 @@ final class ShikimoriDumpWriter
         $this->flush();
 
         if (!$resume) {
-            $this->atomicPut(self::CHECKPOINT_PATH, json_encode($this->checkpoint, JSON_THROW_ON_ERROR));
+            $this->atomicPut($this->location->checkpoint, json_encode($this->checkpoint, JSON_THROW_ON_ERROR));
         }
 
         return $this->checkpoint['page'] + 1;
     }
 
-    /**
-     * @return array<string, int>
-     */
+
     public function seenPages(): array
     {
         return $this->checkpoint['seen_pages'] ?? [];
     }
 
-    /**
-     * @param  list<array<string, mixed>>  $rows
-     * @param  array<string, int>  $seenPages
-     *
-     * @throws JsonException
-     */
+
     public function appendPage(int $page, array $rows, array $seenPages): void
     {
         if ($page !== $this->checkpoint['page'] + 1 || $rows === []) {
             throw new RuntimeException('Only the next non-empty anime page can be committed.');
+        }
+
+        $stream = $this->stream;
+
+        if (!is_resource($stream)) {
+            throw new RuntimeException('Dump stream is not open.');
         }
 
         $data = $this->toNdjson($rows);
@@ -112,7 +110,7 @@ final class ShikimoriDumpWriter
         $written = 0;
 
         while ($written < $length) {
-            $bytes = fwrite($this->stream, substr($data, $written));
+            $bytes = fwrite($stream, substr($data, $written));
 
             if ($bytes === false || $bytes === 0) {
                 throw new RuntimeException("Cannot write anime page {$page}.");
@@ -133,20 +131,18 @@ final class ShikimoriDumpWriter
             $checkpoint['seen_pages'] = $seenPages;
         }
 
-        $this->atomicPut(self::CHECKPOINT_PATH, json_encode($checkpoint, JSON_THROW_ON_ERROR));
+        $this->atomicPut($this->location->checkpoint, json_encode($checkpoint, JSON_THROW_ON_ERROR));
         $this->checkpoint = $checkpoint;
     }
 
-    /** @param list<array<string, mixed>> $rows
-     * @throws JsonException
-     */
+
     public function writeGenres(array $rows): void
     {
-        if ($rows === []) {
+        if ($rows === [] || $this->location->taxonomy === null) {
             return;
         }
 
-        $this->atomicPut(self::GENRES_PATH, $this->toNdjson($rows));
+        $this->atomicPut($this->location->taxonomy, $this->toNdjson($rows));
     }
 
     public function titleCount(): int
@@ -168,22 +164,19 @@ final class ShikimoriDumpWriter
     }
 
 
-    /**
-     * @throws JsonException
-     */
     private function restoreCheckpoint(): void
     {
-        if (!$this->disk->exists(self::CHECKPOINT_PATH)) {
-            if ($this->disk->exists(self::ANIME_PATH) && $this->disk->size(self::ANIME_PATH) > 0) {
+        if (!$this->disk->exists($this->location->checkpoint)) {
+            if ($this->disk->exists($this->location->data) && $this->disk->size($this->location->data) > 0) {
                 throw new RuntimeException('Non-empty anime dump has no checkpoint. Restart without --resume.');
             }
 
-            $this->atomicPut(self::CHECKPOINT_PATH, json_encode($this->checkpoint, JSON_THROW_ON_ERROR));
+            $this->atomicPut($this->location->checkpoint, json_encode($this->checkpoint, JSON_THROW_ON_ERROR));
 
             return;
         }
 
-        $checkpoint = json_decode($this->disk->get(self::CHECKPOINT_PATH) ?? '', true, 512, JSON_THROW_ON_ERROR);
+        $checkpoint = json_decode($this->disk->get($this->location->checkpoint) ?? '', true, 512, JSON_THROW_ON_ERROR);
 
         if (!is_array($checkpoint) || ($checkpoint['version'] ?? null) !== 1) {
             throw new RuntimeException('Unsupported dump checkpoint. Restart without --resume.');
@@ -217,14 +210,18 @@ final class ShikimoriDumpWriter
 
     private function flush(): void
     {
-        if (!fflush($this->stream) || !fsync($this->stream)) {
+        $stream = $this->stream;
+
+        if (!is_resource($stream)) {
+            throw new RuntimeException('Dump stream is not open.');
+        }
+
+        if (!fflush($stream) || !fsync($stream)) {
             throw new RuntimeException('Cannot flush the anime dump.');
         }
     }
 
-    /** @param list<array<string, mixed>> $rows
-     * @throws JsonException
-     */
+
     private function toNdjson(array $rows): string
     {
         return $rows === [] ? '' : implode("\n", array_map(

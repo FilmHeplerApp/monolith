@@ -13,8 +13,13 @@ use App\Application\Catalog\DTOs\TitleData;
 use App\Application\Import\DTOs\CatalogAttributePackData;
 use App\Application\Import\DTOs\CatalogPackInput;
 use App\Application\Import\DTOs\CatalogTitlePackData;
+use App\Application\Import\DTOs\ImportBatch;
+use App\Application\Import\DTOs\ImportCounters;
+use App\Application\Import\Enums\ProviderDataSource;
+use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\Services\CatalogPacker;
 use App\Application\Import\Services\ImportAttributeRegistry;
+use App\Application\Import\Services\ProviderTitleToCandidateMapper;
 use App\Domain\Catalog\Enums\AttributeDefinition\AttributeValueType;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\Enums\Title\TitleStatus;
@@ -25,23 +30,38 @@ use App\Domain\Catalog\ValueObjects\Title\ReleaseYear;
 use App\Domain\Catalog\ValueObjects\Title\TitleCanonicalKey;
 use App\Domain\Catalog\ValueObjects\Title\TitleUuid;
 use App\Domain\Catalog\ValueObjects\TitleAttribute\AttributeValue;
+use App\Domain\Import\Services\TitleCandidateEvaluator;
+use App\Domain\Import\Services\TitleCanonicalKeyFactory;
+use App\Domain\Import\Services\TitleKeyResolver;
 use App\Infrastructure\Persistence\Eloquent\Bulk\Catalog\TitleContentTypeMismatchException;
 use App\Infrastructure\Persistence\Eloquent\Bulk\Catalog\UnresolvedCatalogReferenceException;
+use App\Infrastructure\Persistence\Eloquent\Import\EloquentImportRunRecorder;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeDefinition;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeOption;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\Title;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\TitleAttribute;
+use App\Infrastructure\Providers\Shikimori\Mappers\ShikimoriTitleMapper;
 use Database\Seeders\AttributeDefinitionSeeder;
-use Illuminate\Contracts\Container\BindingResolutionException;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
+use Tests\Support\CreatesCatalogSchema;
+use Tests\Support\ProviderRecords;
+use Tests\Support\StartsImportRuns;
+use Tests\Support\UsesIsolatedPostgresSchema;
 use Tests\TestCase;
 
 final class CatalogBulkWriterTest extends TestCase
 {
+    use CreatesCatalogSchema;
+    use StartsImportRuns;
+    use UsesIsolatedPostgresSchema;
+
+
     private const string TITLE_UUID = '018fe2f8-0a2e-7a42-b0a7-6f6f5b0f0f13';
     private const string SECOND_TITLE_UUID = '018fe2f8-0a2e-7a42-b0a7-6f6f5b0f0f14';
     private const string CANONICAL_KEY = 'naruto|anime';
@@ -67,6 +87,187 @@ final class CatalogBulkWriterTest extends TestCase
 
     private CatalogBulkWriterContract $writer;
 
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_allows_admin_updates_without_changing_the_last_import_timestamp(): void
+    {
+        $this->travelTo(now()->startOfSecond());
+        $data = $this->createTitleData(TitleUuid::createFromString(self::TITLE_UUID));
+        $this->writer->write(new PreparedCatalogDto(titles: [$data]));
+        $syncedAt = Title::query()->firstOrFail()->last_synced_at;
+        self::assertNotNull($syncedAt);
+        $this->travel(10)->minutes();
+        $admin = new TitleData(...array_replace(get_object_vars($data), [
+            'updatedBy' => TitleUpdatedBy::ADMIN,
+            'description' => LocalizedText::create('Ручное описание', 'Manual description'),
+            'shortPlotRu' => 'Ручной сюжет',
+        ]));
+        $this->writer->write(new PreparedCatalogDto(titles: [$admin]));
+
+        $this->assertDatabaseHas('titles', ['description_ru' => 'Ручное описание', 'description_en' => 'Manual description', 'short_plot_ru' => 'Ручной сюжет', 'updated_by' => 'admin']);
+        self::assertTrue(Title::query()->firstOrFail()->last_synced_at->equalTo($syncedAt));
+    }
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_keeps_the_admin_incomplete_flag_on_import_and_lets_the_admin_change_it(): void
+    {
+        $imported = $this->createTitleData(TitleUuid::createFromString(self::TITLE_UUID), isIncomplete: true);
+        $this->writer->write(new PreparedCatalogDto(titles: [$imported]));
+        $admin = new TitleData(...array_replace(get_object_vars($imported), [
+            'updatedBy' => TitleUpdatedBy::ADMIN,
+            'isIncomplete' => false,
+        ]));
+        $this->writer->write(new PreparedCatalogDto(titles: [$admin]));
+
+        $this->writer->write(new PreparedCatalogDto(titles: [$imported]));
+
+        $this->assertDatabaseHas(Title::TABLE_NAME, [Title::FIELD_IS_INCOMPLETE => false, Title::FIELD_UPDATED_BY => 'admin']);
+
+        $this->writer->write(new PreparedCatalogDto(titles: [new TitleData(...array_replace(get_object_vars($admin), ['isIncomplete' => true]))]));
+
+        $this->assertDatabaseHas(Title::TABLE_NAME, [Title::FIELD_IS_INCOMPLETE => true, Title::FIELD_UPDATED_BY => 'admin']);
+    }
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_does_not_mark_a_title_created_by_an_admin_as_synced(): void
+    {
+        $data = $this->createTitleData(TitleUuid::createFromString(self::TITLE_UUID));
+        $admin = new TitleData(...array_replace(get_object_vars($data), ['updatedBy' => TitleUpdatedBy::ADMIN]));
+
+        $this->writer->write(new PreparedCatalogDto(titles: [$admin]));
+
+        self::assertNull(Title::query()->firstOrFail()->last_synced_at);
+    }
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_migrates_sync_metadata_without_inventing_a_previous_sync_time(): void
+    {
+        $this->writer->write(new PreparedCatalogDto(titles: [$this->createTitleData(TitleUuid::createFromString(self::TITLE_UUID))]));
+        Schema::table('titles', static fn (Blueprint $table) => $table->dropColumn('last_synced_at'));
+        $migration = require database_path('migrations/2026_11_13_000001_add_last_synced_at_to_titles.php');
+        $migration->up();
+
+        self::assertTrue(Schema::hasColumn('titles', 'last_synced_at'));
+        self::assertNull(DB::table('titles')->value('last_synced_at'));
+        $migration->down();
+        self::assertFalse(Schema::hasColumn('titles', 'last_synced_at'));
+        $this->assertDatabaseCount('titles', 1);
+    }
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_commits_the_real_catalog_with_import_checkpoint_and_reimports_without_duplicates(): void
+    {
+        $recorder = $this->importRecorder();
+        foreach ([1, 2] as $attempt) {
+            $run = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
+            $saved = $recorder->commit($run, new ImportBatch(new ImportCounters(fetched: 1, accepted: 1), 1, ['1'], []), fn () => $this->writer->write($this->preparedCatalog()), true);
+
+            self::assertTrue($saved->completed);
+            $this->assertDatabaseHas('import_runs', ['id' => $run->runId, 'status' => 'completed', 'checkpoint' => 1]);
+            $this->assertDatabaseCount('import_processed_titles', $attempt);
+            $this->assertDatabaseCount(Title::TABLE_NAME, 1);
+            $this->assertDatabaseCount(TitleAttribute::TABLE_NAME, 2);
+            $this->assertDatabaseCount(AttributeDefinition::TABLE_NAME, 2);
+            $this->assertDatabaseCount(AttributeOption::TABLE_NAME, 2);
+        }
+    }
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_rolls_back_real_catalog_writes_and_resumes_without_duplicate_attributes(): void
+    {
+        $recorder = $this->importRecorder();
+        $run = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $batch = new ImportBatch(new ImportCounters(fetched: 1, accepted: 1), 1, ['1'], []);
+        try {
+            $recorder->commit($run, $batch, function (): void {
+                $this->writer->write($this->preparedCatalog());
+                throw new RuntimeException('Failure after catalog write');
+            }, true);
+            self::fail('All catalog writes must roll back.');
+        } catch (RuntimeException $exception) {
+            self::assertSame('Failure after catalog write', $exception->getMessage());
+        }
+        foreach ([Title::TABLE_NAME, TitleAttribute::TABLE_NAME, AttributeDefinition::TABLE_NAME, AttributeOption::TABLE_NAME, 'import_processed_titles'] as $table) {
+            $this->assertDatabaseCount($table, 0);
+        }
+        $this->assertDatabaseHas('import_runs', ['checkpoint' => 0, 'accepted' => 0, 'status' => 'running']);
+        $recorder->fail($run, 'Failure after catalog write');
+        $resumed = $this->resumeRun(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $saved = $recorder->commit($resumed, $batch, fn () => $this->writer->write($this->preparedCatalog()), true);
+
+        self::assertTrue($saved->completed);
+        $this->assertDatabaseCount(Title::TABLE_NAME, 1);
+        $this->assertDatabaseCount(TitleAttribute::TABLE_NAME, 2);
+        $this->assertDatabaseCount('import_processed_titles', 1);
+        $this->assertDatabaseHas('import_runs', ['checkpoint' => 1, 'accepted' => 1, 'status' => 'completed']);
+    }
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_rolls_back_the_catalog_when_the_import_journal_insert_fails(): void
+    {
+        $recorder = $this->importRecorder();
+        $run = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
+        try {
+            $recorder->commit($run, new ImportBatch(new ImportCounters(fetched: 1, accepted: 1), 1, ['1'], []), function () use ($run): void {
+                $this->writer->write($this->preparedCatalog());
+                DB::table('import_processed_titles')->insert(['import_run_id' => $run->runId, 'external_id' => '1']);
+            }, true);
+            self::fail('The journal conflict must roll back the catalog.');
+        } catch (QueryException) {
+            foreach ([Title::TABLE_NAME, TitleAttribute::TABLE_NAME, AttributeDefinition::TABLE_NAME, AttributeOption::TABLE_NAME, 'import_processed_titles'] as $table) {
+                $this->assertDatabaseCount($table, 0);
+            }
+        }
+        $this->assertDatabaseHas('import_runs', ['checkpoint' => 0, 'status' => 'running']);
+    }
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_completes_an_empty_final_batch_without_rewriting_the_catalog(): void
+    {
+        $recorder = $this->importRecorder();
+        $run = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $run = $recorder->commit($run, new ImportBatch(new ImportCounters(fetched: 1, accepted: 1), 1, ['1'], []), fn () => $this->writer->write($this->preparedCatalog()));
+        $before = DB::table(Title::TABLE_NAME)->first();
+
+        $saved = $recorder->commit($run, new ImportBatch($run->counters, 1, [], []), fn () => $this->writer->write(new PreparedCatalogDto), true);
+
+        self::assertTrue($saved->completed);
+        self::assertEquals($before, DB::table(Title::TABLE_NAME)->first());
+        $this->assertDatabaseCount(TitleAttribute::TABLE_NAME, 2);
+        $this->assertDatabaseCount('import_processed_titles', 1);
+        $this->assertDatabaseHas('import_runs', ['status' => 'completed', 'checkpoint' => 1]);
+    }
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_rolls_back_catalog_changes_during_failed_empty_finalization(): void
+    {
+        $recorder = $this->importRecorder();
+        $run = $this->startRun(ProviderSource::Mock, ProviderDataSource::Api, null);
+        $run = $recorder->commit($run, new ImportBatch(new ImportCounters(fetched: 1, accepted: 1), 1, ['1'], []), fn () => $this->writer->write($this->preparedCatalog()));
+        try {
+            $recorder->commit($run, new ImportBatch($run->counters, 1, [], []), function (): void {
+                $this->writer->write($this->preparedCatalog(titleRu: 'Uncommitted update'));
+                throw new RuntimeException('Empty finalization failed');
+            }, true);
+            self::fail('Finalization must roll back.');
+        } catch (RuntimeException $exception) {
+            self::assertSame('Empty finalization failed', $exception->getMessage());
+        }
+        $this->assertDatabaseHas(Title::TABLE_NAME, [Title::FIELD_TITLE_RU => self::TITLE_RU]);
+        $this->assertDatabaseCount(Title::TABLE_NAME, 1);
+        $this->assertDatabaseCount(TitleAttribute::TABLE_NAME, 2);
+        $this->assertDatabaseCount('import_processed_titles', 1);
+        $this->assertDatabaseHas('import_runs', ['status' => 'running', 'checkpoint' => 1, 'finished_at' => null]);
+    }
 
     #[Test]
     public function it_inserts_catalog_collections_and_resolves_foreign_keys(): void
@@ -566,10 +767,65 @@ final class CatalogBulkWriterTest extends TestCase
         }
     }
 
+    #[Test]
+    public function it_saves_the_provider_fixture_through_evaluation_resolution_and_packing(): void
+    {
+        $this->seed(AttributeDefinitionSeeder::class);
+        $rawMapper = new ShikimoriTitleMapper;
+        $mapper = app(ProviderTitleToCandidateMapper::class);
+        $evaluator = app(TitleCandidateEvaluator::class);
+        $candidates = [];
+        $flagged = [];
+        $demographicCandidate = null;
 
-    /**
-     * @throws BindingResolutionException
-     */
+        foreach (file(base_path('static/Fixtures/Shikimori/animes.ndjson')) as $line) {
+            $candidate = $mapper->map($rawMapper->map(ProviderRecords::shikimori(json_decode($line, true, 512, JSON_THROW_ON_ERROR))));
+            $decision = $evaluator->decide($candidate);
+            if ($decision->isRejected()) {
+                continue;
+            }
+            $candidates[] = $candidate;
+            $flagged[$candidate->externalId] = $decision->isFlagged();
+            if ($candidate->externalId === '8687') {
+                $demographicCandidate = $candidate;
+            }
+        }
+        self::assertCount(266, $candidates);
+        $resolution = app(TitleKeyResolver::class)->resolve($candidates);
+        $registry = new ImportAttributeRegistry;
+        $titles = [];
+        foreach ($resolution->resolved as $entry) {
+            $candidate = $entry->candidate;
+            $titles[] = new CatalogTitlePackData(
+                canonicalKey: $entry->key,
+                title: $candidate->title,
+                description: $candidate->description,
+                releaseYear: $candidate->releaseYear,
+                durationMinutes: $candidate->durationMinutes,
+                contentType: $candidate->type,
+                status: $candidate->status,
+                posterUrl: $candidate->posterUrl,
+                bannerUrl: $candidate->bannerUrl,
+                isIncomplete: $flagged[$candidate->externalId],
+                attributes: array_map(fn ($attribute) => new CatalogAttributePackData(
+                    $attribute->code, $registry->definition($candidate->type, $attribute->code)->valueType, $attribute->values,
+                ), $candidate->attributes),
+            );
+        }
+        $packed = (new CatalogPacker)->pack(new CatalogPackInput($titles, []));
+        $this->writer->write($packed);
+        $ids = Title::query()->orderBy('id')->pluck('uuid')->all();
+        $this->writer->write($packed);
+        self::assertSame($ids, Title::query()->orderBy('id')->pluck('uuid')->all());
+        $this->assertDatabaseCount(Title::TABLE_NAME, count($resolution->resolved));
+        self::assertNotNull($demographicCandidate);
+        $key = app(TitleCanonicalKeyFactory::class)->create($demographicCandidate);
+        $title = Title::query()->where('canonical_key', $key->getValue())->firstOrFail();
+        $definition = AttributeDefinition::query()->where('code', 'target_audience')->firstOrFail();
+        self::assertSame(['Детское', 'Сёнен'], $title->attributes()->where('attribute_id', $definition->id)->firstOrFail()->value_array);
+    }
+
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -579,7 +835,21 @@ final class CatalogBulkWriterTest extends TestCase
     }
 
 
-    /** @param list<LocalizedText> $studios */
+    private function importRecorder(): EloquentImportRunRecorder
+    {
+        foreach ([
+            '2026_09_24_000001_create_import_runs_table.php',
+            '2026_09_24_000002_create_import_rejections_table.php',
+            '2026_10_22_105000_add_snapshot_id_to_import_runs_table.php',
+            '2026_10_22_110000_create_import_processed_titles_table.php',
+            '2026_10_29_090000_add_owner_token_to_import_runs.php',
+        ] as $name) {
+            (require database_path('migrations/'.$name))->up();
+        }
+
+        return app(EloquentImportRunRecorder::class);
+    }
+
     private function packTitle(string $key, array $studios): CatalogTitlePackData
     {
         $definition = (new ImportAttributeRegistry)->definition(TitleContentType::ANIME, self::ATTRIBUTE_STUDIOS);
@@ -693,77 +963,5 @@ final class CatalogBulkWriterTest extends TestCase
         $this->assertNotNull($text);
 
         return $text;
-    }
-
-    private function createCatalogSchema(): void
-    {
-        Schema::create(AttributeDefinition::TABLE_NAME, function (Blueprint $table): void {
-            $table->id();
-            $table->string(AttributeDefinition::FIELD_CONTENT_TYPE_CODE);
-            $table->string(AttributeDefinition::FIELD_CODE);
-            $table->unique([
-                AttributeDefinition::FIELD_CONTENT_TYPE_CODE,
-                AttributeDefinition::FIELD_CODE,
-            ]);
-            $table->string(AttributeDefinition::FIELD_NAME_RU);
-            $table->string(AttributeDefinition::FIELD_NAME_EN);
-            $table->string(AttributeDefinition::FIELD_VALUE_TYPE);
-            $table->boolean(AttributeDefinition::FIELD_IS_FILTERABLE)->default(true);
-            $table->boolean(AttributeDefinition::FIELD_IS_REQUIRED)->default(false);
-            $table->unsignedInteger(AttributeDefinition::FIELD_ORDER)->default(0);
-            $table->timestamps();
-        });
-
-        Schema::create(Title::TABLE_NAME, function (Blueprint $table): void {
-            $table->id();
-            $table->uuid(Title::FIELD_UUID)->unique();
-            $table->string(Title::FIELD_CANONICAL_KEY)->unique();
-            $table->string(Title::FIELD_TITLE_RU)->nullable();
-            $table->string(Title::FIELD_TITLE_EN)->nullable();
-            $table->text(Title::FIELD_DESCRIPTION_RU)->nullable();
-            $table->text(Title::FIELD_DESCRIPTION_EN)->nullable();
-            $table->text(Title::FIELD_SHORT_PLOT_RU)->nullable();
-            $table->unsignedInteger(Title::FIELD_DURATION)->nullable();
-            $table->unsignedSmallInteger(Title::FIELD_RELEASE_YEAR)->nullable();
-            $table->string(Title::FIELD_TYPE);
-            $table->string(Title::FIELD_STATUS);
-            $table->string(Title::FIELD_POSTER_KEY)->nullable();
-            $table->string(Title::FIELD_POSTER_THUMB_KEY)->nullable();
-            $table->string(Title::FIELD_BANNER_KEY)->nullable();
-            $table->char(Title::FIELD_POSTER_SOURCE_HASH, 64)->nullable();
-            $table->char(Title::FIELD_BANNER_SOURCE_HASH, 64)->nullable();
-            $table->decimal(Title::FIELD_RATING_AVG, 3)->default(0);
-            $table->unsignedInteger(Title::FIELD_RATING_COUNT)->default(0);
-            $table->text(Title::FIELD_EMBEDDING)->nullable();
-            $table->boolean(Title::FIELD_IS_INCOMPLETE)->default(false);
-            $table->string(Title::FIELD_UPDATED_BY)->default('process');
-            $table->timestamps();
-        });
-
-        Schema::create(AttributeOption::TABLE_NAME, function (Blueprint $table): void {
-            $table->id();
-            $table->foreignId(AttributeOption::FIELD_ATTRIBUTE_ID)
-                ->constrained(AttributeDefinition::TABLE_NAME)
-                ->cascadeOnDelete();
-            $table->string(AttributeOption::FIELD_VALUE_RU);
-            $table->string(AttributeOption::FIELD_VALUE_EN)->nullable();
-            $table->timestamps();
-            $table->unique([AttributeOption::FIELD_ATTRIBUTE_ID, AttributeOption::FIELD_VALUE_RU]);
-        });
-
-        Schema::create(TitleAttribute::TABLE_NAME, function (Blueprint $table): void {
-            $table->id();
-            $table->foreignId(TitleAttribute::FIELD_TITLE_ID)->constrained(Title::TABLE_NAME)->cascadeOnDelete();
-            $table->foreignId(TitleAttribute::FIELD_ATTRIBUTE_ID)
-                ->constrained(AttributeDefinition::TABLE_NAME)
-                ->cascadeOnDelete();
-            $table->string(TitleAttribute::FIELD_VALUE_TEXT)->nullable();
-            $table->json(TitleAttribute::FIELD_VALUE_ARRAY)->nullable();
-            $table->decimal(TitleAttribute::FIELD_VALUE_NUMBER, 15, 4)->nullable();
-            $table->boolean(TitleAttribute::FIELD_VALUE_BOOLEAN)->nullable();
-            $table->text(TitleAttribute::FIELD_SEARCHABLE_TEXT)->nullable();
-            $table->timestamps();
-            $table->unique([TitleAttribute::FIELD_TITLE_ID, TitleAttribute::FIELD_ATTRIBUTE_ID]);
-        });
     }
 }

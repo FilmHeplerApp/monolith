@@ -24,6 +24,7 @@ use App\Infrastructure\Persistence\Eloquent\Repositories\Users\EloquentUserRepos
 use App\Infrastructure\Providers\Factories\ProviderClientFactory;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\ServiceProvider;
 use Intervention\Image\Drivers\Gd\Driver;
 use Intervention\Image\ImageManager;
@@ -33,15 +34,6 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->app->singleton(
-            ProviderClientFactoryContract::class,
-            static fn(Application $app): ProviderClientFactory => new ProviderClientFactory(
-                container: $app,
-                clients: (array)config('import.providers.clients'),
-                enabled: (array)config('import.providers.enabled'),
-                isProduction: $app->isProduction(),
-            ),
-        );
         $this->app->bind(
             CatalogBulkWriterContract::class,
             CatalogBulkWriter::class,
@@ -60,7 +52,7 @@ class AppServiceProvider extends ServiceProvider
         );
         $this->app->singleton(
             ImageManagerInterface::class,
-            static fn(): ImageManager => new ImageManager(new Driver),
+            static fn (): ImageManager => new ImageManager(new Driver),
         );
         $this->app->bind(
             SpecImageCompressor::class,
@@ -72,7 +64,7 @@ class AppServiceProvider extends ServiceProvider
         );
         $this->app->bind(
             ImageDownloaderContract::class,
-            static fn(): HttpImageDownloader => new HttpImageDownloader(
+            static fn (): HttpImageDownloader => new HttpImageDownloader(
                 new PublicHostResolver(new IpAddressClassifier),
             ),
         );
@@ -84,10 +76,12 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        Model::preventSilentlyDiscardingAttributes(!$this->app->isProduction());
+
         $this->app->make(ProviderClientFactoryContract::class);
 
         Factory::guessFactoryNamesUsing(function (string $modelName) {
-            return 'Database\\Factories\\' . class_basename($modelName) . 'Factory';
+            return 'Database\\Factories\\'.class_basename($modelName).'Factory';
         });
     }
 }

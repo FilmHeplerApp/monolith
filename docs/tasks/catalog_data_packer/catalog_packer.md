@@ -80,6 +80,12 @@
 
 ## Что ещё не эта задача
 
+Обновлено 2026-11-12: буфер и вызов `write()` реализованы в `CatalogCandidateSink`.
+Размер пачки задаётся по поставщику (`import.providers.checkpoint_every.<provider>`),
+иначе `import.checkpoint_every`, по умолчанию 500. `attributeDefinitions` пустой:
+дефиниции создаёт `AttributeDefinitionSeeder`. Подробности в
+[сохраняющем sink](../catalog_candidate_sink/Catalog_candidate_sink.md).
+
 - Буфер на 500 и `finish()` для хвоста. Чекпоинт прогона нужно писать после успешного `write()` пачки, иначе resume пропустит несохранённый хвост.
 - Вызов `CatalogBulkWriterContract::write()`.
 - Таблица `external_ids` из ТЗ 6.3.3. Сейвер её пока не пишет.
@@ -121,3 +127,16 @@ fallback опций и дополнение отсутствующих пере�
 
 Полный путь через адаптер провайдера и sink проверяется при интеграции ветки
 оркестратора. Упаковщик самостоятельно сырые строки Shikimori не разбирает.
+
+## Интеграция оркестратора (2026-10-22)
+
+`ImportAttributeRegistry` объявляет `target_audience` как ARRAY согласно ТЗ: один
+тайтл может иметь несколько демографических категорий. Миграция
+`2026_10_22_100000_change_anime_target_audience_to_array` переводит существующие
+строки в массивы с сохранением идентификаторов; обратный откат запрещён для
+нескольких значений.
+
+Контракт flush/finish и правила чекпоинтов описаны в
+[плане оркестратора](../filter_data_from_providers/Import_collection_and_packing_plan.md).
+Feature-тест каталога прогоняет fixture через общий mapper/evaluator/resolver и
+упаковщик до writer, проверяя несколько демографий и повторный upsert.

@@ -4,15 +4,19 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Infrastructure\Providers\Mock;
 
+use App\Application\Import\DTOs\ProviderAttribute;
 use App\Application\Import\DTOs\ProviderTitle;
+use App\Application\Import\DTOs\ProviderTitleRecord;
 use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\Exceptions\ProviderRateLimitedException;
 use App\Application\Import\Exceptions\ProviderUnavailableException;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use App\Infrastructure\Providers\Mock\MockProviderClient;
+use App\Infrastructure\Providers\Mock\MockTitleMapper;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\ProviderRecords;
 
 final class MockProviderClientTest extends TestCase
 {
@@ -23,12 +27,12 @@ final class MockProviderClientTest extends TestCase
     }
 
     #[Test]
-    public function it_yields_provider_titles(): void
+    public function it_yields_raw_provider_titles(): void
     {
         $titles = iterator_to_array(new MockProviderClient()->fetchTitles());
 
         self::assertNotEmpty($titles);
-        self::assertContainsOnlyInstancesOf(ProviderTitle::class, $titles);
+        self::assertContainsOnlyInstancesOf(ProviderTitleRecord::class, $titles);
     }
 
     #[Test]
@@ -48,7 +52,7 @@ final class MockProviderClientTest extends TestCase
 
         self::assertNotNull($found);
         self::assertSame('5114', $found->externalId);
-        self::assertSame('Стальной алхимик: Братство', $found->title?->getRu());
+        self::assertSame('Стальной алхимик: Братство', (new MockTitleMapper)->map($found)->title?->getRu());
     }
 
     #[Test]
@@ -72,7 +76,7 @@ final class MockProviderClientTest extends TestCase
 
         try {
             foreach ($stream as $title) {
-                self::assertInstanceOf(ProviderTitle::class, $title);
+                self::assertInstanceOf(ProviderTitleRecord::class, $title);
                 $seen++;
             }
 
@@ -167,7 +171,7 @@ final class MockProviderClientTest extends TestCase
         $client = new MockProviderClient;
 
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Fetch limit must be >= 1, got 0.');
+        $this->expectExceptionMessage('Fetch limit must be >= 1 or null, got 0.');
 
         $client->fetchTitles(limit: 0);
     }
@@ -178,7 +182,7 @@ final class MockProviderClientTest extends TestCase
         $client = new MockProviderClient;
 
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Fetch limit must be >= 1, got -1.');
+        $this->expectExceptionMessage('Fetch limit must be >= 1 or null, got -1.');
 
         $client->fetchTitles(limit: -1);
     }
@@ -198,7 +202,7 @@ final class MockProviderClientTest extends TestCase
         $forgotten = $titles['30123'];
         self::assertSame('Забытое старое кино', $forgotten->title?->getRu());
         self::assertNull($forgotten->title?->getEn());
-        self::assertSame([], $forgotten->genres);
+        self::assertSame([], $forgotten->attributes);
         self::assertNull($forgotten->rating);
         self::assertNull($forgotten->durationMinutes);
 
@@ -218,7 +222,7 @@ final class MockProviderClientTest extends TestCase
     #[Test]
     public function it_includes_localized_title_and_description_in_the_default_fixtures(): void
     {
-        $title = new MockProviderClient()->fetchTitleByExternalId('5114');
+        $title = (new MockTitleMapper)->map(new MockProviderClient()->fetchTitleByExternalId('5114'));
 
         self::assertNotNull($title);
         self::assertInstanceOf(LocalizedText::class, $title->title);
@@ -238,38 +242,38 @@ final class MockProviderClientTest extends TestCase
     #[Test]
     public function it_includes_invalid_titles_in_the_default_fixtures(): void
     {
-        $titles = iterator_to_array(new MockProviderClient()->fetchTitles());
+        $titles = array_map((new MockTitleMapper)->map(...), iterator_to_array(new MockProviderClient()->fetchTitles()));
 
         self::assertNotEmpty(array_filter(
             $titles,
-            static fn(ProviderTitle $title): bool => $title->type === 'unknown',
+            static fn (ProviderTitle $title): bool => $title->type === 'unknown',
         ));
         self::assertNotEmpty(array_filter(
             $titles,
-            static fn(ProviderTitle $title): bool => $title->status === 'unknown',
+            static fn (ProviderTitle $title): bool => $title->status === 'unknown',
         ));
         self::assertNotEmpty(array_filter(
             $titles,
-            static fn(ProviderTitle $title): bool => $title->externalId === '',
+            static fn (ProviderTitle $title): bool => $title->externalId === '900006' && $title->title === null,
         ));
         self::assertNotEmpty(array_filter(
             $titles,
-            static fn(ProviderTitle $title): bool => $title->rating !== null
+            static fn (ProviderTitle $title): bool => $title->rating !== null
                 && ($title->rating < 0 || $title->rating > 10),
         ));
         self::assertNotEmpty(array_filter(
             $titles,
-            static fn(ProviderTitle $title): bool => $title->durationMinutes !== null
+            static fn (ProviderTitle $title): bool => $title->durationMinutes !== null
                 && $title->durationMinutes <= 0,
         ));
         self::assertNotEmpty(array_filter(
             $titles,
-            static fn(ProviderTitle $title): bool => $title->description?->getRu() !== null
+            static fn (ProviderTitle $title): bool => $title->description?->getRu() !== null
                 && $title->description->getRu() !== strip_tags($title->description->getRu()),
         ));
 
         $externalIds = array_map(
-            static fn(ProviderTitle $title): string => $title->externalId,
+            static fn (ProviderTitle $title): string => $title->externalId,
             $titles,
         );
 
@@ -280,7 +284,7 @@ final class MockProviderClientTest extends TestCase
     public function it_yields_the_duplicated_external_id_before_invalid_titles(): void
     {
         $externalIds = array_map(
-            static fn(ProviderTitle $title): string => $title->externalId,
+            static fn (ProviderTitleRecord $title): string => $title->externalId,
             iterator_to_array(new MockProviderClient()->fetchTitles()),
         );
 
@@ -299,7 +303,6 @@ final class MockProviderClientTest extends TestCase
             externalId: 'custom-1',
             title: LocalizedText::create('Свой тайтл', 'Custom title'),
             description: null,
-            genres: ['custom'],
             year: 2020,
             durationMinutes: 100,
             rating: 6.0,
@@ -307,9 +310,10 @@ final class MockProviderClientTest extends TestCase
             bannerUrl: null,
             type: 'anime',
             status: 'released',
+            attributes: [new ProviderAttribute('genres', LocalizedText::create('Свой', 'custom'))],
         );
 
-        $client = new MockProviderClient([$custom]);
+        $client = new MockProviderClient([ProviderRecords::mock($custom)]);
         $titles = iterator_to_array($client->fetchTitles());
 
         self::assertCount(1, $titles);
@@ -318,15 +322,28 @@ final class MockProviderClientTest extends TestCase
     }
 
 
-    /**
-     * @return array<string, ProviderTitle>
-     */
+    #[Test]
+    public function it_supports_unlimited_streams_and_offsets(): void
+    {
+        $client = new MockProviderClient;
+        self::assertSame(['9253', '52991'], array_column(iterator_to_array($client->fetchTitles(2, 2)), 'externalId'));
+        self::assertCount(count(iterator_to_array($client->fetchTitles(null))) - 1, iterator_to_array($client->fetchTitles(null, 1)));
+    }
+
+    #[Test]
+    public function it_rejects_a_negative_offset_eagerly(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        (new MockProviderClient)->fetchTitles(offset: -1);
+    }
+
+
     private function defaultTitlesByExternalId(): array
     {
         $titles = [];
 
         foreach (new MockProviderClient()->fetchTitles() as $title) {
-            $titles[$title->externalId] = $title;
+            $titles[$title->externalId] = (new MockTitleMapper)->map($title);
         }
 
         return $titles;

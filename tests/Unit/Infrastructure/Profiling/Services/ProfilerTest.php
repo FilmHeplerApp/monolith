@@ -12,19 +12,18 @@ use Tests\TestCase;
 
 class ProfilerTest extends TestCase
 {
-    /**
-     * @throws \ReflectionException
-     */
-    protected function setUp(): void
+    #[Test]
+    public function it_does_not_collect_or_log_when_disabled(): void
     {
-        parent::setUp();
+        config()->set('profiler.enabled', false);
+        Log::shouldReceive('channel')->never();
 
-        $this->clearProfilerState();
+        Profiler::start('disabled');
+        Profiler::start('disabled');
+        Profiler::stop('disabled');
+        Profiler::stats('disabled');
     }
 
-    /**
-     * @throws ProfilerExistingPointException
-     */
     #[Test]
     public function it_starts_profiling_point(): void
     {
@@ -43,9 +42,6 @@ class ProfilerTest extends TestCase
         Profiler::stats('test');
     }
 
-    /**
-     * @throws ProfilerExistingPointException
-     */
     #[Test]
     public function it_throws_exception_when_profiling_point_already_exists(): void
     {
@@ -56,9 +52,6 @@ class ProfilerTest extends TestCase
         Profiler::start('test');
     }
 
-    /**
-     * @throws ProfilerExistingPointException
-     */
     #[Test]
     public function it_allows_different_profiling_points(): void
     {
@@ -96,9 +89,6 @@ class ProfilerTest extends TestCase
         Profiler::stats('unknown');
     }
 
-    /**
-     * @throws ProfilerExistingPointException
-     */
     #[Test]
     public function it_logs_execution_time(): void
     {
@@ -123,9 +113,6 @@ class ProfilerTest extends TestCase
         Profiler::stats('test');
     }
 
-    /**
-     * @throws ProfilerExistingPointException
-     */
     #[Test]
     public function it_logs_memory_usage(): void
     {
@@ -152,9 +139,6 @@ class ProfilerTest extends TestCase
         unset($data);
     }
 
-    /**
-     * @throws ProfilerExistingPointException
-     */
     #[Test]
     public function it_logs_peak_memory_usage(): void
     {
@@ -181,17 +165,12 @@ class ProfilerTest extends TestCase
         unset($data);
     }
 
-    /**
-     * @throws ProfilerExistingPointException
-     */
     #[Test]
     public function it_removes_profiling_point_after_stop(): void
     {
         Profiler::start('test');
         Profiler::stop('test');
 
-        // Если point был удалён, можно повторно начать профилирование
-        // с тем же ключом.
         Profiler::start('test');
 
         Profiler::stop('test');
@@ -199,9 +178,6 @@ class ProfilerTest extends TestCase
         $this->assertTrue(true);
     }
 
-    /**
-     * @throws ProfilerExistingPointException
-     */
     #[Test]
     public function it_removes_result_after_stats(): void
     {
@@ -218,13 +194,9 @@ class ProfilerTest extends TestCase
 
         Profiler::stats('test');
 
-        // Второй вызов ничего не должен сделать.
         Profiler::stats('test');
     }
 
-    /**
-     * @throws ProfilerExistingPointException
-     */
     #[Test]
     public function it_allows_profiling_same_point_multiple_times(): void
     {
@@ -253,9 +225,6 @@ class ProfilerTest extends TestCase
         Profiler::stats('test');
     }
 
-    /**
-     * @throws ProfilerExistingPointException
-     */
     #[Test]
     public function it_accumulates_samples_for_same_point(): void
     {
@@ -287,9 +256,6 @@ class ProfilerTest extends TestCase
         Profiler::stats('test');
     }
 
-    /**
-     * @throws ProfilerExistingPointException
-     */
     #[Test]
     public function it_logs_context_for_slow_point(): void
     {
@@ -321,9 +287,6 @@ class ProfilerTest extends TestCase
         Profiler::stats('test');
     }
 
-    /**
-     * @throws ProfilerExistingPointException
-     */
     #[Test]
     public function it_does_not_log_context_for_fast_point(): void
     {
@@ -344,15 +307,12 @@ class ProfilerTest extends TestCase
             ->once()
             ->withArgs(function (string $message, array $context): bool {
                 return $message === 'Profiler Log'
-                    && ! isset($context['slow_points']);
+                    && !isset($context['slow_points']);
             });
 
         Profiler::stats('test');
     }
 
-    /**
-     * @throws ProfilerExistingPointException
-     */
     #[Test]
     public function it_logs_multiple_slow_points_with_their_context(): void
     {
@@ -382,7 +342,7 @@ class ProfilerTest extends TestCase
                     return false;
                 }
 
-                if (! isset($context['slow_points'])) {
+                if (!isset($context['slow_points'])) {
                     return false;
                 }
 
@@ -397,9 +357,6 @@ class ProfilerTest extends TestCase
         Profiler::stats('test');
     }
 
-    /**
-     * @throws ProfilerExistingPointException
-     */
     #[Test]
     public function it_accumulates_statistics_for_multiple_calls(): void
     {
@@ -433,9 +390,6 @@ class ProfilerTest extends TestCase
         Profiler::stats('test');
     }
 
-    /**
-     * @throws ProfilerExistingPointException
-     */
     #[Test]
     public function it_clears_extended_results_after_stats(): void
     {
@@ -472,15 +426,23 @@ class ProfilerTest extends TestCase
             ->once()
             ->withArgs(function (string $message, array $context): bool {
                 return $message === 'Profiler Log'
-                    && ! isset($context['slow_points']);
+                    && !isset($context['slow_points']);
             });
 
         Profiler::stats('test');
     }
 
-    /**
-     * @throws \ReflectionException
-     */
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        config()->set('profiler.enabled', true);
+        $this->clearProfilerState();
+    }
+
+
+
     private function clearProfilerState(): void
     {
         $reflection = new \ReflectionClass(Profiler::class);
