@@ -39,7 +39,7 @@ class TitleBulkWriter
                     Title::FIELD_RELEASE_YEAR,
                     Title::FIELD_TYPE,
                     Title::FIELD_STATUS,
-                    Title::FIELD_IS_INCOMPLETE,
+                    Title::FIELD_IS_INCOMPLETE => $this->preserveAdminValue(Title::FIELD_IS_INCOMPLETE),
                     Title::FIELD_UPDATED_BY => $this->preserveAdminValue(Title::FIELD_UPDATED_BY),
                     Title::FIELD_LAST_SYNCED_AT => $this->syncTimestamp(),
                     Title::FIELD_UPDATED_AT,

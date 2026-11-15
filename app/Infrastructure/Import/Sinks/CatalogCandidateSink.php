@@ -29,7 +29,7 @@ final class CatalogCandidateSink implements CandidateSinkContract
         private readonly CatalogTitlePackDataFactory         $packData,
         private readonly CatalogPacker                       $packer,
         private readonly CatalogBulkWriterContract           $writer,
-        private readonly CatalogAttributeDefinitionValidator $definitions,
+        private readonly CatalogAttributeDefinitionValidator $definitionValidator,
     ) {}
 
     public function consume(TitleCandidate $candidate, FilterDecision $decision): void
@@ -58,13 +58,13 @@ final class CatalogCandidateSink implements CandidateSinkContract
         }
 
         if ($titles !== []) {
-            $this->definitions->validate($titles);
+            $this->definitionValidator->validate($titles);
             $this->writer->write($this->packer->pack(new CatalogPackInput($titles, [])));
         }
 
         if ($resolution->collisions !== []) {
             $collisions = $resolution->collisions;
-            DB::afterCommit(static fn () => self::reportCollisions($collisions));
+            DB::afterCommit(static fn() => self::reportCollisions($collisions));
         }
     }
 
@@ -82,7 +82,7 @@ final class CatalogCandidateSink implements CandidateSinkContract
 
     private static function identity(string $source, string $externalId): string
     {
-        return $source."\0".$externalId;
+        return $source . "\0" . $externalId;
     }
 
     private static function reportCollisions(array $collisions): void
@@ -93,7 +93,7 @@ final class CatalogCandidateSink implements CandidateSinkContract
                     'canonical_key' => $collision->key->getValue(),
                     'natural_key' => $collision->key->getNatural(),
                     'identities' => array_map(
-                        static fn (TitleIdentity $identity): array => [
+                        static fn(TitleIdentity $identity): array => [
                             'source' => $identity->source,
                             'external_id' => $identity->externalId,
                         ],

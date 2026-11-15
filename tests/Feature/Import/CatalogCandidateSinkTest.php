@@ -39,11 +39,13 @@ use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use Tests\Support\CreatesCatalogSchema;
 use Tests\Support\SingleProviderClientFactory;
+use Tests\Support\UsesIsolatedPostgresSchema;
 use Tests\TestCase;
 
 final class CatalogCandidateSinkTest extends TestCase
 {
     use CreatesCatalogSchema;
+    use UsesIsolatedPostgresSchema;
 
 
     private const array IMPORT_MIGRATIONS = [
@@ -53,10 +55,6 @@ final class CatalogCandidateSinkTest extends TestCase
         '2026_10_22_110000_create_import_processed_titles_table.php',
         '2026_10_29_090000_add_owner_token_to_import_runs.php',
     ];
-
-
-    private ?string $testSchema = null;
-    private ?string $previousConnection = null;
 
 
     #[Test]
@@ -88,6 +86,30 @@ final class CatalogCandidateSinkTest extends TestCase
             'status' => 'ongoing',
         ]);
         self::assertTrue(Title::query()->firstOrFail()->last_synced_at->equalTo(now()));
+    }
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_keeps_a_title_completed_by_an_admin_complete_on_reimport(): void
+    {
+        $this->seed(AttributeDefinitionSeeder::class);
+        $record = $this->record('1', 'Cowboy Bebop');
+        $this->bindRecords(new ProviderTitleRecord($record->source, $record->externalId, array_replace($record->payload, ['description' => null])));
+        $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+        $this->assertDatabaseHas('titles', ['description_ru' => null, 'is_incomplete' => true, 'updated_by' => 'process']);
+        DB::table('titles')->update([
+            'description_ru' => 'Описание от админа',
+            'is_incomplete' => false,
+            'updated_by' => 'admin',
+        ]);
+
+        $this->importer()->execute(ProviderSource::Mock, ProviderDataSource::Api);
+
+        $this->assertDatabaseHas('titles', [
+            'description_ru' => 'Описание от админа',
+            'is_incomplete' => false,
+            'updated_by' => 'admin',
+        ]);
     }
 
     #[Test]
@@ -304,31 +326,12 @@ final class CatalogCandidateSinkTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        if (DB::getDriverName() === 'pgsql') {
-            $this->previousConnection = DB::getDefaultConnection();
-            $this->testSchema = 'catalog_sink_test_'.bin2hex(random_bytes(8));
-            $config = DB::connection()->getConfig();
-            DB::statement('CREATE SCHEMA '.$this->testSchema);
-            $config['search_path'] = $this->testSchema.', public';
-            $config['name'] = $this->testSchema;
-            config(['database.connections.'.$this->testSchema => $config, 'database.default' => $this->testSchema]);
-        }
 
         foreach (self::IMPORT_MIGRATIONS as $name) {
             (require database_path('migrations/'.$name))->up();
         }
 
         $this->createCatalogSchema();
-    }
-
-    protected function tearDown(): void
-    {
-        if ($this->testSchema !== null) {
-            DB::purge($this->testSchema);
-            config(['database.default' => $this->previousConnection]);
-            DB::statement('DROP SCHEMA '.$this->testSchema.' CASCADE');
-        }
-        parent::tearDown();
     }
 
 

@@ -53,7 +53,8 @@ final readonly class CatalogAttributeDefinitionValidator
 
             $actual = [];
             foreach ($rows as $row) {
-                $actual[$row->content_type_code][$row->code] = $row->value_type;
+                $actual[$row->{AttributeDefinition::FIELD_CONTENT_TYPE_CODE}][$row->{AttributeDefinition::FIELD_CODE}]
+                    = $row->{AttributeDefinition::FIELD_VALUE_TYPE};
             }
             foreach ($chunk as [$contentType, $code, $expectedType]) {
                 $actualType = $actual[$contentType][$code] ?? null;

@@ -52,12 +52,14 @@ use RuntimeException;
 use Tests\Support\CreatesCatalogSchema;
 use Tests\Support\ProviderRecords;
 use Tests\Support\StartsImportRuns;
+use Tests\Support\UsesIsolatedPostgresSchema;
 use Tests\TestCase;
 
 final class CatalogBulkWriterTest extends TestCase
 {
     use CreatesCatalogSchema;
     use StartsImportRuns;
+    use UsesIsolatedPostgresSchema;
 
 
     private const string TITLE_UUID = '018fe2f8-0a2e-7a42-b0a7-6f6f5b0f0f13';
@@ -84,9 +86,6 @@ final class CatalogBulkWriterTest extends TestCase
 
 
     private CatalogBulkWriterContract $writer;
-    private ?string $testSchema = null;
-    private ?string $testConnection = null;
-    private ?string $previousConnection = null;
 
 
     #[Test]
@@ -108,6 +107,27 @@ final class CatalogBulkWriterTest extends TestCase
 
         $this->assertDatabaseHas('titles', ['description_ru' => 'Ручное описание', 'description_en' => 'Manual description', 'short_plot_ru' => 'Ручной сюжет', 'updated_by' => 'admin']);
         self::assertTrue(Title::query()->firstOrFail()->last_synced_at->equalTo($syncedAt));
+    }
+
+    #[Test]
+    #[Group('catalog_import')]
+    public function it_keeps_the_admin_incomplete_flag_on_import_and_lets_the_admin_change_it(): void
+    {
+        $imported = $this->createTitleData(TitleUuid::createFromString(self::TITLE_UUID), isIncomplete: true);
+        $this->writer->write(new PreparedCatalogDto(titles: [$imported]));
+        $admin = new TitleData(...array_replace(get_object_vars($imported), [
+            'updatedBy' => TitleUpdatedBy::ADMIN,
+            'isIncomplete' => false,
+        ]));
+        $this->writer->write(new PreparedCatalogDto(titles: [$admin]));
+
+        $this->writer->write(new PreparedCatalogDto(titles: [$imported]));
+
+        $this->assertDatabaseHas(Title::TABLE_NAME, [Title::FIELD_IS_INCOMPLETE => false, Title::FIELD_UPDATED_BY => 'admin']);
+
+        $this->writer->write(new PreparedCatalogDto(titles: [new TitleData(...array_replace(get_object_vars($admin), ['isIncomplete' => true]))]));
+
+        $this->assertDatabaseHas(Title::TABLE_NAME, [Title::FIELD_IS_INCOMPLETE => true, Title::FIELD_UPDATED_BY => 'admin']);
     }
 
     #[Test]
@@ -810,28 +830,8 @@ final class CatalogBulkWriterTest extends TestCase
     {
         parent::setUp();
 
-        if (DB::getDriverName() === 'pgsql') {
-            $this->previousConnection = DB::getDefaultConnection();
-            $this->testSchema = 'catalog_bulk_test_'.bin2hex(random_bytes(8));
-            $this->testConnection = $this->testSchema;
-            $config = DB::connection()->getConfig();
-            DB::statement('CREATE SCHEMA '.$this->testSchema);
-            $config['search_path'] = $this->testSchema.', public';
-            $config['name'] = $this->testConnection;
-            config(['database.connections.'.$this->testConnection => $config, 'database.default' => $this->testConnection]);
-        }
         $this->createCatalogSchema();
         $this->writer = $this->app->make(CatalogBulkWriterContract::class);
-    }
-
-    protected function tearDown(): void
-    {
-        if ($this->testSchema !== null) {
-            DB::purge($this->testConnection);
-            config(['database.default' => $this->previousConnection]);
-            DB::statement('DROP SCHEMA '.$this->testSchema.' CASCADE');
-        }
-        parent::tearDown();
     }
 
 
