@@ -31,6 +31,15 @@ final class BirthdayPolicyTest extends TestCase
     }
 
     #[Test]
+    public function it_rejects_a_birthday_in_the_future(): void
+    {
+        $this->expectException(InvalidUserValueException::class);
+        $this->expectExceptionMessage('Birthday must not be in the future.');
+
+        (new BirthdayPolicy)->assertAllowed($this->birthday('tomorrow'));
+    }
+
+    #[Test]
     public function it_rejects_a_birthday_before_the_minimum_year(): void
     {
         $this->expectException(InvalidUserValueException::class);

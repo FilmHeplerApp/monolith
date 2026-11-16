@@ -10,10 +10,6 @@ use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use SplFileInfo;
 
-/**
- * Entities are restored from storage through reconstitute(), which skips business policies.
- * Only persistence adapters may call it; any other caller would bypass those policies.
- */
 final class ReconstitutionBoundaryTest extends TestCase
 {
     private const string METHOD = 'reconstitute';

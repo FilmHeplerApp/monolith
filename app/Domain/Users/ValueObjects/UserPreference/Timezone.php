@@ -6,7 +6,6 @@ namespace App\Domain\Users\ValueObjects\UserPreference;
 
 use App\Domain\Users\Exceptions\InvalidUserValueException;
 use DateTimeZone;
-use Exception;
 
 final readonly class Timezone
 {
@@ -17,9 +16,7 @@ final readonly class Timezone
     {
         $normalized = trim($value);
 
-        try {
-            new DateTimeZone($normalized);
-        } catch (Exception) {
+        if (!in_array($normalized, DateTimeZone::listIdentifiers(DateTimeZone::ALL_WITH_BC), true)) {
             throw InvalidUserValueException::invalidTimezone($normalized);
         }
 

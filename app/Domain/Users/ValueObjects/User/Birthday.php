@@ -17,12 +17,6 @@ final readonly class Birthday
             throw InvalidUserValueException::invalidBirthday();
         }
 
-        $today = new DateTimeImmutable('today');
-
-        if ($day->format('Y-m-d') > $today->format('Y-m-d')) {
-            throw InvalidUserValueException::birthdayInFuture();
-        }
-
         return new self($day);
     }
 

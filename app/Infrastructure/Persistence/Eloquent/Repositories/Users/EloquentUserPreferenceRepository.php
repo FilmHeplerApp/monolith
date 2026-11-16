@@ -57,7 +57,7 @@ final class EloquentUserPreferenceRepository implements UserPreferenceRepository
 
     private function toDomain(UserPreferenceModel $model): UserPreference
     {
-        return new UserPreference(
+        return UserPreference::reconstitute(
             id: $model->id,
             userId: $model->user_id,
             timezone: Timezone::createFromString($model->timezone),

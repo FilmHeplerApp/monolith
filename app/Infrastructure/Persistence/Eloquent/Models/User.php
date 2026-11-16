@@ -51,29 +51,13 @@ class User extends Model
     public const string FIELD_LAST_ACTIVE_AT = 'last_active_at';
     public const string FIELD_BIRTHDAY = 'birthday';
     public const string FIELD_SECRET_PHRASE_HASH = 'secret_phrase_hash';
+    public const string FIELD_VERSION = 'version';
     public const string FIELD_CREATED_AT = 'created_at';
     public const string FIELD_UPDATED_AT = 'updated_at';
     public const string FIELD_DELETED_AT = 'deleted_at';
 
 
     protected $table = self::TABLE_NAME;
-    protected $fillable = [
-        self::FIELD_ID,
-        self::FIELD_NICKNAME,
-        self::FIELD_EMAIL,
-        self::FIELD_PASSWORD,
-        self::FIELD_AVATAR_KEY,
-        self::FIELD_EMBEDDING,
-        self::FIELD_STATUS,
-        self::FIELD_IS_ACTIVE,
-        self::FIELD_ROLE,
-        self::FIELD_LAST_ACTIVE_AT,
-        self::FIELD_BIRTHDAY,
-        self::FIELD_SECRET_PHRASE_HASH,
-        self::FIELD_CREATED_AT,
-        self::FIELD_UPDATED_AT,
-        self::FIELD_DELETED_AT,
-    ];
     protected $hidden = [
         self::FIELD_PASSWORD,
         self::FIELD_SECRET_PHRASE_HASH,
@@ -95,6 +79,7 @@ class User extends Model
             self::FIELD_ROLE => UserRole::class,
             self::FIELD_LAST_ACTIVE_AT => 'datetime',
             self::FIELD_BIRTHDAY => 'date',
+            self::FIELD_VERSION => 'integer',
         ];
     }
 }

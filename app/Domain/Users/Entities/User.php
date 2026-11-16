@@ -31,6 +31,7 @@ final readonly class User
 
         return new self(
             id: null,
+            version: null,
             nickname: $nickname,
             email: $email,
             password: $password,
@@ -53,6 +54,7 @@ final readonly class User
      */
     public static function reconstitute(
         int                $id,
+        int                $version,
         Nickname           $nickname,
         Email              $email,
         PasswordHash       $password,
@@ -70,6 +72,7 @@ final readonly class User
     ): self {
         return new self(
             id: $id,
+            version: $version,
             nickname: $nickname,
             email: $email,
             password: $password,
@@ -87,9 +90,25 @@ final readonly class User
         );
     }
 
+    public function changeNickname(Nickname $nickname): self
+    {
+        return new self(...[...get_object_vars($this), 'nickname' => $nickname]);
+    }
+
+    public function changeAvatar(?string $avatarKey): self
+    {
+        return new self(...[...get_object_vars($this), 'avatarKey' => $avatarKey]);
+    }
+
+    public function updateEmbedding(Embedding $embedding): self
+    {
+        return new self(...[...get_object_vars($this), 'embedding' => $embedding]);
+    }
+
 
     private function __construct(
         public ?int               $id,
+        public ?int               $version,
         public Nickname           $nickname,
         public Email              $email,
         public PasswordHash       $password,

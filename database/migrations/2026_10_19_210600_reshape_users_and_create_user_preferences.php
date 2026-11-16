@@ -16,6 +16,9 @@ return new class extends Migration
     private const string DEFAULT_THEME = 'system';
     private const string DEFAULT_LANGUAGE = 'ru';
     private const string DEFAULT_INTERFACE_TYPE = 'swipe';
+    private const int NICKNAME_MAX_LENGTH = 32;
+    private const int LEGACY_NICKNAME_MAX_LENGTH = 255;
+    private const int INITIAL_VERSION = 1;
     private const array STATUSES = [
         'valid',
         'blocked',
@@ -62,6 +65,14 @@ return new class extends Migration
             throw new RuntimeException('Cannot create unique nicknames: resolve existing user names that match regardless of case before migrating.');
         }
 
+        $longNickname = DB::table(User::TABLE_NAME)
+            ->whereRaw('char_length(name) > ?', [self::NICKNAME_MAX_LENGTH])
+            ->exists();
+
+        if ($longNickname) {
+            throw new RuntimeException(sprintf('Cannot limit nicknames to %d characters: shorten existing user names before migrating.', self::NICKNAME_MAX_LENGTH));
+        }
+
         DB::statement('create extension if not exists citext with schema public');
         DB::statement('alter table users alter column email type public.citext using email::public.citext');
 
@@ -70,6 +81,7 @@ return new class extends Migration
         });
 
         Schema::table(User::TABLE_NAME, function (Blueprint $table): void {
+            $table->string(User::FIELD_NICKNAME, self::NICKNAME_MAX_LENGTH)->change();
             $table->dropColumn(['email_verified_at', 'remember_token']);
             $table->string(User::FIELD_AVATAR_KEY)->nullable();
             $table->vector(User::FIELD_EMBEDDING, Embedding::DIMENSION)->vectorIndex()->nullable();
@@ -79,6 +91,7 @@ return new class extends Migration
             $table->timestamp(User::FIELD_LAST_ACTIVE_AT)->nullable();
             $table->date(User::FIELD_BIRTHDAY)->nullable();
             $table->string(User::FIELD_SECRET_PHRASE_HASH)->nullable();
+            $table->unsignedInteger(User::FIELD_VERSION)->default(self::INITIAL_VERSION);
             $table->softDeletes();
         });
 
@@ -124,8 +137,10 @@ return new class extends Migration
                 User::FIELD_LAST_ACTIVE_AT,
                 User::FIELD_BIRTHDAY,
                 User::FIELD_SECRET_PHRASE_HASH,
+                User::FIELD_VERSION,
                 User::FIELD_DELETED_AT,
             ]);
+            $table->string(User::FIELD_NICKNAME, self::LEGACY_NICKNAME_MAX_LENGTH)->change();
         });
 
         Schema::table(User::TABLE_NAME, function (Blueprint $table): void {

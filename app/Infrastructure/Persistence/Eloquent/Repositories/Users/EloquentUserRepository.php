@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Persistence\Eloquent\Repositories\Users;
 
-use App\Domain\Shared\ValueObjects\Embedding;
 use App\Domain\Users\Entities\User;
 use App\Domain\Users\Exceptions\InvalidUserValueException;
+use App\Domain\Users\Exceptions\UserAlreadyExistsException;
+use App\Domain\Users\Exceptions\UserConcurrentModificationException;
 use App\Domain\Users\Exceptions\UserNotFoundException;
 use App\Domain\Users\Repositories\UserRepository;
 use App\Domain\Users\ValueObjects\User\Birthday;
@@ -18,26 +19,35 @@ use App\Infrastructure\Persistence\Eloquent\Models\User as UserModel;
 use App\Infrastructure\Persistence\Eloquent\Models\UserPreference as UserPreferenceModel;
 use DateTimeImmutable;
 use DateTimeInterface;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
 final class EloquentUserRepository implements UserRepository
 {
+    private const int INITIAL_VERSION = 1;
+
+
     public function save(User $user): User
     {
-        $attributes = $this->toAttributes($user);
-
-        if ($user->id === null) {
-            $model = UserModel::query()->create($attributes);
-
-            return $this->toDomain($model);
+        try {
+            return $user->id === null ? $this->insert($user) : $this->update($user->id, $user);
+        } catch (UniqueConstraintViolationException $exception) {
+            throw $this->translateUniqueViolation($exception);
         }
+    }
 
-        $model = $this->findModel($user);
-        $model->fill($attributes);
-        $model->save();
+    public function touchLastActiveAt(int $id, DateTimeImmutable $lastActiveAt): void
+    {
+        $updated = UserModel::query()
+            ->whereKey($id)
+            ->toBase()
+            ->update([UserModel::FIELD_LAST_ACTIVE_AT => $lastActiveAt]);
 
-        return $this->toDomain($model->refresh());
+        if ($updated === 0) {
+            throw UserNotFoundException::byId($id);
+        }
     }
 
     public function findById(int $id): ?User
@@ -53,9 +63,7 @@ final class EloquentUserRepository implements UserRepository
 
     public function findByEmail(Email $email): ?User
     {
-        $model = UserModel::query()
-            ->where(UserModel::FIELD_EMAIL, $email->getValue())
-            ->first();
+        $model = $this->whereEmail(UserModel::query(), $email)->first();
 
         if ($model === null) {
             return null;
@@ -66,12 +74,7 @@ final class EloquentUserRepository implements UserRepository
 
     public function findByNickname(Nickname $nickname): ?User
     {
-        $model = UserModel::query()
-            ->whereRaw(
-                'lower('.UserModel::FIELD_NICKNAME.') = lower(?)',
-                [$nickname->getValue()],
-            )
-            ->first();
+        $model = $this->whereNickname(UserModel::query(), $nickname)->first();
 
         if ($model === null) {
             return null;
@@ -80,15 +83,25 @@ final class EloquentUserRepository implements UserRepository
         return $this->toDomain($model);
     }
 
+    public function existsByEmail(Email $email): bool
+    {
+        return $this->whereEmail(UserModel::query()->withTrashed(), $email)->exists();
+    }
+
+    public function existsByNickname(Nickname $nickname): bool
+    {
+        return $this->whereNickname(UserModel::query()->withTrashed(), $nickname)->exists();
+    }
+
     public function delete(User $user): void
     {
-        $this->findModel($user)->delete();
+        $this->findModel($this->persistedId($user))->delete();
     }
 
     public function forceDelete(User $user): void
     {
         DB::transaction(function () use ($user): void {
-            $model = $this->findModel($user, withTrashed: true, lock: true);
+            $model = $this->findModel($this->persistedId($user), withTrashed: true, lock: true);
             $this->purgeOwnedRows($model);
             if (!$model->forceDelete()) {
                 throw new RuntimeException('User deletion was cancelled; related data cleanup has been rolled back.');
@@ -96,6 +109,65 @@ final class EloquentUserRepository implements UserRepository
         });
     }
 
+
+    private function insert(User $user): User
+    {
+        $model = new UserModel;
+        $model->forceFill([
+            ...$this->toAttributes($user),
+            UserModel::FIELD_VERSION => self::INITIAL_VERSION,
+        ]);
+        $model->save();
+
+        return $this->toDomain($model);
+    }
+
+    private function update(int $id, User $user): User
+    {
+        $attributes = (new UserModel)->forceFill($this->toAttributes($user))->getAttributes();
+
+        $updated = UserModel::query()
+            ->whereKey($id)
+            ->where(UserModel::FIELD_VERSION, $user->version)
+            ->update([
+                ...$attributes,
+                UserModel::FIELD_VERSION => (int) $user->version + 1,
+            ]);
+
+        if ($updated === 0) {
+            throw UserModel::query()->whereKey($id)->exists()
+                ? UserConcurrentModificationException::byId($id)
+                : UserNotFoundException::byId($id);
+        }
+
+        return $this->toDomain($this->findModel($id));
+    }
+
+    private function translateUniqueViolation(UniqueConstraintViolationException $exception): RuntimeException
+    {
+        if (in_array(UserModel::FIELD_EMAIL, $exception->columns, true)) {
+            return UserAlreadyExistsException::emailTaken();
+        }
+
+        if (str_contains($exception->getMessage(), UserModel::NICKNAME_LOWER_UNIQUE_INDEX)) {
+            return UserAlreadyExistsException::nicknameTaken();
+        }
+
+        return $exception;
+    }
+
+    private function whereEmail(Builder $query, Email $email): Builder
+    {
+        return $query->where(UserModel::FIELD_EMAIL, $email->getValue());
+    }
+
+    private function whereNickname(Builder $query, Nickname $nickname): Builder
+    {
+        return $query->whereRaw(
+            'lower('.UserModel::FIELD_NICKNAME.') = lower(?)',
+            [$nickname->getValue()],
+        );
+    }
 
     private function purgeOwnedRows(UserModel $model): void
     {
@@ -109,15 +181,20 @@ final class EloquentUserRepository implements UserRepository
             ->delete();
     }
 
-    private function findModel(
-        User $user,
-        bool $withTrashed = false,
-        bool $lock = false,
-    ): UserModel {
+    private function persistedId(User $user): int
+    {
         if ($user->id === null) {
             throw InvalidUserValueException::nonExistentUser();
         }
 
+        return $user->id;
+    }
+
+    private function findModel(
+        int  $id,
+        bool $withTrashed = false,
+        bool $lock = false,
+    ): UserModel {
         $query = UserModel::query();
 
         if ($withTrashed) {
@@ -128,18 +205,15 @@ final class EloquentUserRepository implements UserRepository
             $query->lockForUpdate();
         }
 
-        $model = $query->find($user->id);
+        $model = $query->find($id);
 
         if (!$model instanceof UserModel) {
-            throw UserNotFoundException::byId($user->id);
+            throw UserNotFoundException::byId($id);
         }
 
         return $model;
     }
 
-    /**
-     * @return array<string, mixed>
-     */
     private function toAttributes(User $user): array
     {
         return [
@@ -147,11 +221,10 @@ final class EloquentUserRepository implements UserRepository
             UserModel::FIELD_EMAIL => $user->email->getValue(),
             UserModel::FIELD_PASSWORD => $user->password->getValue(),
             UserModel::FIELD_AVATAR_KEY => $user->avatarKey,
-            UserModel::FIELD_EMBEDDING => $user->embedding?->getVector(),
+            UserModel::FIELD_EMBEDDING => $user->embedding,
             UserModel::FIELD_STATUS => $user->status,
             UserModel::FIELD_IS_ACTIVE => $user->isActive,
             UserModel::FIELD_ROLE => $user->role,
-            UserModel::FIELD_LAST_ACTIVE_AT => $user->lastActiveAt,
             UserModel::FIELD_BIRTHDAY => $user->birthday?->getValue(),
             UserModel::FIELD_SECRET_PHRASE_HASH => $user->secretPhraseHash?->getValue(),
         ];
@@ -161,11 +234,12 @@ final class EloquentUserRepository implements UserRepository
     {
         return User::reconstitute(
             id: $model->id,
+            version: $model->version,
             nickname: Nickname::createFromString($model->nickname),
             email: Email::createFromString($model->email),
             password: PasswordHash::createFromHash($model->password),
             avatarKey: $model->avatar_key,
-            embedding: Embedding::createFromArray($model->embedding),
+            embedding: $model->embedding,
             status: $model->status,
             isActive: $model->is_active,
             role: $model->role,

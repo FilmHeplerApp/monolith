@@ -14,7 +14,7 @@ final readonly class Embedding
 
 
     /**
-     * @param list<float|int>|null $vector
+     * @param  array<mixed>|null  $vector
      */
     public static function createFromArray(?array $vector): ?self
     {
@@ -22,16 +22,22 @@ final readonly class Embedding
             return null;
         }
 
+        if (!array_is_list($vector)) {
+            throw InvalidEmbeddingException::notAList();
+        }
+
         if (count($vector) !== self::DIMENSION) {
             throw InvalidEmbeddingException::invalidDimension(self::DIMENSION, count($vector));
         }
 
-        $floats = array_map(static fn(float|int $value): float => (float)$value, $vector);
+        $floats = [];
 
-        foreach ($floats as $index => $value) {
-            if (!is_finite($value) || abs($value) > self::MAX_ABS_VALUE) {
+        foreach ($vector as $index => $value) {
+            if ((!is_int($value) && !is_float($value)) || !is_finite((float) $value) || abs((float) $value) > self::MAX_ABS_VALUE) {
                 throw InvalidEmbeddingException::invalidValue($index);
             }
+
+            $floats[] = (float) $value;
         }
 
         return new self($floats);
@@ -47,7 +53,7 @@ final readonly class Embedding
 
 
     /**
-     * @param list<float> $vector
+     * @param  list<float>  $vector
      */
     private function __construct(
         private array $vector,

@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Infrastructure\Persistence\Eloquent\Models;
 
+use App\Domain\Users\Enums\User\UserRole;
 use App\Infrastructure\Persistence\Eloquent\Models\User;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Auth\CanResetPassword;
+use Illuminate\Database\Eloquent\MassAssignmentException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
@@ -30,5 +33,23 @@ final class UserTest extends TestCase
         $model->setAttribute(User::FIELD_PASSWORD, $hash);
 
         self::assertSame($hash, $model->getAttributes()[User::FIELD_PASSWORD]);
+    }
+
+    #[Test]
+    #[DataProvider('clientInputs')]
+    public function it_rejects_mass_assignment(array $input): void
+    {
+        $this->expectException(MassAssignmentException::class);
+
+        new User($input);
+    }
+
+    public static function clientInputs(): iterable
+    {
+        yield 'profile field' => [[User::FIELD_NICKNAME => 'anton']];
+        yield 'role' => [[User::FIELD_ROLE => UserRole::ADMIN->value]];
+        yield 'status' => [[User::FIELD_STATUS => 'valid']];
+        yield 'id' => [[User::FIELD_ID => 1]];
+        yield 'version' => [[User::FIELD_VERSION => 100]];
     }
 }

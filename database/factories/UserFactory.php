@@ -7,6 +7,7 @@ use App\Domain\Users\Enums\User\UserRole;
 use App\Domain\Users\Enums\User\UserStatus;
 use App\Domain\Users\Services\BirthdayPolicy;
 use App\Infrastructure\Persistence\Eloquent\Models\User;
+use Database\Factories\Fixtures\EmbeddingFixture;
 use Illuminate\Database\Eloquent\Factories\Attributes\UseModel;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
@@ -14,9 +15,6 @@ use Illuminate\Support\Facades\Hash;
 #[UseModel(User::class)]
 class UserFactory extends Factory
 {
-    private const int ZERO_VALUE = 0;
-
-
     public function definition(): array
     {
         return [
@@ -26,7 +24,7 @@ class UserFactory extends Factory
             User::FIELD_AVATAR_KEY => fake()->boolean(40)
                 ? 'users/avatars/'.fake()->uuid().'/avatar.webp'
                 : null,
-            User::FIELD_EMBEDDING => $this->generateEmbedding(),
+            User::FIELD_EMBEDDING => Embedding::createFromArray(EmbeddingFixture::vector()),
             User::FIELD_STATUS => fake()->randomElement(UserStatus::cases()),
             User::FIELD_IS_ACTIVE => fake()->boolean(90),
             User::FIELD_ROLE => fake()->randomElement(UserRole::cases()),
@@ -37,17 +35,5 @@ class UserFactory extends Factory
             )->format('Y-m-d'),
             User::FIELD_SECRET_PHRASE_HASH => Hash::make('секретная фраза'),
         ];
-    }
-
-
-    /**
-     * @return list<int>
-     */
-    private function generateEmbedding(): array
-    {
-        $embedding = range(self::ZERO_VALUE, Embedding::DIMENSION - 1);
-        shuffle($embedding);
-
-        return $embedding;
     }
 }

@@ -5,7 +5,14 @@ declare(strict_types=1);
 namespace Tests\Feature\Users;
 
 use App\Domain\Shared\ValueObjects\Embedding;
+use App\Domain\Users\Entities\User;
+use App\Domain\Users\Exceptions\UserAlreadyExistsException;
+use App\Domain\Users\Exceptions\UserConcurrentModificationException;
+use App\Domain\Users\Services\BirthdayPolicy;
 use App\Domain\Users\ValueObjects\User\Email;
+use App\Domain\Users\ValueObjects\User\Nickname;
+use App\Domain\Users\ValueObjects\User\PasswordHash;
+use App\Domain\Users\ValueObjects\User\SecretPhraseHash;
 use App\Infrastructure\Persistence\Eloquent\Models\User as UserModel;
 use App\Infrastructure\Persistence\Eloquent\Models\UserPreference as UserPreferenceModel;
 use App\Infrastructure\Persistence\Eloquent\Repositories\Users\EloquentUserRepository;
@@ -40,7 +47,11 @@ final class ReshapeUsersMigrationTest extends TestCase
             'date',
             $this->formattedColumnType(UserModel::TABLE_NAME, UserModel::FIELD_BIRTHDAY),
         );
-        self::assertTrue(Schema::hasColumn(UserModel::TABLE_NAME, UserModel::FIELD_NICKNAME));
+        self::assertSame(
+            'character varying('.Nickname::MAX_LENGTH.')',
+            $this->formattedColumnType(UserModel::TABLE_NAME, UserModel::FIELD_NICKNAME),
+        );
+        self::assertSame('integer', $this->formattedColumnType(UserModel::TABLE_NAME, UserModel::FIELD_VERSION));
         self::assertTrue(Schema::hasColumn(UserModel::TABLE_NAME, UserModel::FIELD_AVATAR_KEY));
         self::assertTrue(Schema::hasColumn(UserModel::TABLE_NAME, UserModel::FIELD_ROLE));
         self::assertTrue(Schema::hasColumn(UserModel::TABLE_NAME, UserModel::FIELD_SECRET_PHRASE_HASH));
@@ -68,18 +79,68 @@ final class ReshapeUsersMigrationTest extends TestCase
             range(0, Embedding::DIMENSION - 1),
         );
 
-        $user = UserModel::query()->create([
+        $user = UserModel::query()->forceCreate([
             UserModel::FIELD_NICKNAME => 'anton',
             UserModel::FIELD_EMAIL => 'anton@example.com',
             UserModel::FIELD_PASSWORD => 'password-hash',
             UserModel::FIELD_BIRTHDAY => '1994-03-12',
             UserModel::FIELD_SECRET_PHRASE_HASH => 'phrase-hash',
-            UserModel::FIELD_EMBEDDING => $vector,
+            UserModel::FIELD_EMBEDDING => Embedding::createFromArray($vector),
         ]);
 
         $stored = UserModel::query()->find($user->id)?->embedding;
 
-        self::assertSame($vector, $stored);
+        self::assertSame($vector, $stored?->getVector());
+        self::assertSame(1, UserModel::query()->find($user->id)?->version);
+    }
+
+    #[Test]
+    public function it_translates_unique_violations_and_checks_versions_on_postgresql(): void
+    {
+        $this->migrateLaravelUsersTable();
+        $repository = new EloquentUserRepository;
+        $saved = $repository->save($this->registerUser('Anton', 'anton@example.com'));
+
+        foreach ([['anton', 'other@example.com', 'Nickname is already taken.'], ['other', 'ANTON@example.com', 'Email is already taken.']] as [$nickname, $email, $message]) {
+            try {
+                $repository->save($this->registerUser($nickname, $email));
+                self::fail('A duplicate must be rejected.');
+            } catch (UserAlreadyExistsException $exception) {
+                self::assertSame($message, $exception->getMessage());
+            }
+        }
+
+        $embedding = Embedding::createFromArray(array_fill(0, Embedding::DIMENSION, 0.5));
+        $updated = $repository->save($saved->updateEmbedding($embedding)->changeNickname(Nickname::createFromString('mira')));
+
+        self::assertSame(2, $updated->version);
+        self::assertSame($embedding?->getVector(), $updated->embedding?->getVector());
+
+        $this->expectException(UserConcurrentModificationException::class);
+
+        $repository->save($saved->changeAvatar('users/avatars/stale.webp'));
+    }
+
+    #[Test]
+    public function it_reports_legacy_nicknames_longer_than_the_limit_before_changing_the_schema(): void
+    {
+        $base = require database_path('migrations/0001_01_01_000000_create_users_table.php');
+        $base->up();
+        DB::table('users')->insert([
+            ['name' => str_repeat('ж', Nickname::MAX_LENGTH), 'email' => 'one@example.com', 'password' => 'hash'],
+            ['name' => str_repeat('ж', Nickname::MAX_LENGTH + 1), 'email' => 'two@example.com', 'password' => 'hash'],
+        ]);
+
+        $migration = require database_path('migrations/2026_10_19_210600_reshape_users_and_create_user_preferences.php');
+        try {
+            $migration->up();
+            self::fail('Long nicknames must be shortened explicitly.');
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString('shorten existing user names', $exception->getMessage());
+        }
+
+        self::assertTrue(Schema::hasColumn('users', 'name'));
+        self::assertSame(2, DB::table('users')->count());
     }
 
 
@@ -108,6 +169,8 @@ final class ReshapeUsersMigrationTest extends TestCase
 
         $migration->down();
         self::assertSame('character varying(255)', $this->formattedColumnType('users', 'email'));
+        self::assertSame('character varying(255)', $this->formattedColumnType('users', 'name'));
+        self::assertFalse(Schema::hasColumn('users', UserModel::FIELD_VERSION));
         self::assertSame('Legacy', DB::table('users')->where('id', $id)->value('name'));
     }
 
@@ -230,15 +293,23 @@ final class ReshapeUsersMigrationTest extends TestCase
     }
 
 
-    /**
-     * @return array<string, mixed>
-     */
     private function connectionConfig(string $searchPath): array
     {
-        /** @var array<string, mixed> $config */
         $config = config('database.connections.'.self::BASE_CONNECTION);
 
         return [...$config, 'search_path' => $searchPath];
+    }
+
+    private function registerUser(string $nickname, string $email): User
+    {
+        return User::register(
+            nickname: Nickname::createFromString($nickname),
+            email: Email::createFromString($email),
+            password: PasswordHash::createFromHash(self::PASSWORD_HASH),
+            secretPhraseHash: SecretPhraseHash::createFromHash('phrase-hash'),
+            birthday: null,
+            birthdayPolicy: new BirthdayPolicy,
+        );
     }
 
     private function migrateLaravelUsersTable(): void

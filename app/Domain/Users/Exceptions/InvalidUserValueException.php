@@ -18,9 +18,19 @@ final class InvalidUserValueException extends InvalidArgumentException
         return new self(sprintf('Email "%s" is invalid.', $value));
     }
 
+    public static function emailTooLong(int $maxLength): self
+    {
+        return new self(sprintf('Email must not be longer than %d characters.', $maxLength));
+    }
+
     public static function blankNickname(): self
     {
         return new self('Nickname must not be empty.');
+    }
+
+    public static function nicknameTooLong(int $maxLength): self
+    {
+        return new self(sprintf('Nickname must not be longer than %d characters.', $maxLength));
     }
 
     public static function blankPasswordHash(): self
@@ -56,6 +66,11 @@ final class InvalidUserValueException extends InvalidArgumentException
     public static function invalidTimezone(string $value): self
     {
         return new self(sprintf('Timezone "%s" is invalid.', $value));
+    }
+
+    public static function outdatedTimezone(string $value): self
+    {
+        return new self(sprintf('Timezone "%s" is not a current IANA identifier.', $value));
     }
 
     public static function nonExistentUser(): self

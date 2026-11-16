@@ -73,4 +73,35 @@ final class EmbeddingTest extends TestCase
         yield 'above float32 max' => [3.5e38];
         yield 'below float32 min' => [-3.5e38];
     }
+
+    #[Test]
+    #[DataProvider('nonNumericElements')]
+    public function embedding_rejects_a_non_numeric_element(mixed $element): void
+    {
+        $vector = array_fill(0, Embedding::DIMENSION, 0.0);
+        $vector[7] = $element;
+
+        $this->expectException(InvalidEmbeddingException::class);
+        $this->expectExceptionMessage('Embedding element [7] must be a finite float32 number.');
+
+        Embedding::createFromArray($vector);
+    }
+
+    public static function nonNumericElements(): iterable
+    {
+        yield 'numeric string' => ['1.5'];
+        yield 'text' => ['text'];
+        yield 'boolean' => [true];
+        yield 'null' => [null];
+        yield 'nested list' => [[1.0]];
+    }
+
+    #[Test]
+    public function embedding_rejects_an_array_that_is_not_a_list(): void
+    {
+        $this->expectException(InvalidEmbeddingException::class);
+        $this->expectExceptionMessage('Embedding must be a list of numbers.');
+
+        Embedding::createFromArray(array_fill(1, Embedding::DIMENSION, 0.0));
+    }
 }

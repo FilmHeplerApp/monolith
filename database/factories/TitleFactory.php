@@ -5,8 +5,8 @@ namespace Database\Factories;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\Enums\Title\TitleStatus;
 use App\Domain\Catalog\Enums\Title\TitleUpdatedBy;
-use App\Domain\Shared\ValueObjects\Embedding;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\Title;
+use Database\Factories\Fixtures\EmbeddingFixture;
 use Database\Factories\Fixtures\TitleFixture;
 use Illuminate\Database\Eloquent\Factories\Attributes\UseModel;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -15,7 +15,6 @@ use Illuminate\Database\Eloquent\Factories\Factory;
 class TitleFactory extends Factory
 {
     private const string EN_LOCALE = 'en_US';
-    private const int ZERO_VALUE = 0;
     private const int MIN_RELEASE_YEAR = 1950;
     private const int MAX_RELEASE_YEAR = 2026;
 
@@ -41,18 +40,10 @@ class TitleFactory extends Factory
             Title::FIELD_BANNER_SOURCE_HASH => null,
             Title::FIELD_RATING_AVG => fake()->randomFloat(2, 0, 9),
             Title::FIELD_RATING_COUNT => fake()->numberBetween(0, 50000),
-            Title::FIELD_EMBEDDING => $this->generateEmbedding(),
+            Title::FIELD_EMBEDDING => EmbeddingFixture::vector(),
             Title::FIELD_IS_INCOMPLETE => false,
             Title::FIELD_UPDATED_BY => fake()->randomElement(TitleUpdatedBy::cases()),
         ];
-    }
-
-    private function generateEmbedding(): array
-    {
-        $embedding = range(self::ZERO_VALUE, Embedding::DIMENSION - 1);
-        shuffle($embedding);
-
-        return $embedding;
     }
 
     private function generateRuTitle(): string

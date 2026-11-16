@@ -38,6 +38,7 @@ final class UserTest extends TestCase
         $user = $this->register($this->birthday('1994-03-12'));
 
         self::assertNull($user->id);
+        self::assertNull($user->version);
         self::assertSame('anton', $user->nickname->getValue());
         self::assertSame('anton@example.com', $user->email->getValue());
         self::assertSame(self::PASSWORD_HASH, $user->password->getValue());
@@ -81,6 +82,7 @@ final class UserTest extends TestCase
 
         $user = User::reconstitute(
             id: 42,
+            version: 7,
             nickname: Nickname::createFromString('anton'),
             email: Email::createFromString('anton@example.com'),
             password: PasswordHash::createFromHash(self::PASSWORD_HASH),
@@ -98,6 +100,7 @@ final class UserTest extends TestCase
         );
 
         self::assertSame(42, $user->id);
+        self::assertSame(7, $user->version);
         self::assertSame('users/avatars/avatar.webp', $user->avatarKey);
         self::assertSame($embedding, $user->embedding);
         self::assertSame(UserStatus::BLOCKED, $user->status);
@@ -111,6 +114,77 @@ final class UserTest extends TestCase
         self::assertSame($deletedAt, $user->deletedAt);
     }
 
+    #[Test]
+    public function change_nickname_returns_a_copy_with_only_the_nickname_changed(): void
+    {
+        $user = $this->restore();
+
+        $changed = $user->changeNickname(Nickname::createFromString('mira'));
+
+        self::assertSame('mira', $changed->nickname->getValue());
+        self::assertSame('anton', $user->nickname->getValue());
+        $this->assertOnlyChanged($user, $changed, 'nickname');
+    }
+
+    #[Test]
+    public function change_avatar_sets_and_removes_the_avatar(): void
+    {
+        $user = $this->restore();
+
+        $withAvatar = $user->changeAvatar('users/avatars/new.webp');
+        $withoutAvatar = $withAvatar->changeAvatar(null);
+
+        self::assertSame('users/avatars/new.webp', $withAvatar->avatarKey);
+        self::assertNull($withoutAvatar->avatarKey);
+        self::assertNull($user->avatarKey);
+        $this->assertOnlyChanged($user, $withAvatar, 'avatarKey');
+    }
+
+    #[Test]
+    public function update_embedding_returns_a_copy_with_only_the_embedding_changed(): void
+    {
+        $user = $this->restore();
+        $embedding = Embedding::createFromArray(array_fill(0, Embedding::DIMENSION, 0.25));
+
+        $changed = $user->updateEmbedding($embedding);
+
+        self::assertSame($embedding, $changed->embedding);
+        self::assertNull($user->embedding);
+        $this->assertOnlyChanged($user, $changed, 'embedding');
+    }
+
+
+    private function assertOnlyChanged(User $before, User $after, string $property): void
+    {
+        $expected = get_object_vars($before);
+        unset($expected[$property]);
+        $actual = get_object_vars($after);
+        unset($actual[$property]);
+
+        self::assertNotSame($before, $after);
+        self::assertSame($expected, $actual);
+    }
+
+    private function restore(): User
+    {
+        return User::reconstitute(
+            id: 42,
+            version: 3,
+            nickname: Nickname::createFromString('anton'),
+            email: Email::createFromString('anton@example.com'),
+            password: PasswordHash::createFromHash(self::PASSWORD_HASH),
+            avatarKey: null,
+            embedding: null,
+            status: UserStatus::BLOCKED,
+            isActive: true,
+            role: UserRole::MODERATOR,
+            lastActiveAt: new DateTimeImmutable('2026-10-20 18:15:00'),
+            birthday: $this->birthday('1994-03-12'),
+            secretPhraseHash: SecretPhraseHash::createFromHash(self::PHRASE_HASH),
+            createdAt: new DateTimeImmutable('2026-01-01 10:00:00'),
+            updatedAt: new DateTimeImmutable('2026-02-01 10:00:00'),
+        );
+    }
 
     private function register(?Birthday $birthday): User
     {

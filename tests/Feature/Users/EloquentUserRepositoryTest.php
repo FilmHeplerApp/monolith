@@ -13,10 +13,13 @@ use App\Domain\Users\Enums\UserPreference\InterfaceType;
 use App\Domain\Users\Enums\UserPreference\Language;
 use App\Domain\Users\Enums\UserPreference\Theme;
 use App\Domain\Users\Exceptions\InvalidUserValueException;
+use App\Domain\Users\Exceptions\UserAlreadyExistsException;
+use App\Domain\Users\Exceptions\UserConcurrentModificationException;
 use App\Domain\Users\Exceptions\UserNotFoundException;
 use App\Domain\Users\Repositories\UserPreferenceRepository;
 use App\Domain\Users\Repositories\UserRepository;
 use App\Domain\Users\Services\BirthdayPolicy;
+use App\Domain\Users\Services\TimezonePolicy;
 use App\Domain\Users\ValueObjects\User\Birthday;
 use App\Domain\Users\ValueObjects\User\Email;
 use App\Domain\Users\ValueObjects\User\Nickname;
@@ -31,10 +34,10 @@ use DateTimeImmutable;
 use Illuminate\Database\Query\Expression;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Events\Dispatcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use Tests\TestCase;
@@ -114,7 +117,8 @@ final class EloquentUserRepositoryTest extends TestCase
     {
         $this->users->save($this->registerUser(nickname: 'Anton'));
 
-        $this->expectException(UniqueConstraintViolationException::class);
+        $this->expectException(UserAlreadyExistsException::class);
+        $this->expectExceptionMessage('Nickname is already taken.');
 
         $this->users->save($this->registerUser(
             nickname: 'anton',
@@ -123,21 +127,105 @@ final class EloquentUserRepositoryTest extends TestCase
     }
 
     #[Test]
-    public function it_updates_an_existing_user(): void
+    public function it_rejects_a_taken_email(): void
+    {
+        $this->users->save($this->registerUser());
+
+        $this->expectException(UserAlreadyExistsException::class);
+        $this->expectExceptionMessage('Email is already taken.');
+
+        $this->users->save($this->registerUser(
+            nickname: 'other',
+            email: strtoupper(self::EMAIL),
+        ));
+    }
+
+    #[Test]
+    public function it_rejects_changing_the_nickname_to_a_taken_one(): void
+    {
+        $this->users->save($this->registerUser());
+        $other = $this->users->save($this->registerUser(nickname: 'other', email: 'other@example.com'));
+
+        $this->expectException(UserAlreadyExistsException::class);
+        $this->expectExceptionMessage('Nickname is already taken.');
+
+        $this->users->save($other->changeNickname(Nickname::createFromString(strtoupper(self::NICKNAME))));
+    }
+
+    #[Test]
+    public function it_reports_whether_an_email_or_nickname_is_taken(): void
+    {
+        $this->users->save($this->registerUser(nickname: 'Anton'));
+
+        self::assertTrue($this->users->existsByEmail(Email::createFromString(strtoupper(self::EMAIL))));
+        self::assertTrue($this->users->existsByNickname(Nickname::createFromString('aNtOn')));
+        self::assertFalse($this->users->existsByEmail(Email::createFromString('free@example.com')));
+        self::assertFalse($this->users->existsByNickname(Nickname::createFromString('free')));
+    }
+
+    #[Test]
+    public function it_keeps_the_email_and_nickname_of_a_soft_deleted_user_taken(): void
+    {
+        $deleted = $this->users->save($this->registerUser());
+        $this->users->delete($deleted);
+
+        self::assertNull($this->users->findByEmail(Email::createFromString(self::EMAIL)));
+        self::assertNull($this->users->findByNickname(Nickname::createFromString(self::NICKNAME)));
+        self::assertTrue($this->users->existsByEmail(Email::createFromString(self::EMAIL)));
+        self::assertTrue($this->users->existsByNickname(Nickname::createFromString(self::NICKNAME)));
+
+        try {
+            $this->users->save($this->registerUser(nickname: 'other'));
+            self::fail('The email of a soft-deleted user must stay taken.');
+        } catch (UserAlreadyExistsException $exception) {
+            self::assertSame('Email is already taken.', $exception->getMessage());
+        }
+
+        $this->expectException(UserAlreadyExistsException::class);
+        $this->expectExceptionMessage('Nickname is already taken.');
+
+        $this->users->save($this->registerUser(email: 'other@example.com'));
+    }
+
+    #[Test]
+    public function it_updates_an_existing_user_and_increments_the_version(): void
     {
         $saved = $this->users->save($this->registerUser());
-        $renamed = $this->restoreUser(
-            id: $saved->id,
-            nickname: 'mira',
-            role: UserRole::ADMIN,
-        );
 
-        $updated = $this->users->save($renamed);
+        $updated = $this->users->save($saved->changeNickname(Nickname::createFromString('mira')));
 
+        self::assertSame(1, $saved->version);
         self::assertSame($saved->id, $updated->id);
+        self::assertSame(2, $updated->version);
         self::assertSame('mira', $updated->nickname->getValue());
-        self::assertSame(UserRole::ADMIN, $updated->role);
-        self::assertSame('mira', $this->users->findById($saved->id)?->nickname->getValue());
+        self::assertSame('mira', $this->users->findById((int) $saved->id)?->nickname->getValue());
+    }
+
+    #[Test]
+    public function it_rejects_a_stale_update_without_overwriting_the_newer_state(): void
+    {
+        $saved = $this->users->save($this->registerUser());
+        $loadedByA = $this->users->findById((int) $saved->id);
+        $loadedByB = $this->users->findById((int) $saved->id);
+        self::assertNotNull($loadedByA);
+        self::assertNotNull($loadedByB);
+
+        $this->users->save($loadedByB->changeAvatar(self::AVATAR_KEY));
+
+        try {
+            $this->users->save($loadedByA->changeNickname(Nickname::createFromString('mira')));
+            self::fail('A stale update must be rejected.');
+        } catch (UserConcurrentModificationException $exception) {
+            self::assertSame(
+                sprintf('User %d was changed by another process; reload it and retry.', $saved->id),
+                $exception->getMessage(),
+            );
+        }
+
+        $stored = $this->users->findById((int) $saved->id);
+        self::assertSame(self::AVATAR_KEY, $stored?->avatarKey);
+        self::assertSame(self::NICKNAME, $stored?->nickname->getValue());
+        self::assertSame(2, $stored?->version);
     }
 
     #[Test]
@@ -149,16 +237,27 @@ final class EloquentUserRepositoryTest extends TestCase
     }
 
     #[Test]
+    public function it_rejects_an_update_of_a_soft_deleted_user(): void
+    {
+        $saved = $this->users->save($this->registerUser());
+        $this->users->delete($saved);
+
+        $this->expectException(UserNotFoundException::class);
+
+        $this->users->save($saved->changeNickname(Nickname::createFromString('mira')));
+    }
+
+    #[Test]
     public function it_writes_and_reads_avatar_and_embedding(): void
     {
         $registered = $this->users->save($this->registerUser());
 
-        $updated = $this->users->save($this->restoreUser(
-            id: $registered->id,
-            avatarKey: self::AVATAR_KEY,
-            embedding: $this->embedding(),
-        ));
-        $found = $this->users->findById($registered->id);
+        $updated = $this->users->save(
+            $registered
+                ->changeAvatar(self::AVATAR_KEY)
+                ->updateEmbedding($this->embedding()),
+        );
+        $found = $this->users->findById((int) $registered->id);
 
         self::assertSame(self::AVATAR_KEY, $updated->avatarKey);
         self::assertSame($this->embedding()->getVector(), $updated->embedding?->getVector());
@@ -167,15 +266,15 @@ final class EloquentUserRepositoryTest extends TestCase
     }
 
     #[Test]
-    public function it_restores_a_stored_user_whose_birthday_is_outside_the_current_policy(): void
+    #[DataProvider('birthdaysOutsideTheCurrentPolicy')]
+    public function it_restores_a_stored_user_whose_birthday_is_outside_the_current_policy(string $storedBirthday): void
     {
         $registered = $this->users->save($this->registerUser());
-        $storedBirthday = sprintf('%d-05-01', BirthdayPolicy::MIN_YEAR - 10);
         UserModel::query()
             ->whereKey($registered->id)
             ->update([UserModel::FIELD_BIRTHDAY => $storedBirthday]);
 
-        $found = $this->users->findById($registered->id);
+        $found = $this->users->findById((int) $registered->id);
 
         self::assertNotNull($found);
         self::assertSame($storedBirthday, $found->birthday?->getValue()->format('Y-m-d'));
@@ -185,20 +284,64 @@ final class EloquentUserRepositoryTest extends TestCase
         self::assertSame($storedBirthday, $resaved->birthday?->getValue()->format('Y-m-d'));
     }
 
+    public static function birthdaysOutsideTheCurrentPolicy(): iterable
+    {
+        yield 'before the minimum year' => [sprintf('%d-05-01', BirthdayPolicy::MIN_YEAR - 10)];
+        yield 'in the future for the server clock' => [(new DateTimeImmutable('tomorrow'))->format('Y-m-d')];
+    }
+
     #[Test]
-    public function it_writes_and_reads_last_active_at(): void
+    public function it_touches_last_active_at_without_changing_the_version_or_updated_at(): void
     {
         $lastActiveAt = new DateTimeImmutable('2026-10-20 18:15:00');
-
+        $previousUpdatedAt = '2026-01-01 10:00:00';
         $registered = $this->users->save($this->registerUser());
-        $saved = $this->users->save($this->restoreUser(id: $registered->id, lastActiveAt: $lastActiveAt));
-        $found = $this->users->findById($saved->id);
+        UserModel::query()
+            ->whereKey($registered->id)
+            ->toBase()
+            ->update([UserModel::FIELD_UPDATED_AT => $previousUpdatedAt]);
 
-        self::assertNotNull($found?->lastActiveAt);
+        $this->users->touchLastActiveAt((int) $registered->id, $lastActiveAt);
+        $found = $this->users->findById((int) $registered->id);
+
         self::assertSame(
             $lastActiveAt->format('Y-m-d H:i:s'),
-            $found->lastActiveAt->format('Y-m-d H:i:s'),
+            $found?->lastActiveAt?->format('Y-m-d H:i:s'),
         );
+        self::assertSame($registered->version, $found?->version);
+        self::assertSame($previousUpdatedAt, $found?->updatedAt?->format('Y-m-d H:i:s'));
+    }
+
+    #[Test]
+    public function it_does_not_overwrite_last_active_at_when_saving_a_profile_change(): void
+    {
+        $lastActiveAt = new DateTimeImmutable('2026-10-20 18:15:00');
+        $registered = $this->users->save($this->registerUser());
+
+        $this->users->touchLastActiveAt((int) $registered->id, $lastActiveAt);
+        $updated = $this->users->save($registered->changeNickname(Nickname::createFromString('mira')));
+
+        self::assertSame('mira', $updated->nickname->getValue());
+        self::assertSame(
+            $lastActiveAt->format('Y-m-d H:i:s'),
+            $updated->lastActiveAt?->format('Y-m-d H:i:s'),
+        );
+    }
+
+    #[Test]
+    public function it_rejects_touching_an_unknown_or_soft_deleted_user(): void
+    {
+        $deleted = $this->users->save($this->registerUser());
+        $this->users->delete($deleted);
+
+        foreach ([999, (int) $deleted->id] as $id) {
+            try {
+                $this->users->touchLastActiveAt($id, new DateTimeImmutable);
+                self::fail('Touching a missing user must fail.');
+            } catch (UserNotFoundException $exception) {
+                self::assertSame(sprintf('User %d was not found.', $id), $exception->getMessage());
+            }
+        }
     }
 
     #[Test]
@@ -297,6 +440,33 @@ final class EloquentUserRepositoryTest extends TestCase
         self::assertSame(Language::EN, $again->language);
         self::assertSame(InterfaceType::LIST, $again->interfaceType);
         self::assertSame(Theme::DARK, $this->preferences->findByUserId($saved->id)?->theme);
+    }
+
+    #[Test]
+    public function it_restores_and_resaves_preferences_with_a_renamed_timezone(): void
+    {
+        $saved = $this->users->save($this->registerUser());
+        $this->preferences->save($this->makePreference((int) $saved->id));
+        UserPreferenceModel::query()
+            ->where(UserPreferenceModel::FIELD_USER_ID, $saved->id)
+            ->update([UserPreferenceModel::FIELD_TIMEZONE => 'Europe/Kiev']);
+
+        $found = $this->preferences->findByUserId((int) $saved->id);
+
+        self::assertSame('Europe/Kiev', $found?->timezone->getValue());
+        self::assertNotNull($found);
+        self::assertSame('Europe/Kiev', $this->preferences->save($found)->timezone->getValue());
+    }
+
+    #[Test]
+    public function it_saves_a_changed_timezone(): void
+    {
+        $saved = $this->users->save($this->registerUser());
+        $preference = $this->preferences->save($this->makePreference((int) $saved->id));
+
+        $this->preferences->save($preference->changeTimezone(Timezone::createFromString('Asia/Vladivostok'), new TimezonePolicy));
+
+        self::assertSame('Asia/Vladivostok', $this->preferences->findByUserId((int) $saved->id)?->timezone->getValue());
     }
 
     #[Test]
@@ -407,25 +577,20 @@ final class EloquentUserRepositoryTest extends TestCase
         );
     }
 
-    private function restoreUser(
-        int                $id,
-        string             $nickname = self::NICKNAME,
-        ?string            $avatarKey = null,
-        ?Embedding         $embedding = null,
-        UserRole           $role = UserRole::USER,
-        ?DateTimeImmutable $lastActiveAt = null,
-    ): User {
+    private function restoreUser(int $id): User
+    {
         return User::reconstitute(
             id: $id,
-            nickname: Nickname::createFromString($nickname),
+            version: 1,
+            nickname: Nickname::createFromString(self::NICKNAME),
             email: Email::createFromString(self::EMAIL),
             password: PasswordHash::createFromHash(self::PASSWORD_HASH),
-            avatarKey: $avatarKey,
-            embedding: $embedding,
+            avatarKey: null,
+            embedding: null,
             status: UserStatus::VALID,
             isActive: true,
-            role: $role,
-            lastActiveAt: $lastActiveAt,
+            role: UserRole::USER,
+            lastActiveAt: null,
             birthday: Birthday::createFromDateTime(new DateTimeImmutable(self::BIRTHDAY)),
             secretPhraseHash: SecretPhraseHash::createFromHash(self::PHRASE_HASH),
         );
@@ -437,13 +602,13 @@ final class EloquentUserRepositoryTest extends TestCase
         Language      $language = Language::RU,
         InterfaceType $interfaceType = InterfaceType::SWIPE,
     ): UserPreference {
-        return new UserPreference(
-            id: null,
+        return UserPreference::create(
             userId: $userId,
             timezone: Timezone::createFromString(Timezone::DEFAULT),
             theme: $theme,
             language: $language,
             interfaceType: $interfaceType,
+            timezonePolicy: new TimezonePolicy,
         );
     }
 
@@ -473,7 +638,7 @@ final class EloquentUserRepositoryTest extends TestCase
 
         Schema::create(UserModel::TABLE_NAME, function (Blueprint $table): void {
             $table->id();
-            $table->string(UserModel::FIELD_NICKNAME);
+            $table->string(UserModel::FIELD_NICKNAME, Nickname::MAX_LENGTH);
             $table->string(UserModel::FIELD_EMAIL)->unique();
             $table->string(UserModel::FIELD_PASSWORD);
             $table->string(UserModel::FIELD_AVATAR_KEY)->nullable();
@@ -484,6 +649,7 @@ final class EloquentUserRepositoryTest extends TestCase
             $table->timestamp(UserModel::FIELD_LAST_ACTIVE_AT)->nullable();
             $table->date(UserModel::FIELD_BIRTHDAY)->nullable();
             $table->string(UserModel::FIELD_SECRET_PHRASE_HASH)->nullable();
+            $table->unsignedInteger(UserModel::FIELD_VERSION)->default(1);
             $table->timestamps();
             $table->softDeletes();
             $table->unique(

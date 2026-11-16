@@ -9,16 +9,23 @@ use App\Domain\Users\Exceptions\InvalidUserValueException;
 use App\Domain\Users\Exceptions\UserNotFoundException;
 use App\Domain\Users\ValueObjects\User\Email;
 use App\Domain\Users\ValueObjects\User\Nickname;
+use DateTimeImmutable;
 
 interface UserRepository
 {
     public function save(User $user): User;
+
+    public function touchLastActiveAt(int $id, DateTimeImmutable $lastActiveAt): void;
 
     public function findById(int $id): ?User;
 
     public function findByEmail(Email $email): ?User;
 
     public function findByNickname(Nickname $nickname): ?User;
+
+    public function existsByEmail(Email $email): bool;
+
+    public function existsByNickname(Nickname $nickname): bool;
 
     /**
      * @throws InvalidUserValueException When the user has not been persisted.

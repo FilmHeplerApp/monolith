@@ -11,7 +11,7 @@ use InvalidArgumentException;
 use JsonException;
 
 /**
- * @implements CastsAttributes<list<float>|null, list<float|int>|string|null>
+ * @implements CastsAttributes<Embedding, Embedding>
  */
 final class VectorCast implements CastsAttributes
 {
@@ -20,8 +20,12 @@ final class VectorCast implements CastsAttributes
         string $key,
         mixed  $value,
         array  $attributes,
-    ): ?array {
-        return $value === null ? null : $this->floats($value);
+    ): ?Embedding {
+        if ($value === null) {
+            return null;
+        }
+
+        return Embedding::createFromArray($this->decode($value));
     }
 
     /**
@@ -33,37 +37,35 @@ final class VectorCast implements CastsAttributes
         mixed  $value,
         array  $attributes,
     ): ?string {
-        return $value === null ? null : json_encode($this->floats($value), JSON_THROW_ON_ERROR);
+        if ($value === null) {
+            return null;
+        }
+
+        if (!$value instanceof Embedding) {
+            throw new InvalidArgumentException(sprintf('Embedding attribute accepts only %s.', Embedding::class));
+        }
+
+        return json_encode($value->getVector(), JSON_THROW_ON_ERROR);
     }
 
 
-    /** @return list<float> */
-    private function floats(mixed $value): array
+    /** @return array<mixed> */
+    private function decode(mixed $value): array
     {
-        if (is_string($value)) {
-            try {
-                $value = json_decode($value, associative: false, flags: JSON_THROW_ON_ERROR);
-            } catch (JsonException $exception) {
-                throw new InvalidArgumentException('Embedding must be a valid vector literal.', previous: $exception);
-            }
+        if (!is_string($value)) {
+            throw new InvalidArgumentException('Embedding must be stored as a vector literal.');
         }
 
-        if (!is_array($value) || !array_is_list($value)) {
-            throw new InvalidArgumentException('Embedding must be a list of numbers or a vector literal.');
+        try {
+            $vector = json_decode($value, associative: false, flags: JSON_THROW_ON_ERROR);
+        } catch (JsonException $exception) {
+            throw new InvalidArgumentException('Embedding must be a valid vector literal.', previous: $exception);
         }
 
-        if (count($value) !== Embedding::DIMENSION) {
-            throw new InvalidArgumentException(sprintf('Embedding must contain exactly %d numbers.', Embedding::DIMENSION));
+        if (!is_array($vector)) {
+            throw new InvalidArgumentException('Embedding must be a valid vector literal.');
         }
 
-        foreach ($value as $index => $item) {
-            if ((!is_int($item) && !is_float($item)) || !is_finite((float) $item) || abs((float) $item) > Embedding::MAX_ABS_VALUE) {
-                throw new InvalidArgumentException(sprintf('Embedding element [%d] must be a finite float32 number.', $index));
-            }
-
-            $value[$index] = (float) $item;
-        }
-
-        return $value;
+        return $vector;
     }
 }
