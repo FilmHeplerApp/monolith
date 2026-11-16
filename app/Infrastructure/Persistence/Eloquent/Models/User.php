@@ -40,7 +40,7 @@ class User extends Model
     public const string TABLE_NAME = 'users';
     public const string FIELD_ID = 'id';
     public const string FIELD_NICKNAME = 'nickname';
-    public const string NICKNAME_LOWER_UNIQUE_INDEX = 'users_nickname_lower_unique';
+    public const string NICKNAME_UNIQUE_INDEX = 'users_nickname_unique';
     public const string FIELD_EMAIL = 'email';
     public const string FIELD_PASSWORD = 'password';
     public const string FIELD_AVATAR_KEY = 'avatar_key';

@@ -709,13 +709,16 @@ database/migrations
 |---|---|---|
 | `save()` | Новый пользователь (`id === null`) вставляется с версией 1. Существующий обновляется, только если версия в БД совпадает с версией в объекте; версия увеличивается на 1. `last_active_at` не записывает | `UserAlreadyExistsException` (email или ник заняты), `UserConcurrentModificationException` (строку изменили после загрузки), `UserNotFoundException` (пользователя нет или он мягко удалён) |
 | `touchLastActiveAt()` | Одним `UPDATE` пишет время последней активности. Версию и `updated_at` не меняет | `UserNotFoundException` |
-| `findById()`, `findByEmail()`, `findByNickname()` | Ищут среди неудалённых. Ник сравнивается без учёта регистра | — |
+| `findById()`, `findByEmail()`, `findByNickname()` | Ищут среди неудалённых. Email сравнивается без учёта регистра, ник — с учётом | — |
 | `existsByEmail()`, `existsByNickname()` | Проверяют занятость с учётом мягко удалённых | — |
 | `delete()` | Мягкое удаление | `InvalidUserValueException` (не сохранён), `UserNotFoundException` |
 | `forceDelete()` | Удаляет пользователя, в том числе мягко удалённого, вместе с настройками, сессиями и токенами сброса пароля | `InvalidUserValueException`, `UserNotFoundException` |
 
+Email уникален без учёта регистра (`citext`), ник — с учётом: `Anton` и `anton` — разные
+пользователи, а второй `Anton` уже не зарегистрировать.
+
 Email и ник мягко удалённого пользователя остаются занятыми: уникальные индексы `users.email`
-и `lower(nickname)` действуют на все строки. Поэтому проверка перед регистрацией идёт через
+и `users.nickname` действуют на все строки. Поэтому проверка перед регистрацией идёт через
 `existsBy*()`, а не через `findBy*()`. Если два запроса проходят проверку одновременно,
 уникальный индекс отклоняет второй, и репозиторий переводит ошибку БД в
 `UserAlreadyExistsException`.

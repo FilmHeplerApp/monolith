@@ -31,7 +31,6 @@ use App\Infrastructure\Persistence\Eloquent\Models\UserPreference as UserPrefere
 use App\Infrastructure\Persistence\Eloquent\Repositories\Users\EloquentUserPreferenceRepository;
 use App\Infrastructure\Persistence\Eloquent\Repositories\Users\EloquentUserRepository;
 use DateTimeImmutable;
-use Illuminate\Database\Query\Expression;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Events\Dispatcher;
@@ -102,18 +101,31 @@ final class EloquentUserRepositoryTest extends TestCase
     }
 
     #[Test]
-    public function it_finds_a_nickname_regardless_of_case_and_keeps_the_entered_form(): void
+    public function it_finds_a_nickname_only_with_the_exact_case(): void
     {
         $saved = $this->users->save($this->registerUser(nickname: 'Anton'));
 
-        $found = $this->users->findByNickname(Nickname::createFromString('aNtOn'));
+        $found = $this->users->findByNickname(Nickname::createFromString('Anton'));
 
         self::assertSame($saved->id, $found?->id);
         self::assertSame('Anton', $found?->nickname->getValue());
+        self::assertNull($this->users->findByNickname(Nickname::createFromString('anton')));
+        self::assertNull($this->users->findByNickname(Nickname::createFromString('ANTON')));
     }
 
     #[Test]
-    public function it_rejects_a_nickname_that_differs_only_by_case(): void
+    public function it_allows_nicknames_that_differ_only_by_case(): void
+    {
+        $upper = $this->users->save($this->registerUser(nickname: 'Anton'));
+        $lower = $this->users->save($this->registerUser(nickname: 'anton', email: 'other@example.com'));
+
+        self::assertNotSame($upper->id, $lower->id);
+        self::assertSame($upper->id, $this->users->findByNickname(Nickname::createFromString('Anton'))?->id);
+        self::assertSame($lower->id, $this->users->findByNickname(Nickname::createFromString('anton'))?->id);
+    }
+
+    #[Test]
+    public function it_rejects_an_exactly_matching_nickname(): void
     {
         $this->users->save($this->registerUser(nickname: 'Anton'));
 
@@ -121,7 +133,7 @@ final class EloquentUserRepositoryTest extends TestCase
         $this->expectExceptionMessage('Nickname is already taken.');
 
         $this->users->save($this->registerUser(
-            nickname: 'anton',
+            nickname: 'Anton',
             email: 'other@example.com',
         ));
     }
@@ -149,7 +161,7 @@ final class EloquentUserRepositoryTest extends TestCase
         $this->expectException(UserAlreadyExistsException::class);
         $this->expectExceptionMessage('Nickname is already taken.');
 
-        $this->users->save($other->changeNickname(Nickname::createFromString(strtoupper(self::NICKNAME))));
+        $this->users->save($other->changeNickname(Nickname::createFromString(self::NICKNAME)));
     }
 
     #[Test]
@@ -158,7 +170,8 @@ final class EloquentUserRepositoryTest extends TestCase
         $this->users->save($this->registerUser(nickname: 'Anton'));
 
         self::assertTrue($this->users->existsByEmail(Email::createFromString(strtoupper(self::EMAIL))));
-        self::assertTrue($this->users->existsByNickname(Nickname::createFromString('aNtOn')));
+        self::assertTrue($this->users->existsByNickname(Nickname::createFromString('Anton')));
+        self::assertFalse($this->users->existsByNickname(Nickname::createFromString('anton')));
         self::assertFalse($this->users->existsByEmail(Email::createFromString('free@example.com')));
         self::assertFalse($this->users->existsByNickname(Nickname::createFromString('free')));
     }
@@ -652,10 +665,7 @@ final class EloquentUserRepositoryTest extends TestCase
             $table->unsignedInteger(UserModel::FIELD_VERSION)->default(1);
             $table->timestamps();
             $table->softDeletes();
-            $table->unique(
-                [new Expression('lower('.UserModel::FIELD_NICKNAME.')')],
-                UserModel::NICKNAME_LOWER_UNIQUE_INDEX,
-            );
+            $table->unique(UserModel::FIELD_NICKNAME, UserModel::NICKNAME_UNIQUE_INDEX);
         });
 
         Schema::create(UserPreferenceModel::TABLE_NAME, function (Blueprint $table): void {

@@ -56,13 +56,13 @@ return new class extends Migration
         }
 
         $duplicateNickname = DB::table(User::TABLE_NAME)
-            ->selectRaw('lower(name) as normalized_nickname')
-            ->groupByRaw('lower(name)')
+            ->select('name')
+            ->groupBy('name')
             ->havingRaw('count(*) > 1')
             ->exists();
 
         if ($duplicateNickname) {
-            throw new RuntimeException('Cannot create unique nicknames: resolve existing user names that match regardless of case before migrating.');
+            throw new RuntimeException('Cannot create unique nicknames: resolve existing duplicate user names before migrating.');
         }
 
         $longNickname = DB::table(User::TABLE_NAME)
@@ -96,8 +96,8 @@ return new class extends Migration
         });
 
         DB::statement(sprintf(
-            'create unique index %s on %s (lower(%s))',
-            User::NICKNAME_LOWER_UNIQUE_INDEX,
+            'create unique index %s on %s (%s)',
+            User::NICKNAME_UNIQUE_INDEX,
             User::TABLE_NAME,
             User::FIELD_NICKNAME,
         ));
@@ -124,7 +124,7 @@ return new class extends Migration
 
         DB::statement(sprintf(
             'drop index if exists %s',
-            User::NICKNAME_LOWER_UNIQUE_INDEX,
+            User::NICKNAME_UNIQUE_INDEX,
         ));
 
         Schema::table(User::TABLE_NAME, function (Blueprint $table): void {

@@ -149,7 +149,7 @@ final class EloquentUserRepository implements UserRepository
             return UserAlreadyExistsException::emailTaken();
         }
 
-        if (str_contains($exception->getMessage(), UserModel::NICKNAME_LOWER_UNIQUE_INDEX)) {
+        if (in_array(UserModel::FIELD_NICKNAME, $exception->columns, true)) {
             return UserAlreadyExistsException::nicknameTaken();
         }
 
@@ -163,10 +163,7 @@ final class EloquentUserRepository implements UserRepository
 
     private function whereNickname(Builder $query, Nickname $nickname): Builder
     {
-        return $query->whereRaw(
-            'lower('.UserModel::FIELD_NICKNAME.') = lower(?)',
-            [$nickname->getValue()],
-        );
+        return $query->where(UserModel::FIELD_NICKNAME, $nickname->getValue());
     }
 
     private function purgeOwnedRows(UserModel $model): void

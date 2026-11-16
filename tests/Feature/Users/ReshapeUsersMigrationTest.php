@@ -60,13 +60,14 @@ final class ReshapeUsersMigrationTest extends TestCase
 
         $index = DB::selectOne(
             'select indexdef from pg_indexes where schemaname = ? and indexname = ?',
-            [$this->schema, UserModel::NICKNAME_LOWER_UNIQUE_INDEX],
+            [$this->schema, UserModel::NICKNAME_UNIQUE_INDEX],
         );
 
         self::assertNotNull($index);
         $definition = strtolower((string) $index->indexdef);
         self::assertStringContainsString('unique', $definition);
-        self::assertMatchesRegularExpression('/lower\(\(?nickname\)?/', $definition);
+        self::assertStringContainsString('(nickname)', $definition);
+        self::assertStringNotContainsString('lower', $definition);
     }
 
     #[Test]
@@ -101,7 +102,7 @@ final class ReshapeUsersMigrationTest extends TestCase
         $repository = new EloquentUserRepository;
         $saved = $repository->save($this->registerUser('Anton', 'anton@example.com'));
 
-        foreach ([['anton', 'other@example.com', 'Nickname is already taken.'], ['other', 'ANTON@example.com', 'Email is already taken.']] as [$nickname, $email, $message]) {
+        foreach ([['Anton', 'other@example.com', 'Nickname is already taken.'], ['other', 'ANTON@example.com', 'Email is already taken.']] as [$nickname, $email, $message]) {
             try {
                 $repository->save($this->registerUser($nickname, $email));
                 self::fail('A duplicate must be rejected.');
@@ -109,6 +110,11 @@ final class ReshapeUsersMigrationTest extends TestCase
                 self::assertSame($message, $exception->getMessage());
             }
         }
+
+        $lowerCase = $repository->save($this->registerUser('anton', 'lower@example.com'));
+        self::assertNotSame($saved->id, $lowerCase->id);
+        self::assertSame($lowerCase->id, $repository->findByNickname(Nickname::createFromString('anton'))?->id);
+        self::assertSame($saved->id, $repository->findByNickname(Nickname::createFromString('Anton'))?->id);
 
         $embedding = Embedding::createFromArray(array_fill(0, Embedding::DIMENSION, 0.5));
         $updated = $repository->save($saved->updateEmbedding($embedding)->changeNickname(Nickname::createFromString('mira')));
@@ -229,7 +235,7 @@ final class ReshapeUsersMigrationTest extends TestCase
 
 
     #[Test]
-    public function it_reports_legacy_nickname_collisions_without_renaming_or_removing_users(): void
+    public function it_keeps_legacy_nicknames_that_differ_only_by_case(): void
     {
         $base = require database_path('migrations/0001_01_01_000000_create_users_table.php');
         $base->up();
@@ -239,14 +245,30 @@ final class ReshapeUsersMigrationTest extends TestCase
         ]);
 
         $migration = require database_path('migrations/2026_10_19_210600_reshape_users_and_create_user_preferences.php');
+        $migration->up();
+
+        self::assertSame(['Anton', 'anton'], DB::table('users')->orderBy('id')->pluck('nickname')->all());
+    }
+
+    #[Test]
+    public function it_reports_legacy_nickname_collisions_without_renaming_or_removing_users(): void
+    {
+        $base = require database_path('migrations/0001_01_01_000000_create_users_table.php');
+        $base->up();
+        DB::table('users')->insert([
+            ['name' => 'Anton', 'email' => 'one@example.com', 'password' => 'hash'],
+            ['name' => 'Anton', 'email' => 'two@example.com', 'password' => 'hash'],
+        ]);
+
+        $migration = require database_path('migrations/2026_10_19_210600_reshape_users_and_create_user_preferences.php');
         try {
             $migration->up();
             self::fail('Nickname collision must be resolved explicitly.');
         } catch (RuntimeException $exception) {
-            self::assertStringContainsString('resolve existing user names', $exception->getMessage());
+            self::assertStringContainsString('resolve existing duplicate user names', $exception->getMessage());
         }
 
-        self::assertSame(['Anton', 'anton'], DB::table('users')->orderBy('id')->pluck('name')->all());
+        self::assertSame(['Anton', 'Anton'], DB::table('users')->orderBy('id')->pluck('name')->all());
         self::assertSame('character varying(255)', $this->formattedColumnType('users', 'email'));
         self::assertFalse(Schema::hasColumn('users', 'nickname'));
     }
