@@ -8,10 +8,7 @@ use App\Domain\Users\Exceptions\InvalidUserValueException;
 
 final readonly class Email
 {
-    private function __construct(
-        private string $value,
-    ) {
-    }
+    public const int MAX_LENGTH = 254;
 
 
     public static function createFromString(string $value): self
@@ -20,6 +17,10 @@ final readonly class Email
 
         if ($normalized === '') {
             throw InvalidUserValueException::blankEmail();
+        }
+
+        if (mb_strlen($normalized) > self::MAX_LENGTH) {
+            throw InvalidUserValueException::emailTooLong(self::MAX_LENGTH);
         }
 
         if (!filter_var($normalized, FILTER_VALIDATE_EMAIL)) {
@@ -37,5 +38,11 @@ final readonly class Email
     public function __toString(): string
     {
         return $this->value;
+    }
+
+
+    private function __construct(
+        private string $value,
+    ) {
     }
 }

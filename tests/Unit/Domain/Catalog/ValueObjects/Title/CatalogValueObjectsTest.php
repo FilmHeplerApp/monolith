@@ -6,7 +6,6 @@ namespace Tests\Unit\Domain\Catalog\ValueObjects\Title;
 
 use App\Domain\Catalog\Exceptions\InvalidCatalogValueException;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
-use App\Domain\Catalog\ValueObjects\Title\Embedding;
 use App\Domain\Catalog\ValueObjects\Title\ReleaseYear;
 use App\Domain\Catalog\ValueObjects\Title\TitleCanonicalKey;
 use App\Domain\Catalog\ValueObjects\Title\TitleRating;
@@ -107,18 +106,6 @@ final class CatalogValueObjectsTest extends TestCase
         $this->expectException(InvalidCatalogValueException::class);
 
         TitleRating::create(10.1, 1);
-    }
-
-    #[Test]
-    public function embedding_requires_exact_dimension(): void
-    {
-        $vector = array_fill(0, Embedding::DIMENSION, 0.1);
-
-        $this->assertCount(Embedding::DIMENSION, Embedding::createFromArray($vector)?->getVector() ?? []);
-        $this->assertNull(Embedding::createFromArray(null));
-
-        $this->expectException(InvalidCatalogValueException::class);
-        Embedding::createFromArray([0.1, 0.2]);
     }
 
     #[Test]

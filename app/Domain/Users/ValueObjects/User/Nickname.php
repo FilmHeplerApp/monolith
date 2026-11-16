@@ -6,19 +6,21 @@ namespace App\Domain\Users\ValueObjects\User;
 
 use App\Domain\Users\Exceptions\InvalidUserValueException;
 
-final readonly class Name
+final readonly class Nickname
 {
-    private function __construct(
-        private string $value,
-    ) {
-    }
+    public const int MAX_LENGTH = 32;
+
 
     public static function createFromString(string $value): self
     {
         $normalized = trim($value);
 
         if ($normalized === '') {
-            throw InvalidUserValueException::blankName();
+            throw InvalidUserValueException::blankNickname();
+        }
+
+        if (mb_strlen($normalized) > self::MAX_LENGTH) {
+            throw InvalidUserValueException::nicknameTooLong(self::MAX_LENGTH);
         }
 
         return new self($normalized);
@@ -32,5 +34,11 @@ final readonly class Name
     public function __toString(): string
     {
         return $this->value;
+    }
+
+
+    private function __construct(
+        private string $value,
+    ) {
     }
 }

@@ -9,11 +9,11 @@ use App\Domain\Catalog\Enums\Title\TitleStatus;
 use App\Domain\Catalog\Enums\Title\TitleUpdatedBy;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use App\Domain\Catalog\ValueObjects\Title\Duration;
-use App\Domain\Catalog\ValueObjects\Title\Embedding;
 use App\Domain\Catalog\ValueObjects\Title\ReleaseYear;
 use App\Domain\Catalog\ValueObjects\Title\TitleCanonicalKey;
 use App\Domain\Catalog\ValueObjects\Title\TitleRating;
 use App\Domain\Catalog\ValueObjects\Title\TitleUuid;
+use App\Domain\Shared\ValueObjects\Embedding;
 use DateTimeImmutable;
 
 final readonly class Title

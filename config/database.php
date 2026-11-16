@@ -47,6 +47,28 @@ return [
             'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
 
+        /*
+         * Dedicated PostgreSQL database for tests that need real PostgreSQL
+         * features (pgvector, functional indexes) instead of in-memory SQLite.
+         * DB_TEST_DATABASE intentionally does not fall back to DB_DATABASE:
+         * phpunit.xml sets DB_DATABASE=:memory:, and tests must never touch
+         * the application database.
+         */
+        'pgsql_testing' => [
+            'driver' => 'pgsql',
+            'url' => env('DB_TEST_URL'),
+            'host' => env('DB_TEST_HOST', env('DB_HOST', '127.0.0.1')),
+            'port' => env('DB_TEST_PORT', env('DB_PORT', '5432')),
+            'database' => env('DB_TEST_DATABASE', 'filmhelper_test'),
+            'username' => env('DB_TEST_USERNAME', env('DB_USERNAME', 'root')),
+            'password' => env('DB_TEST_PASSWORD', env('DB_PASSWORD', '')),
+            'charset' => env('DB_CHARSET', 'utf8'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'search_path' => 'public',
+            'sslmode' => env('DB_TEST_SSLMODE', env('DB_SSLMODE', 'prefer')),
+        ],
+
     ],
 
     /*
