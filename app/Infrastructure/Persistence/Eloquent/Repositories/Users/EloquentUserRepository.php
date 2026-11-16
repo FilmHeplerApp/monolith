@@ -159,7 +159,7 @@ final class EloquentUserRepository implements UserRepository
 
     private function toDomain(UserModel $model): User
     {
-        return new User(
+        return User::reconstitute(
             id: $model->id,
             nickname: Nickname::createFromString($model->nickname),
             email: Email::createFromString($model->email),

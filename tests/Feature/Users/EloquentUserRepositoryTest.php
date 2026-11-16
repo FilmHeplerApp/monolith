@@ -16,6 +16,7 @@ use App\Domain\Users\Exceptions\InvalidUserValueException;
 use App\Domain\Users\Exceptions\UserNotFoundException;
 use App\Domain\Users\Repositories\UserPreferenceRepository;
 use App\Domain\Users\Repositories\UserRepository;
+use App\Domain\Users\Services\BirthdayPolicy;
 use App\Domain\Users\ValueObjects\User\Birthday;
 use App\Domain\Users\ValueObjects\User\Email;
 use App\Domain\Users\ValueObjects\User\Nickname;
@@ -42,9 +43,10 @@ final class EloquentUserRepositoryTest extends TestCase
 {
     private const string NICKNAME = 'anton';
     private const string EMAIL = 'anton@example.com';
-    private const string PASSWORD_HASH = 'password-hash';
+    private const string PASSWORD_HASH = '$2y$04$Z2UUGoTmGSItu9967u1JNOEGIZMm4VXC1S1qTBrZIkJ/cv5vHNMuq';
     private const string PHRASE_HASH = 'phrase-hash';
     private const string AVATAR_KEY = 'users/avatars/018fe2f8-0a2e-7a42-b0a7-6f6f5b0f0f13/avatar.webp';
+    private const string BIRTHDAY = '1994-03-12';
 
 
     private UserRepository $users;
@@ -61,19 +63,21 @@ final class EloquentUserRepositoryTest extends TestCase
     #[Test]
     public function it_saves_and_finds_a_user_by_id_email_and_nickname(): void
     {
-        $saved = $this->users->save($this->makeUser(embedding: $this->embedding()));
+        $saved = $this->users->save($this->registerUser());
 
         self::assertNotNull($saved->id);
         self::assertSame(self::NICKNAME, $saved->nickname->getValue());
         self::assertSame(self::EMAIL, $saved->email->getValue());
         self::assertSame(self::PASSWORD_HASH, $saved->password->getValue());
-        self::assertSame(self::AVATAR_KEY, $saved->avatarKey);
-        self::assertSame($this->embedding()->getVector(), $saved->embedding?->getVector());
+        self::assertNull($saved->avatarKey);
+        self::assertNull($saved->embedding);
         self::assertSame(UserStatus::VALID, $saved->status);
         self::assertTrue($saved->isActive);
         self::assertSame(UserRole::USER, $saved->role);
-        self::assertSame('1994-03-12', $saved->birthday->getValue()->format('Y-m-d'));
-        self::assertSame(self::PHRASE_HASH, $saved->secretPhraseHash->getValue());
+        self::assertNull($saved->lastActiveAt);
+        self::assertSame(self::BIRTHDAY, $saved->birthday?->getValue()->format('Y-m-d'));
+        self::assertSame(self::PHRASE_HASH, $saved->secretPhraseHash?->getValue());
+        self::assertNotNull($saved->createdAt);
         self::assertNull($saved->deletedAt);
 
         $byId = $this->users->findById($saved->id);
@@ -86,9 +90,18 @@ final class EloquentUserRepositoryTest extends TestCase
     }
 
     #[Test]
+    public function it_saves_and_finds_a_registered_user_without_a_birthday(): void
+    {
+        $saved = $this->users->save($this->registerUser(birthday: null));
+
+        self::assertNull($saved->birthday);
+        self::assertNull($this->users->findById((int) $saved->id)?->birthday);
+    }
+
+    #[Test]
     public function it_finds_a_nickname_regardless_of_case_and_keeps_the_entered_form(): void
     {
-        $saved = $this->users->save($this->makeUser(nickname: 'Anton'));
+        $saved = $this->users->save($this->registerUser(nickname: 'Anton'));
 
         $found = $this->users->findByNickname(Nickname::createFromString('aNtOn'));
 
@@ -99,11 +112,11 @@ final class EloquentUserRepositoryTest extends TestCase
     #[Test]
     public function it_rejects_a_nickname_that_differs_only_by_case(): void
     {
-        $this->users->save($this->makeUser(nickname: 'Anton'));
+        $this->users->save($this->registerUser(nickname: 'Anton'));
 
         $this->expectException(UniqueConstraintViolationException::class);
 
-        $this->users->save($this->makeUser(
+        $this->users->save($this->registerUser(
             nickname: 'anton',
             email: 'other@example.com',
         ));
@@ -112,8 +125,8 @@ final class EloquentUserRepositoryTest extends TestCase
     #[Test]
     public function it_updates_an_existing_user(): void
     {
-        $saved = $this->users->save($this->makeUser());
-        $renamed = $this->makeUser(
+        $saved = $this->users->save($this->registerUser());
+        $renamed = $this->restoreUser(
             id: $saved->id,
             nickname: 'mira',
             role: UserRole::ADMIN,
@@ -132,7 +145,44 @@ final class EloquentUserRepositoryTest extends TestCase
     {
         $this->expectException(UserNotFoundException::class);
 
-        $this->users->save($this->makeUser(id: 999));
+        $this->users->save($this->restoreUser(id: 999));
+    }
+
+    #[Test]
+    public function it_writes_and_reads_avatar_and_embedding(): void
+    {
+        $registered = $this->users->save($this->registerUser());
+
+        $updated = $this->users->save($this->restoreUser(
+            id: $registered->id,
+            avatarKey: self::AVATAR_KEY,
+            embedding: $this->embedding(),
+        ));
+        $found = $this->users->findById($registered->id);
+
+        self::assertSame(self::AVATAR_KEY, $updated->avatarKey);
+        self::assertSame($this->embedding()->getVector(), $updated->embedding?->getVector());
+        self::assertSame(self::AVATAR_KEY, $found?->avatarKey);
+        self::assertSame($this->embedding()->getVector(), $found?->embedding?->getVector());
+    }
+
+    #[Test]
+    public function it_restores_a_stored_user_whose_birthday_is_outside_the_current_policy(): void
+    {
+        $registered = $this->users->save($this->registerUser());
+        $storedBirthday = sprintf('%d-05-01', BirthdayPolicy::MIN_YEAR - 10);
+        UserModel::query()
+            ->whereKey($registered->id)
+            ->update([UserModel::FIELD_BIRTHDAY => $storedBirthday]);
+
+        $found = $this->users->findById($registered->id);
+
+        self::assertNotNull($found);
+        self::assertSame($storedBirthday, $found->birthday?->getValue()->format('Y-m-d'));
+
+        $resaved = $this->users->save($found);
+
+        self::assertSame($storedBirthday, $resaved->birthday?->getValue()->format('Y-m-d'));
     }
 
     #[Test]
@@ -140,7 +190,8 @@ final class EloquentUserRepositoryTest extends TestCase
     {
         $lastActiveAt = new DateTimeImmutable('2026-10-20 18:15:00');
 
-        $saved = $this->users->save($this->makeUser(lastActiveAt: $lastActiveAt));
+        $registered = $this->users->save($this->registerUser());
+        $saved = $this->users->save($this->restoreUser(id: $registered->id, lastActiveAt: $lastActiveAt));
         $found = $this->users->findById($saved->id);
 
         self::assertNotNull($found?->lastActiveAt);
@@ -153,7 +204,7 @@ final class EloquentUserRepositoryTest extends TestCase
     #[Test]
     public function it_soft_deletes_a_user_and_keeps_preferences(): void
     {
-        $saved = $this->users->save($this->makeUser());
+        $saved = $this->users->save($this->registerUser());
         $this->preferences->save($this->makePreference($saved->id));
 
         $this->users->delete($saved);
@@ -169,7 +220,7 @@ final class EloquentUserRepositoryTest extends TestCase
     #[Test]
     public function it_force_deletes_a_soft_deleted_user_and_preferences(): void
     {
-        $saved = $this->users->save($this->makeUser());
+        $saved = $this->users->save($this->registerUser());
         $this->preferences->save($this->makePreference($saved->id));
         $this->users->delete($saved);
 
@@ -186,7 +237,7 @@ final class EloquentUserRepositoryTest extends TestCase
     #[Test]
     public function it_force_deletes_a_user_without_a_prior_soft_delete(): void
     {
-        $saved = $this->users->save($this->makeUser());
+        $saved = $this->users->save($this->registerUser());
         $this->preferences->save($this->makePreference($saved->id));
 
         $this->users->forceDelete($saved);
@@ -206,7 +257,7 @@ final class EloquentUserRepositoryTest extends TestCase
     {
         $this->expectException(InvalidUserValueException::class);
 
-        $this->users->forceDelete($this->makeUser());
+        $this->users->forceDelete($this->registerUser());
     }
 
     #[Test]
@@ -214,7 +265,7 @@ final class EloquentUserRepositoryTest extends TestCase
     {
         $this->expectException(InvalidUserValueException::class);
 
-        $this->users->delete($this->makeUser());
+        $this->users->delete($this->registerUser());
     }
 
     #[Test]
@@ -222,13 +273,13 @@ final class EloquentUserRepositoryTest extends TestCase
     {
         $this->expectException(UserNotFoundException::class);
 
-        $this->users->forceDelete($this->makeUser(id: 999));
+        $this->users->forceDelete($this->restoreUser(id: 999));
     }
 
     #[Test]
     public function it_saves_and_finds_preferences(): void
     {
-        $saved = $this->users->save($this->makeUser());
+        $saved = $this->users->save($this->registerUser());
 
         $preference = $this->preferences->save($this->makePreference($saved->id));
         $again = $this->preferences->save($this->makePreference(
@@ -260,8 +311,8 @@ final class EloquentUserRepositoryTest extends TestCase
     #[Test]
     public function it_purges_sessions_and_reset_tokens_without_touching_other_accounts(): void
     {
-        $user = $this->users->save($this->makeUser());
-        $other = $this->users->save($this->makeUser(nickname: 'other', email: 'other@example.com'));
+        $user = $this->users->save($this->registerUser());
+        $other = $this->users->save($this->registerUser(nickname: 'other', email: 'other@example.com'));
         DB::table('sessions')->insert([
             ['id' => 'target-session', 'user_id' => $user->id],
             ['id' => 'other-session', 'user_id' => $other->id],
@@ -282,7 +333,7 @@ final class EloquentUserRepositoryTest extends TestCase
     #[Test]
     public function it_rolls_back_all_cleanup_when_user_deletion_fails(): void
     {
-        $user = $this->users->save($this->makeUser());
+        $user = $this->users->save($this->registerUser());
         $this->preferences->save($this->makePreference($user->id));
         DB::table('sessions')->insert(['id' => 'session', 'user_id' => $user->id]);
         DB::table('password_reset_tokens')->insert(['email' => self::EMAIL, 'token' => 'token']);
@@ -305,7 +356,7 @@ final class EloquentUserRepositoryTest extends TestCase
     #[Test]
     public function it_rolls_back_cleanup_when_a_model_observer_cancels_deletion(): void
     {
-        $user = $this->users->save($this->makeUser());
+        $user = $this->users->save($this->registerUser());
         $this->preferences->save($this->makePreference($user->id));
         DB::table('sessions')->insert(['id' => 'session', 'user_id' => $user->id]);
         DB::table('password_reset_tokens')->insert(['email' => self::EMAIL, 'token' => 'token']);
@@ -341,26 +392,41 @@ final class EloquentUserRepositoryTest extends TestCase
     }
 
 
-    private function makeUser(
-        ?int               $id = null,
+    private function registerUser(
+        string  $nickname = self::NICKNAME,
+        string  $email = self::EMAIL,
+        ?string $birthday = self::BIRTHDAY,
+    ): User {
+        return User::register(
+            nickname: Nickname::createFromString($nickname),
+            email: Email::createFromString($email),
+            password: PasswordHash::createFromHash(self::PASSWORD_HASH),
+            secretPhraseHash: SecretPhraseHash::createFromHash(self::PHRASE_HASH),
+            birthday: $birthday === null ? null : Birthday::createFromDateTime(new DateTimeImmutable($birthday)),
+            birthdayPolicy: new BirthdayPolicy,
+        );
+    }
+
+    private function restoreUser(
+        int                $id,
         string             $nickname = self::NICKNAME,
-        string             $email = self::EMAIL,
+        ?string            $avatarKey = null,
         ?Embedding         $embedding = null,
         UserRole           $role = UserRole::USER,
         ?DateTimeImmutable $lastActiveAt = null,
     ): User {
-        return new User(
+        return User::reconstitute(
             id: $id,
             nickname: Nickname::createFromString($nickname),
-            email: Email::createFromString($email),
+            email: Email::createFromString(self::EMAIL),
             password: PasswordHash::createFromHash(self::PASSWORD_HASH),
-            avatarKey: self::AVATAR_KEY,
+            avatarKey: $avatarKey,
             embedding: $embedding,
             status: UserStatus::VALID,
             isActive: true,
             role: $role,
             lastActiveAt: $lastActiveAt,
-            birthday: Birthday::createFromDateTime(new DateTimeImmutable('1994-03-12')),
+            birthday: Birthday::createFromDateTime(new DateTimeImmutable(self::BIRTHDAY)),
             secretPhraseHash: SecretPhraseHash::createFromHash(self::PHRASE_HASH),
         );
     }

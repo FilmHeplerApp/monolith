@@ -28,6 +28,11 @@ final class InvalidUserValueException extends InvalidArgumentException
         return new self('Password hash must not be empty.');
     }
 
+    public static function invalidPasswordHash(): self
+    {
+        return new self('Password must be stored as a hash produced by password_hash().');
+    }
+
     public static function blankSecretPhraseHash(): self
     {
         return new self('Secret phrase hash must not be empty.');

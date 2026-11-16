@@ -12,4 +12,9 @@ final class InvalidEmbeddingException extends InvalidArgumentException
     {
         return new self(sprintf('Embedding must have %d dimensions, got %d.', $expected, $actual));
     }
+
+    public static function invalidValue(int|string $index): self
+    {
+        return new self(sprintf('Embedding element [%s] must be a finite float32 number.', $index));
+    }
 }

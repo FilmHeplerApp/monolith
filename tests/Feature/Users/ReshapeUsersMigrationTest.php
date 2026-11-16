@@ -20,6 +20,7 @@ final class ReshapeUsersMigrationTest extends TestCase
 {
     private const string BASE_CONNECTION = 'pgsql_testing';
     private const string CONNECTION = 'pgsql_users_migration';
+    private const string PASSWORD_HASH = '$2y$04$Z2UUGoTmGSItu9967u1JNOEGIZMm4VXC1S1qTBrZIkJ/cv5vHNMuq';
 
     private string $previousConnection = 'sqlite';
     private bool $schemaReady = false;
@@ -88,7 +89,7 @@ final class ReshapeUsersMigrationTest extends TestCase
         $base = require database_path('migrations/0001_01_01_000000_create_users_table.php');
         $base->up();
         $id = DB::table('users')->insertGetId([
-            'name' => 'Legacy', 'email' => 'Legacy@Example.com', 'password' => 'existing-hash',
+            'name' => 'Legacy', 'email' => 'Legacy@Example.com', 'password' => self::PASSWORD_HASH,
         ]);
 
         $migration = require database_path('migrations/2026_10_19_210600_reshape_users_and_create_user_preferences.php');
@@ -97,7 +98,7 @@ final class ReshapeUsersMigrationTest extends TestCase
         $repository = new EloquentUserRepository;
         $user = $repository->findByEmail(Email::createFromString('LEGACY@example.com'));
         self::assertSame($id, $user?->id);
-        self::assertSame('existing-hash', $user?->password->getValue());
+        self::assertSame(self::PASSWORD_HASH, $user?->password->getValue());
         self::assertNull($user?->birthday);
         self::assertNull($user?->secretPhraseHash);
         self::assertNotNull($user);
@@ -148,7 +149,7 @@ final class ReshapeUsersMigrationTest extends TestCase
     public function it_purges_existing_user_data_on_postgresql(): void
     {
         $this->migrateLaravelUsersTable();
-        $id = DB::table('users')->insertGetId(['nickname' => 'legacy', 'email' => 'Case@Example.com', 'password' => 'hash']);
+        $id = DB::table('users')->insertGetId(['nickname' => 'legacy', 'email' => 'Case@Example.com', 'password' => self::PASSWORD_HASH]);
         DB::table('user_preferences')->insert(['user_id' => $id]);
         DB::table('sessions')->insert(['id' => 'session', 'user_id' => $id, 'payload' => 'data', 'last_activity' => time()]);
         DB::table('password_reset_tokens')->insert(['email' => 'CASE@example.com', 'token' => 'token']);

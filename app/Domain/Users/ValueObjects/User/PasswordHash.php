@@ -14,6 +14,10 @@ final readonly class PasswordHash
             throw InvalidUserValueException::blankPasswordHash();
         }
 
+        if (password_get_info($hash)['algo'] === null) {
+            throw InvalidUserValueException::invalidPasswordHash();
+        }
+
         return new self($hash);
     }
 

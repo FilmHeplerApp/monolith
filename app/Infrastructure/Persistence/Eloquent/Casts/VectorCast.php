@@ -57,7 +57,7 @@ final class VectorCast implements CastsAttributes
         }
 
         foreach ($value as $index => $item) {
-            if ((!is_int($item) && !is_float($item)) || !is_finite((float) $item) || abs((float) $item) > 3.4028234663852886e38) {
+            if ((!is_int($item) && !is_float($item)) || !is_finite((float) $item) || abs((float) $item) > Embedding::MAX_ABS_VALUE) {
                 throw new InvalidArgumentException(sprintf('Embedding element [%d] must be a finite float32 number.', $index));
             }
 

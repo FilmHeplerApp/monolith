@@ -21,8 +21,6 @@ use App\Infrastructure\Persistence\Eloquent\Bulk\Catalog\CatalogBulkWriter;
 use App\Infrastructure\Persistence\Eloquent\Repositories\Catalog\EloquentTitleRepository;
 use App\Infrastructure\Persistence\Eloquent\Repositories\Users\EloquentUserPreferenceRepository;
 use App\Infrastructure\Persistence\Eloquent\Repositories\Users\EloquentUserRepository;
-use App\Infrastructure\Providers\Factories\ProviderClientFactory;
-use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\ServiceProvider;

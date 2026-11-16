@@ -5,7 +5,7 @@ namespace Database\Factories;
 use App\Domain\Shared\ValueObjects\Embedding;
 use App\Domain\Users\Enums\User\UserRole;
 use App\Domain\Users\Enums\User\UserStatus;
-use App\Domain\Users\ValueObjects\User\Birthday;
+use App\Domain\Users\Services\BirthdayPolicy;
 use App\Infrastructure\Persistence\Eloquent\Models\User;
 use Illuminate\Database\Eloquent\Factories\Attributes\UseModel;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -32,7 +32,7 @@ class UserFactory extends Factory
             User::FIELD_ROLE => fake()->randomElement(UserRole::cases()),
             User::FIELD_LAST_ACTIVE_AT => fake()->optional(0.7)->dateTimeBetween('-30 days'),
             User::FIELD_BIRTHDAY => fake()->dateTimeBetween(
-                sprintf('%d-01-01', Birthday::MIN_YEAR),
+                sprintf('%d-01-01', BirthdayPolicy::MIN_YEAR),
                 '-18 years',
             )->format('Y-m-d'),
             User::FIELD_SECRET_PHRASE_HASH => Hash::make('секретная фраза'),

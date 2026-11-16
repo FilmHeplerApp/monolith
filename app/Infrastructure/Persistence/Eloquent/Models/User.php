@@ -6,9 +6,9 @@ use App\Domain\Users\Enums\User\UserRole;
 use App\Domain\Users\Enums\User\UserStatus;
 use App\Infrastructure\Persistence\Eloquent\Casts\VectorCast;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
 
@@ -30,7 +30,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $deleted_at
  * @property-read UserPreference|null $preferences
  */
-class User extends Authenticatable
+class User extends Model
 {
     use HasFactory;
     use Notifiable;
