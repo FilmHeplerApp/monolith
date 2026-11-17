@@ -13,7 +13,7 @@ use App\Application\Import\DTOs\ProviderTitleRecord;
 use App\Application\Import\Enums\ImportRunMode;
 use App\Application\Import\Enums\ProviderDataSource;
 use App\Application\Import\Enums\ProviderSource;
-use App\Application\Import\Services\CatalogPacker;
+use App\Application\Import\Services\CatalogImportBatchSaver;
 use App\Application\Import\Services\CatalogTitlePackDataFactory;
 use App\Application\Import\UseCases\ImportTitlesFromProvider;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
@@ -25,7 +25,6 @@ use App\Domain\Import\DTOs\TitleCandidate;
 use App\Domain\Import\Services\TitleKeyResolver;
 use App\Infrastructure\Import\Exceptions\CatalogAttributeDefinitionException;
 use App\Infrastructure\Import\Sinks\CatalogCandidateSink;
-use App\Infrastructure\Import\Validation\CatalogAttributeDefinitionValidator;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeDefinition;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeOption;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\Title;
@@ -382,9 +381,7 @@ final class CatalogCandidateSinkTest extends TestCase
         $sink = new CatalogCandidateSink(
             app(TitleKeyResolver::class),
             app(CatalogTitlePackDataFactory::class),
-            new CatalogPacker,
-            $writer,
-            new CatalogAttributeDefinitionValidator,
+            app(CatalogImportBatchSaver::class, ['writer' => $writer]),
         );
 
         $sink->flush();
