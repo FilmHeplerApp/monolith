@@ -4,16 +4,13 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Import\Sinks;
 
-use App\Application\Catalog\Contracts\CatalogBulkWriterContract;
 use App\Application\Import\Contracts\CandidateSinkContract;
-use App\Application\Import\DTOs\CatalogPackInput;
-use App\Application\Import\Services\CatalogPacker;
+use App\Application\Import\Services\CatalogImportBatchSaver;
 use App\Application\Import\Services\CatalogTitlePackDataFactory;
 use App\Domain\Import\DTOs\FilterDecision;
 use App\Domain\Import\DTOs\TitleCandidate;
 use App\Domain\Import\DTOs\TitleIdentity;
 use App\Domain\Import\Services\TitleKeyResolver;
-use App\Infrastructure\Import\Validation\CatalogAttributeDefinitionValidator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -25,11 +22,9 @@ final class CatalogCandidateSink implements CandidateSinkContract
 
 
     public function __construct(
-        private readonly TitleKeyResolver                    $keys,
-        private readonly CatalogTitlePackDataFactory         $packData,
-        private readonly CatalogPacker                       $packer,
-        private readonly CatalogBulkWriterContract           $writer,
-        private readonly CatalogAttributeDefinitionValidator $definitionValidator,
+        private readonly TitleKeyResolver            $keys,
+        private readonly CatalogTitlePackDataFactory $packData,
+        private readonly CatalogImportBatchSaver     $saver,
     ) {}
 
     public function consume(TitleCandidate $candidate, FilterDecision $decision): void
@@ -58,8 +53,7 @@ final class CatalogCandidateSink implements CandidateSinkContract
         }
 
         if ($titles !== []) {
-            $this->definitionValidator->validate($titles);
-            $this->writer->write($this->packer->pack(new CatalogPackInput($titles, [])));
+            $this->saver->save($titles);
         }
 
         if ($resolution->collisions !== []) {
