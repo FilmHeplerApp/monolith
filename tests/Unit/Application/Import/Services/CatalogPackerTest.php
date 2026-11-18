@@ -445,14 +445,37 @@ final class CatalogPackerTest extends TestCase
     #[Test]
     public function it_packs_an_english_only_attribute_value(): void
     {
+        $value = $this->text(null, 'Action');
         $packed = (new CatalogPacker)->pack(new CatalogPackInput(
-            titles: [$this->title(attributes: [$this->attribute('genres', [$this->text(null, 'Action')])])],
+            titles: [$this->title(attributes: [$this->attribute('genres', [$value])])],
             attributeDefinitions: [],
         ));
 
         self::assertSame('Action', $packed->attributeOptions[0]->value->getRu());
         self::assertSame('Action', $packed->attributeOptions[0]->value->getEn());
         self::assertSame(['Action'], $packed->titleAttributes[0]->value->getArray());
+        self::assertNull($value->getRu());
+        self::assertSame('Action', $value->getEn());
+    }
+
+    #[Test]
+    public function it_preserves_zero_in_options_and_title_attributes(): void
+    {
+        $packed = (new CatalogPacker)->pack(new CatalogPackInput(
+            titles: [$this->title(attributes: [
+                $this->attribute('tags', [$this->text(null, ' 0 ')]),
+                $this->attribute('pace', [$this->text(' 0 ')], AttributeValueType::STRING),
+            ])],
+            attributeDefinitions: [],
+        ));
+
+        self::assertCount(2, $packed->attributeOptions);
+        self::assertSame('0', $packed->attributeOptions[0]->value->getRu());
+        self::assertSame('0', $packed->attributeOptions[0]->value->getEn());
+        self::assertSame('0', $packed->attributeOptions[1]->value->getRu());
+        self::assertNull($packed->attributeOptions[1]->value->getEn());
+        self::assertSame(['0'], $packed->titleAttributes[0]->value->getArray());
+        self::assertSame('0', $packed->titleAttributes[1]->value->getText());
     }
 
     #[Test]

@@ -4,15 +4,10 @@ declare(strict_types=1);
 
 namespace App\Domain\Catalog\ValueObjects\Shared;
 
+use App\Domain\Catalog\Exceptions\InvalidCatalogValueException;
+
 final readonly class LocalizedText
 {
-    private function __construct(
-        private ?string $ru,
-        private ?string $en,
-    ) {
-    }
-
-
     public static function create(?string $ru, ?string $en): ?self
     {
         $ru = self::normalize($ru);
@@ -25,6 +20,12 @@ final readonly class LocalizedText
         return new self($ru, $en);
     }
 
+    public static function createRequired(?string $ru, ?string $en): self
+    {
+        return self::create($ru, $en)
+            ?? throw InvalidCatalogValueException::emptyLocalizedText();
+    }
+
     public function getRu(): ?string
     {
         return $this->ru;
@@ -35,13 +36,19 @@ final readonly class LocalizedText
         return $this->en;
     }
 
-    public function getPreferred(string $locale = 'ru'): ?string
+    public function getPreferred(string $locale = 'ru'): string
     {
         return match (strtolower($locale)) {
             'en' => $this->en ?? $this->ru,
             default => $this->ru ?? $this->en,
         };
     }
+
+
+    private function __construct(
+        private ?string $ru,
+        private ?string $en,
+    ) {}
 
     private static function normalize(?string $value): ?string
     {

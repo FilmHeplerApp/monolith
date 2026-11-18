@@ -63,7 +63,7 @@ final readonly class CatalogPacker
 
 
     /**
-     * @param list<CatalogAttributeDefinitionPackData> $definitions
+     * @param  list<CatalogAttributeDefinitionPackData>  $definitions
      * @return array<string, CatalogAttributeDefinitionPackData>
      */
     private function indexDefinitions(array $definitions): array
@@ -92,7 +92,7 @@ final readonly class CatalogPacker
     }
 
     /**
-     * @param array<string, CatalogAttributeDefinitionPackData> $definitions
+     * @param  array<string, CatalogAttributeDefinitionPackData>  $definitions
      * @return array<string, AttributeValueType>
      */
     private function valueTypes(array $definitions): array
@@ -111,9 +111,9 @@ final readonly class CatalogPacker
     }
 
     /**
-     * @param array<string, AttributeValueType> $valueTypes
-     * @param array<string, AttributeOptionData> $options
-     * @param array<string, TitleAttributeData> $titleAttributes
+     * @param  array<string, AttributeValueType>  $valueTypes
+     * @param  array<string, AttributeOptionData>  $options
+     * @param  array<string, TitleAttributeData>  $titleAttributes
      */
     private function packAttributes(
         CatalogTitlePackData $title,
@@ -141,7 +141,7 @@ final readonly class CatalogPacker
     }
 
     /**
-     * @param array<string, AttributeValueType> $valueTypes
+     * @param  array<string, AttributeValueType>  $valueTypes
      */
     private function rememberValueType(
         TitleContentType         $contentType,
@@ -165,8 +165,8 @@ final readonly class CatalogPacker
     }
 
     /**
-     * @param list<string> $preferred
-     * @param array<string, TitleAttributeData> $titleAttributes
+     * @param  list<string>  $preferred
+     * @param  array<string, TitleAttributeData>  $titleAttributes
      */
     private function rememberTitleAttribute(
         CatalogTitlePackData     $title,
@@ -174,7 +174,7 @@ final readonly class CatalogPacker
         array                    $preferred,
         array                    &$titleAttributes,
     ): void {
-        $key = $title->canonicalKey->getValue() . "\0" . $this->definitionKey($title->contentType, $attribute->code);
+        $key = $title->canonicalKey->getValue()."\0".$this->definitionKey($title->contentType, $attribute->code);
 
         if (isset($titleAttributes[$key])) {
             if ($attribute->valueType === AttributeValueType::ARRAY) {
@@ -227,7 +227,7 @@ final readonly class CatalogPacker
     }
 
     /**
-     * @param array<string, AttributeOptionData> $options
+     * @param  array<string, AttributeOptionData>  $options
      */
     private function rememberOption(
         TitleContentType $contentType,
@@ -235,8 +235,8 @@ final readonly class CatalogPacker
         LocalizedText    $value,
         array            &$options,
     ): void {
-        $ru = $value->getPreferred() ?? throw new LogicException('Attribute option has no display value.');
-        $key = $this->definitionKey($contentType, $code) . "\0" . $ru;
+        $ru = $value->getPreferred();
+        $key = $this->definitionKey($contentType, $code)."\0".$ru;
 
         if (isset($options[$key]) && ($options[$key]->value->getEn() !== null || $value->getEn() === null)) {
             return;
@@ -245,8 +245,7 @@ final readonly class CatalogPacker
         $options[$key] = new AttributeOptionData(
             attributeCode: $code,
             contentTypeCode: $contentType,
-            value: LocalizedText::create($ru, $value->getEn())
-                ?? throw new LogicException('Attribute option has no display value.'),
+            value: LocalizedText::createRequired($ru, $value->getEn()),
         );
     }
 
@@ -299,7 +298,7 @@ final readonly class CatalogPacker
     }
 
     /**
-     * @param list<string> $preferred
+     * @param  list<string>  $preferred
      */
     private function attributeValue(
         TitleContentType   $contentType,
@@ -319,7 +318,7 @@ final readonly class CatalogPacker
     }
 
     /**
-     * @param list<string> $preferred
+     * @param  list<string>  $preferred
      */
     private function numberValue(
         TitleContentType $contentType,
@@ -337,7 +336,7 @@ final readonly class CatalogPacker
             ));
         }
 
-        $number = (float)$raw;
+        $number = (float) $raw;
 
         if (!is_finite($number)) {
             throw new LogicException(sprintf(
@@ -352,7 +351,7 @@ final readonly class CatalogPacker
     }
 
     /**
-     * @param list<string> $preferred
+     * @param  list<string>  $preferred
      */
     private function booleanValue(
         TitleContentType $contentType,
@@ -376,7 +375,7 @@ final readonly class CatalogPacker
     }
 
     /**
-     * @param list<string> $preferred
+     * @param  list<string>  $preferred
      */
     private function singleValue(
         TitleContentType   $contentType,
@@ -397,7 +396,7 @@ final readonly class CatalogPacker
     }
 
     /**
-     * @param list<LocalizedText> $values
+     * @param  list<LocalizedText>  $values
      * @return list<string>
      */
     private function preferredValues(array $values): array
@@ -405,20 +404,14 @@ final readonly class CatalogPacker
         $preferred = [];
 
         foreach ($values as $value) {
-            $text = $value->getPreferred();
-
-            if ($text === null || $text === '') {
-                continue;
-            }
-
-            $preferred[] = $text;
+            $preferred[] = $value->getPreferred();
         }
 
         return $preferred;
     }
 
     /**
-     * @param list<string> $values
+     * @param  list<string>  $values
      * @return list<string>
      */
     private function uniqueValues(array $values): array
@@ -446,13 +439,13 @@ final readonly class CatalogPacker
 
     private function definitionKey(TitleContentType $contentType, string $code): string
     {
-        return $contentType->value . "\0" . $code;
+        return $contentType->value."\0".$code;
     }
 
     private function uuidFromCanonicalKey(TitleCanonicalKey $canonicalKey): TitleUuid
     {
         $namespace = hex2bin(str_replace('-', '', self::CANONICAL_KEY_UUID_NAMESPACE));
-        $hash = sha1($namespace . $canonicalKey->getValue(), true);
+        $hash = sha1($namespace.$canonicalKey->getValue(), true);
         $hash[6] = chr((ord($hash[6]) & 0x0F) | 0x50);
         $hash[8] = chr((ord($hash[8]) & 0x3F) | 0x80);
         $hex = bin2hex(substr($hash, 0, 16));
