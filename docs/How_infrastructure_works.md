@@ -802,10 +802,11 @@ scheduler -> php artisan schedule:work
 - запускать обновление эмбеддингов;
 - разбирать Redis-счетчики активности пользователя;
 - запускать ежедневный импорт каталога;
+- публиковать задания на картинки из outbox в очередь `images`;
 - готовить рекомендации заранее;
 - отправлять push-уведомления.
 
-В Laravel 13 расписание можно описывать через `withSchedule(...)` в `bootstrap/app.php`, когда появятся реальные задачи.
+В Laravel 13 расписание описывается через `withSchedule(...)` в `bootstrap/app.php`. Первая реальная задача — `media:publish-image-ingestions` каждую минуту ([outbox картинок](tasks/import_images_outbox/Import_images_outbox.md)).
 
 Пример:
 
