@@ -11,6 +11,7 @@ use App\Application\Media\UseCases\IngestTitleImagesHandler;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
+use InvalidArgumentException;
 
 class IngestTitleImagesJob implements ShouldQueue
 {
@@ -24,9 +25,13 @@ class IngestTitleImagesJob implements ShouldQueue
 
     public function __construct(
         public string  $canonicalKey,
-        public string  $posterUrl,
+        public ?string $posterUrl,
         public ?string $bannerUrl,
     ) {
+        if ($posterUrl === null && $bannerUrl === null) {
+            throw new InvalidArgumentException('Title image ingestion needs a poster or a banner URL.');
+        }
+
         $this->onQueue(config('images.queue'));
     }
 

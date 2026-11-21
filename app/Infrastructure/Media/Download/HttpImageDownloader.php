@@ -21,8 +21,7 @@ readonly class HttpImageDownloader implements ImageDownloaderContract
 
     public function __construct(
         private PublicHostResolver $hosts,
-    ) {
-    }
+    ) {}
 
     public function download(string $url): DownloadedImage
     {
@@ -61,7 +60,7 @@ readonly class HttpImageDownloader implements ImageDownloaderContract
 
 
     /**
-     * @param list<string> $schemes
+     * @param  list<string>  $schemes
      */
     private function assertScheme(string $url, array $schemes): void
     {
@@ -93,8 +92,9 @@ readonly class HttpImageDownloader implements ImageDownloaderContract
     }
 
     /**
-     * @param list<string> $schemes
+     * @param  list<string>  $schemes
      *
+     * @throws ImageConfigurationException
      * @throws ImageDownloadException
      * @throws UnsupportedImageException
      */
@@ -174,7 +174,7 @@ readonly class HttpImageDownloader implements ImageDownloaderContract
         $redirectUrl = curl_getinfo($curl, CURLINFO_REDIRECT_URL);
         $error = curl_error($curl);
         $errorCode = curl_errno($curl);
-        $httpCode = (int)curl_getinfo($curl, CURLINFO_HTTP_CODE);
+        $httpCode = (int) curl_getinfo($curl, CURLINFO_HTTP_CODE);
 
         fclose($handle);
         curl_close($curl);
@@ -228,22 +228,22 @@ readonly class HttpImageDownloader implements ImageDownloaderContract
         $parts = parse_url($current);
         $scheme = is_array($parts) && isset($parts['scheme']) && is_string($parts['scheme']) ? $parts['scheme'] : 'http';
         $host = is_array($parts) && isset($parts['host']) && is_string($parts['host']) ? $parts['host'] : '';
-        $port = is_array($parts) && isset($parts['port']) && is_int($parts['port']) ? ':' . $parts['port'] : '';
-        $origin = $scheme . '://' . $host . $port;
+        $port = is_array($parts) && isset($parts['port']) && is_int($parts['port']) ? ':'.$parts['port'] : '';
+        $origin = $scheme.'://'.$host.$port;
 
         if (str_starts_with($location, '//')) {
-            return $scheme . ':' . $location;
+            return $scheme.':'.$location;
         }
 
         if (str_starts_with($location, '/')) {
-            return $origin . $location;
+            return $origin.$location;
         }
 
         $path = is_array($parts) && isset($parts['path']) && is_string($parts['path']) ? $parts['path'] : '/';
         $parent = str_ends_with($path, '/') ? $path : dirname($path);
-        $directory = str_ends_with($parent, '/') ? $parent : $parent . '/';
+        $directory = str_ends_with($parent, '/') ? $parent : $parent.'/';
 
-        return $origin . $directory . $location;
+        return $origin.$directory.$location;
     }
 
     private function readDownloadedImage(string $url, string $path): DownloadedImage
@@ -286,7 +286,9 @@ readonly class HttpImageDownloader implements ImageDownloaderContract
     }
 
     /**
-     * @param list<string> $schemes
+     * @param  list<string>  $schemes
+     *
+     * @throws ImageConfigurationException
      */
     private function protocolMask(array $schemes): int
     {
@@ -301,7 +303,7 @@ readonly class HttpImageDownloader implements ImageDownloaderContract
         }
 
         if ($mask === 0) {
-            throw ImageConfigurationException::invalid('images.download.allowed_schemes');
+            throw ImageConfigurationException::invalid('images.download.allowed_schemes', $schemes);
         }
 
         return $mask;
@@ -332,7 +334,7 @@ readonly class HttpImageDownloader implements ImageDownloaderContract
     private function parseRetryAfter(string $delay): ?int
     {
         if (ctype_digit($delay)) {
-            $seconds = (int)$delay;
+            $seconds = (int) $delay;
         } else {
             $timestamp = strtotime($delay);
 

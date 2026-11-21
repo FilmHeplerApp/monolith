@@ -201,7 +201,11 @@ lock на InMemoryImportRunLock не считаются проверкой ме�
 (без external_ids и outbox) проверки 1, 2 и 5 ниже выполняются через sink в
 `CatalogCandidateSinkTest`; 3 и 4 — на уровне writer и recorder в `CatalogBulkWriterTest`,
 а sink на пустом буфере writer не вызывает. Открыты: external_ids и разрешение
-идентичности, outbox для заданий медиа. Подробности — [сохраняющий sink](../catalog_candidate_sink/Catalog_candidate_sink.md).
+идентичности. Подробности — [сохраняющий sink](../catalog_candidate_sink/Catalog_candidate_sink.md).
+
+Обновлено 2026-11-20: outbox для заданий медиа выполнен —
+[связка импорта с картинками](../import_images_outbox/Import_images_outbox.md).
+`external_ids` остаётся открытым.
 
 Исходная постановка: следующий этап требует сохраняющего sink,
 который пишет через то же соединение и транзакцию, что и recorder.

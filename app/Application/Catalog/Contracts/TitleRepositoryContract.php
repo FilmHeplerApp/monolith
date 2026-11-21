@@ -12,6 +12,12 @@ interface TitleRepositoryContract
     public function findImageData(string $canonicalKey): ?TitleImageData;
 
     /**
+     * @param  list<string>  $canonicalKeys
+     * @return array<string, TitleImageData>
+     */
+    public function findImageDataByCanonicalKeys(array $canonicalKeys): array;
+
+    /**
      * @throws TitleNotFoundException When no title has this canonical key.
      */
     public function savePoster(

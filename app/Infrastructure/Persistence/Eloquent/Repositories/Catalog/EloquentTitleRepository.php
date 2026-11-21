@@ -11,6 +11,18 @@ use App\Infrastructure\Persistence\Eloquent\Models\Catalog\Title;
 
 final class EloquentTitleRepository implements TitleRepositoryContract
 {
+    private const int CHUNK_SIZE = 1000;
+
+    private const array IMAGE_COLUMNS = [
+        Title::FIELD_CANONICAL_KEY,
+        Title::FIELD_POSTER_KEY,
+        Title::FIELD_POSTER_THUMB_KEY,
+        Title::FIELD_BANNER_KEY,
+        Title::FIELD_POSTER_SOURCE_HASH,
+        Title::FIELD_BANNER_SOURCE_HASH,
+    ];
+
+
     public function findImageData(string $canonicalKey): ?TitleImageData
     {
         $title = $this->find($canonicalKey);
@@ -19,13 +31,28 @@ final class EloquentTitleRepository implements TitleRepositoryContract
             return null;
         }
 
-        return new TitleImageData(
-            posterKey: $title->poster_key,
-            posterThumbKey: $title->poster_thumb_key,
-            bannerKey: $title->banner_key,
-            posterSourceHash: $title->poster_source_hash,
-            bannerSourceHash: $title->banner_source_hash,
-        );
+        return self::imageData($title);
+    }
+
+    /**
+     * @param  list<string>  $canonicalKeys
+     * @return array<string, TitleImageData>
+     */
+    public function findImageDataByCanonicalKeys(array $canonicalKeys): array
+    {
+        $imageData = [];
+
+        foreach (array_chunk(array_values(array_unique($canonicalKeys)), self::CHUNK_SIZE) as $chunk) {
+            $titles = Title::query()
+                ->whereIn(Title::FIELD_CANONICAL_KEY, $chunk)
+                ->get(self::IMAGE_COLUMNS);
+
+            foreach ($titles as $title) {
+                $imageData[$title->canonical_key] = self::imageData($title);
+            }
+        }
+
+        return $imageData;
     }
 
     public function savePoster(
@@ -60,6 +87,17 @@ final class EloquentTitleRepository implements TitleRepositoryContract
     }
 
 
+    private static function imageData(Title $title): TitleImageData
+    {
+        return new TitleImageData(
+            posterKey: $title->poster_key,
+            posterThumbKey: $title->poster_thumb_key,
+            bannerKey: $title->banner_key,
+            posterSourceHash: $title->poster_source_hash,
+            bannerSourceHash: $title->banner_source_hash,
+        );
+    }
+
     private function find(string $canonicalKey): ?Title
     {
         return Title::query()
@@ -68,7 +106,7 @@ final class EloquentTitleRepository implements TitleRepositoryContract
     }
 
     /**
-     * @param array<string, string> $columns
+     * @param  array<string, string>  $columns
      */
     private function update(string $canonicalKey, array $columns): void
     {

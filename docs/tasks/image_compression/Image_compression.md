@@ -621,10 +621,10 @@ users/avatars/{ingestion_uuid}/avatar.webp
 
 ## 10. Точка стыковки с импортом
 
-Обновлено 2026-11-15: оркестратор импорта и запись каталога через `CatalogCandidateSink`
-уже есть ([сохраняющий sink](../catalog_candidate_sink/Catalog_candidate_sink.md)), но
-постановка `IngestTitleImagesJob` к ним не подключена. Шаг 1 ниже выполняется, шаги 2–4 —
-отдельная задача. Порядок обязан быть таким:
+Обновлено 2026-11-20: постановка `IngestTitleImagesJob` подключена к импорту через
+transactional outbox — [связка импорта с картинками](../import_images_outbox/Import_images_outbox.md). Sink в транзакции пачки сверяет хеши и пишет строку
+`title_image_ingestions`, релей `media:publish-image-ingestions` раз в минуту ставит
+задания в очередь `images`. Порядок обязан быть таким:
 
 ```text
 1. Импорт пишет тайтлы через CatalogBulkWriterContract
@@ -636,25 +636,27 @@ users/avatars/{ingestion_uuid}/avatar.webp
 4. Падение job не влияет на записанный тайтл
 ```
 
-Внешний URL в базу не пишется. На время пачки его держит оркестратор, который вызывает
-`CatalogBulkWriter`: URL приходит от поставщика в памяти вместе с остальными полями тайтла.
-Сравнение SHA-256 идёт там же, по уже записанным строкам. В Redis уходит не ссылка из базы,
-а payload задачи: canonical key и те URL, которые не совпали или для которых хеша ещё нет.
-Дальше оркестратор эти строки отпускает, а воркер читает URL из задачи.
+Внешний URL не пишется в `titles`. На время пачки его держит `CatalogCandidateSink`,
+который вызывает `CatalogBulkWriter`: URL приходит от поставщика в памяти вместе с
+остальными полями тайтла. Сравнение SHA-256 идёт там же, по уже записанным строкам. URL,
+которые не совпали или для которых хеша ещё нет, вместе с canonical key ложатся в outbox
+`title_image_ingestions` в той же транзакции. В outbox URL живёт только до публикации
+задания и удаляется вместе со строкой. Релей публикует payload задачи, воркер читает URL
+из задачи.
 
-Пока оркестратора нет, ту же проверку хеша делает `IngestTitleImagesHandler` перед
-скачиванием варианта. Совпадение означает, что вариант не качается и старый префикс не
-трогается. `bannerUrl === null` пропускает баннер. Повторный `dispatch` с тем же URL
-безопасен и без оркестратора.
+Хендлер `IngestTitleImagesHandler` повторяет проверку хеша перед скачиванием варианта как
+защиту от повторной доставки. Совпадение означает, что вариант не качается и старый префикс
+не трогается. `posterUrl === null` или `bannerUrl === null` пропускает вариант. Повторная
+доставка задания с тем же URL безопасна.
 
 Цепочка вызовов:
 
 ```mermaid
 flowchart TD
-    import["Импорт, класса ещё нет"]
+    import["ImportTitlesFromProvider → CatalogCandidateSink"]
     writer["CatalogBulkWriter: строка тайтла в базе, ключи картинок не трогает"]
     hash{"SHA-256 внешнего URL совпал с хешем в базе?"}
-    dispatch["IngestTitleImagesJob::dispatch в очередь images"]
+    dispatch["Строка title_image_ingestions в транзакции пачки → релей media:publish-image-ingestions → очередь images"]
     horizon["Horizon, супервизор images, забирает задачу из Redis"]
     job["IngestTitleImagesJob"]
     ingest["IngestTitleImagesHandler: один тайтл"]
@@ -707,8 +709,9 @@ flowchart TD
 
 Правило: одна версия исходника обрабатывается один раз.
 
-Хеш сравнивается в двух местах. Оркестратор импорта, когда он появится, не ставит задачу,
-если SHA-256 внешнего URL совпал с `poster_source_hash` или `banner_source_hash`.
+Хеш сравнивается в двух местах одной функцией `TitleImageSourceHash::of()` — SHA-256
+строки URL без нормализации. Планировщик импорта (`TitleImageIngestionPlanner`) не ставит
+задачу, если хеш совпал с `poster_source_hash` или `banner_source_hash`.
 `IngestTitleImagesHandler` повторяет проверку перед скачиванием: совпали — вариант
 пропускается, байты не качаются. Повторная задача не делает работу второй раз, даже если её
 поставили вручную.
