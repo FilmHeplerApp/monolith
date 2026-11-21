@@ -77,6 +77,25 @@ final class TitleImageIngestionPlannerTest extends TestCase
     }
 
     #[Test]
+    public function it_treats_blank_urls_as_missing(): void
+    {
+        $plan = $this->plan('', " \t\n", $this->stored(null, null));
+
+        self::assertSame([], $plan->enqueue);
+        self::assertSame([self::KEY], $plan->discard);
+        self::assertSame(1, $plan->skipped);
+    }
+
+    #[Test]
+    public function it_enqueues_only_the_variant_with_a_non_blank_url(): void
+    {
+        $plan = $this->plan('   ', self::BANNER_URL, $this->stored(null, null));
+
+        self::assertEquals([new TitleImageIngestionRequest(self::KEY, null, self::BANNER_URL)], $plan->enqueue);
+        self::assertSame(0, $plan->skipped);
+    }
+
+    #[Test]
     public function it_throws_when_a_written_title_has_no_stored_row(): void
     {
         $this->expectException(LogicException::class);

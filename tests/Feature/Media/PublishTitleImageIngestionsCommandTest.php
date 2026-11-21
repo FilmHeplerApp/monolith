@@ -79,6 +79,36 @@ final class PublishTitleImageIngestionsCommandTest extends TestCase
     }
 
     #[Test]
+    public function it_keeps_rows_and_fails_when_the_queue_size_is_unavailable(): void
+    {
+        Log::spy();
+        $this->enqueue(new TitleImageIngestionRequest('a|anime', 'https://cdn.example/a.jpg', null));
+        $this->app->instance(TitleImageIngestionQueueContract::class, new class implements TitleImageIngestionQueueContract
+        {
+            public function size(): int
+            {
+                throw new RuntimeException('Connection refused [tcp://redis:6379].');
+            }
+
+            public function push(PendingTitleImageIngestion $ingestion): void
+            {
+                throw new RuntimeException('Push must not be reached.');
+            }
+        });
+
+        $this->artisan('media:publish-image-ingestions')
+            ->expectsOutputToContain('Connection refused [tcp://redis:6379].')
+            ->expectsOutputToContain('Published before failure: 0.')
+            ->assertFailed();
+
+        $this->assertDatabaseHas(TitleImageIngestion::TABLE_NAME, [TitleImageIngestion::FIELD_CANONICAL_KEY => 'a|anime', TitleImageIngestion::FIELD_REVISION => 1]);
+        Log::shouldHaveReceived('error')->once()->withArgs(
+            static fn (string $message, array $context): bool => $message === 'Images queue size is unavailable, title image ingestions are not published.'
+                && $context['backlog'] === 1,
+        );
+    }
+
+    #[Test]
     public function it_keeps_a_row_updated_between_fetch_and_acknowledge(): void
     {
         Queue::fake();

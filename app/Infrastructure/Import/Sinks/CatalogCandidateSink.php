@@ -96,7 +96,7 @@ final class CatalogCandidateSink implements CandidateSinkContract
         try {
             Log::debug('Title image ingestions planned.', [
                 'enqueued' => count($plan->enqueue),
-                'discarded' => count($plan->discard),
+                'discard_requested' => count($plan->discard),
                 'skipped' => $plan->skipped,
             ]);
         } catch (Throwable) {

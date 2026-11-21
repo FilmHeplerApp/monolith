@@ -25,10 +25,12 @@ final class TitleImageIngestionPlanner
         foreach ($this->latestByCanonicalKey($sources) as $source) {
             $stored = $storedImageData[$source->canonicalKey]
                 ?? throw new LogicException("Written title [$source->canonicalKey] has no stored row.");
-            $posterUrl = $this->needsIngestion($source->posterUrl, $stored->posterSourceHash) ? $source->posterUrl : null;
-            $bannerUrl = $this->needsIngestion($source->bannerUrl, $stored->bannerSourceHash) ? $source->bannerUrl : null;
+            $providedPosterUrl = self::presentUrl($source->posterUrl);
+            $providedBannerUrl = self::presentUrl($source->bannerUrl);
+            $posterUrl = $this->needsIngestion($providedPosterUrl, $stored->posterSourceHash) ? $providedPosterUrl : null;
+            $bannerUrl = $this->needsIngestion($providedBannerUrl, $stored->bannerSourceHash) ? $providedBannerUrl : null;
 
-            if ($source->posterUrl === null && $source->bannerUrl === null) {
+            if ($providedPosterUrl === null && $providedBannerUrl === null) {
                 $skipped++;
             }
 
@@ -58,6 +60,11 @@ final class TitleImageIngestionPlanner
         }
 
         return array_values($latest);
+    }
+
+    private static function presentUrl(?string $url): ?string
+    {
+        return $url === null || trim($url) === '' ? null : $url;
     }
 
     private function needsIngestion(?string $url, ?string $storedHash): bool

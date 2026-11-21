@@ -27,7 +27,19 @@ readonly class PublishTitleImageIngestionsHandler
         }
 
         $budget = min($limit ?? $this->settings->publishLimit, $this->settings->publishLimit);
-        $queueSize = $this->queue->size();
+
+        try {
+            $queueSize = $this->queue->size();
+        } catch (Throwable $exception) {
+            $result = $this->result(0, 0, failure: $exception);
+            Log::error('Images queue size is unavailable, title image ingestions are not published.', [
+                'exception' => $exception,
+                'backlog' => $result->backlog->count,
+            ]);
+
+            return $result;
+        }
+
         $room = $this->settings->maxQueueSize - $queueSize;
 
         if ($room <= 0) {

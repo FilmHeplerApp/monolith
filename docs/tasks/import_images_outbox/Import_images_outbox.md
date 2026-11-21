@@ -303,6 +303,10 @@ needBanner = bannerUrl !== null && sha256(bannerUrl) !== stored.bannerSourceHash
   откатится к неактуальной версии.
 - **URL пропал у поставщика** (`null`): вариант не ставится. Уже сохранённые ключи и
   объекты не удаляются — это симметрично правилу ТЗ 6.3.3 «перестал приходить — не удалять».
+- **Пустой URL** (`''` или одни пробельные символы) считается отсутствующим, как в
+  `CompletenessRule`: вариант не ставится. Иначе хеш пустой строки никогда не совпадёт с
+  сохранённым, загрузчик постоянно отказывает, и каждый импорт ставит задание снова. Непустой
+  URL не обрезается и хешируется как есть.
 - **Нет ни одного URL**: строка не ставится, ожидающая строка снимается. Флаг неполноты
   выставляет фильтр, как и раньше.
 - **Строки тайтла нет** после `write()` в той же транзакции — нарушение инварианта, а не
@@ -374,7 +378,9 @@ discard. Сетевых операций нет. Длительность тра
 
 ```text
 budget  = min(--limit, images.outbox.publish_limit)
-room    = images.outbox.max_queue_size - queue.size()
+try   size = queue.size()
+catch Throwable → лог error, итог «ошибка очереди», FAILURE, ничего не публикуем
+room    = images.outbox.max_queue_size - size
 если room <= 0 → итог «очередь заполнена», SUCCESS, ничего не публикуем
 budget  = min(budget, room)
 cursor  = 0
@@ -402,6 +408,8 @@ cursor  = 0
 - **Блокировки строк не держатся во время push в Redis.** Импорт не ждёт релей, а сетевой
   вызов не выполняется под блокировкой базы. Корректность не зависит от взаимного
   исключения релеев: два параллельных релея дают только дубли, которые безопасны.
+- **Ошибка `queue.size()`** обрабатывается так же, как ошибка push: недоступный Redis
+  не должен ронять команду стектрейсом без записи в лог.
 - **Первая ошибка push останавливает запуск.** При недоступном Redis нет смысла пытаться
   ещё 499 раз и засорять лог. Строки остаются, следующий запуск через минуту повторит.
 
@@ -440,7 +448,7 @@ cursor  = 0
 | --- | --- | --- |
 | Опубликовано ≥ 0, ошибок нет | `SUCCESS` | Таблица: Published, Superseded, Backlog, Oldest age |
 | Очередь заполнена | `SUCCESS` | Строка «queue is full», backlog |
-| Ошибка push | `FAILURE` | Сообщение исключения, сколько успели опубликовать |
+| Ошибка `queue.size()` или push | `FAILURE` | Сообщение исключения, сколько успели опубликовать |
 | `--limit` не положительное целое | `FAILURE` | `Limit must be a positive integer.` (как в `import:run`) |
 
 ### 8.6. Этап 2 (опционально): ускоренный запуск
@@ -475,7 +483,7 @@ cursor  = 0
 | 2 | Процесс импорта убит посреди пачки | PostgreSQL прерывает транзакцию, как в п. 1 | Resume |
 | 3 | Прогон упал на пачке N | Пачки 1…N-1 и их строки outbox подтверждены, N откатилась | Релей публикует 1…N-1, resume дописывает N |
 | 4 | Потеря владения прогоном (`assertOwned`) | Как в п. 1 | Владелец-победитель пишет свои пачки |
-| 5 | Redis недоступен при публикации | Push бросил исключение, строка не удалена | Следующий запуск через минуту |
+| 5 | Redis недоступен при публикации | `queue.size()` или push бросил исключение, строка не удалена | Следующий запуск через минуту |
 | 6 | Релей убит между push и delete | Задание в очереди, строка осталась | Повторная публикация; хендлер отбросит повтор по хешу или `WithoutOverlapping` |
 | 7 | База недоступна при `acknowledge` | Как в п. 6 | Как в п. 6 |
 | 8 | Импорт обновил строку между `pending` и `acknowledge` | `DELETE` удалил 0 строк, новая ревизия осталась | Следующий запуск публикует новую ревизию |
@@ -496,9 +504,10 @@ cursor  = 0
 | --- | --- | --- |
 | Итог запуска релея | `info` | `published`, `superseded`, `backlog`, `oldest_age_seconds` |
 | Очередь заполнена | `info` | `queue_size`, `max_queue_size`, `backlog` |
+| Ошибка `queue.size()` | `error` | `exception`, `backlog` |
 | Ошибка push | `error` | `canonical_key`, `outbox_id`, `revision`, `exception`, `published_before_failure` |
 | Возраст backlog выше порога | `warning` | `oldest_age_seconds`, `stale_after_minutes`, `backlog_count` |
-| Итог планирования пачки | `debug` | `enqueued`, `discarded`, `skipped` |
+| Итог планирования пачки | `debug` | `enqueued`, `discard_requested`, `skipped` |
 
 - Логирование в sink не должно выпускать исключения наружу. Лог итога планирования пишется
   через `DB::afterCommit` с защитой, как предупреждение о коллизиях, чтобы откатившаяся пачка
@@ -816,7 +825,7 @@ follow-up с задержкой, возможен порядок «новое з
 
 2026-11-21, Docker, PHP 8.4.26:
 
-- SQLite, полный suite — 1018 прошли, 3935 assertions, 18 пропущено (PostgreSQL-группы).
+- SQLite, полный suite — 1022 прошли, 3952 assertions, 18 пропущено (PostgreSQL-группы).
 - PostgreSQL (`filmhelper_test`), группы `pgsql` и `catalog_import` — 45 из 45,
   временных схем после прогона не остаётся.
 - `vendor/bin/pint --test` по изменённым PHP-файлам и `git diff --check` проходят.
@@ -833,7 +842,11 @@ follow-up с задержкой, возможен порядок «новое з
 
 - Настройки релея собираются в `TitleImageIngestionRelaySettings` (Application DTO) из
   `ImageConfig` в `AppServiceProvider`: use case не читает конфиг напрямую.
-- `skipped` в логе итога планирования — число тайтлов пачки без единого URL.
+- `skipped` в логе итога планирования — число тайтлов пачки без единого URL, пустой URL
+  считается отсутствующим. `discard_requested` — число ключей, переданных в `discard()`, а не
+  число реально удалённых строк: у большинства таких тайтлов ожидающей строки нет.
+- Положительность настроек релея проверяет только `ImageConfig` (раздел 12).
+  `TitleImageIngestionRelaySettings` — простой DTO без повторной проверки.
 - Сверх раздела 17 обновлены `README.md` (раздел Images: релей, переменные `IMAGES_OUTBOX_*`,
   ручной запуск) и `docs/How_infrastructure_works.md` (пример 6: первая задача планировщика).
 - Новые тестовые хелперы: `CreatesImageOutboxImportSchema`, `InMemoryTitleImageIngestionOutbox`,
@@ -845,7 +858,12 @@ follow-up с задержкой, возможен порядок «новое з
     о возрасте backlog из раздела 11;
   - `HttpImageDownloaderSchemeConfigTest` — `ImageConfigurationException::invalid()` теперь
     принимает значение настройки, и неверный `images.download.allowed_schemes` попадает в
-    сообщение. **(red)**: без значения во втором аргументе падает `ArgumentCountError`.
+    сообщение. **(red)**: без значения во втором аргументе падает `ArgumentCountError`;
+  - `it_fails_and_keeps_the_rows_when_the_queue_size_is_unavailable` (unit) и
+    `it_keeps_rows_and_fails_when_the_queue_size_is_unavailable` (команда) — ошибка
+    `queue.size()`. **(red)**: без `try/catch` вокруг `size()` исключение выходит из `handle()`;
+  - `it_treats_blank_urls_as_missing` и `it_enqueues_only_the_variant_with_a_non_blank_url` —
+    пустой URL. **(red)**: без приведения пустого URL к `null` строка уходит в outbox.
 
 Ручная проверка с Horizon (п. 16.7) не выполнена: URL постеров у поставщика `mock`
 указывают на `mock.local`, поэтому ключи картинок через `import:run mock` не появятся.

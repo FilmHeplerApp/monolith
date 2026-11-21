@@ -18,10 +18,15 @@ final class RecordingTitleImageIngestionQueue implements TitleImageIngestionQueu
         public int                                          $queueSize = 0,
         private readonly ?int                               $failOnPush = null,
         private readonly ?InMemoryTitleImageIngestionOutbox $outbox = null,
+        private readonly bool                               $failOnSize = false,
     ) {}
 
     public function size(): int
     {
+        if ($this->failOnSize) {
+            throw new RuntimeException('Redis is unavailable.');
+        }
+
         return $this->queueSize;
     }
 

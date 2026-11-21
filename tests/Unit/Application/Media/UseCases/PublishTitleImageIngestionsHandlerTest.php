@@ -71,6 +71,27 @@ final class PublishTitleImageIngestionsHandlerTest extends TestCase
     }
 
     #[Test]
+    public function it_fails_and_keeps_the_rows_when_the_queue_size_is_unavailable(): void
+    {
+        Log::spy();
+        $this->outbox->add('a|anime');
+        $queue = new RecordingTitleImageIngestionQueue(failOnSize: true);
+
+        $result = $this->handler($queue)->handle();
+
+        self::assertTrue($result->failed());
+        self::assertSame('Redis is unavailable.', $result->failure->getMessage());
+        self::assertSame(0, $result->published);
+        self::assertSame([], $queue->pushed);
+        self::assertSame([], $this->outbox->pendingQueries);
+        self::assertSame([1], array_keys($this->outbox->rows));
+        Log::shouldHaveReceived('error')->once()->withArgs(
+            static fn (string $message, array $context): bool => $context['exception'] === $result->failure
+                && $context['backlog'] === 1,
+        );
+    }
+
+    #[Test]
     public function it_counts_a_superseded_revision_and_keeps_the_row(): void
     {
         $this->outbox->add('a|anime');
