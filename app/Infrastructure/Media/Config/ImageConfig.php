@@ -36,24 +36,24 @@ final class ImageConfig
      */
     public static function variant(ImageVariant $variant): ImageVariantSpec
     {
-        $config = config(self::ROOT . '.variants.' . $variant->value);
+        $config = config(self::ROOT.'.variants.'.$variant->value);
 
         if (!is_array($config) || array_diff(self::VARIANT_KEYS, array_keys($config)) !== []) {
             throw ImageConfigurationException::missingVariant($variant->value);
         }
 
         try {
-            $strategy = ResizeStrategy::from((string)$config['strategy']);
+            $strategy = ResizeStrategy::from((string) $config['strategy']);
         } catch (\ValueError) {
-            throw ImageConfigurationException::invalid(self::ROOT . '.variants.' . $variant->value . '.strategy');
+            throw ImageConfigurationException::invalid(self::ROOT.'.variants.'.$variant->value.'.strategy', $config['strategy']);
         }
 
         return new ImageVariantSpec(
-            maxWidth: (int)$config['max_width'],
-            maxHeight: (int)$config['max_height'],
+            maxWidth: (int) $config['max_width'],
+            maxHeight: (int) $config['max_height'],
             strategy: $strategy,
-            quality: (int)$config['quality'],
-            sharpen: (int)$config['sharpen'],
+            quality: (int) $config['quality'],
+            sharpen: (int) $config['sharpen'],
         );
     }
 
@@ -108,13 +108,33 @@ final class ImageConfig
         return self::int('download.default_retry_seconds');
     }
 
+    public static function outboxPublishLimit(): int
+    {
+        return self::positiveInt('outbox.publish_limit');
+    }
+
+    public static function outboxChunk(): int
+    {
+        return self::positiveInt('outbox.chunk');
+    }
+
+    public static function outboxMaxQueueSize(): int
+    {
+        return self::positiveInt('outbox.max_queue_size');
+    }
+
+    public static function outboxStaleAfterMinutes(): int
+    {
+        return self::positiveInt('outbox.stale_after_minutes');
+    }
+
 
     private static function string(string $key): string
     {
-        $value = config(self::ROOT . '.' . $key);
+        $value = config(self::ROOT.'.'.$key);
 
         if (!is_string($value) || $value === '') {
-            throw ImageConfigurationException::invalid(self::ROOT . '.' . $key);
+            throw ImageConfigurationException::invalid(self::ROOT.'.'.$key, $value);
         }
 
         return $value;
@@ -122,10 +142,21 @@ final class ImageConfig
 
     private static function int(string $key): int
     {
-        $value = config(self::ROOT . '.' . $key);
+        $value = config(self::ROOT.'.'.$key);
 
         if (!is_int($value)) {
-            throw ImageConfigurationException::invalid(self::ROOT . '.' . $key);
+            throw ImageConfigurationException::invalid(self::ROOT.'.'.$key, $value);
+        }
+
+        return $value;
+    }
+
+    private static function positiveInt(string $key): int
+    {
+        $value = self::int($key);
+
+        if ($value < 1) {
+            throw ImageConfigurationException::invalid(self::ROOT.'.'.$key, $value);
         }
 
         return $value;
@@ -136,11 +167,11 @@ final class ImageConfig
      */
     private static function stringList(string $key): array
     {
-        $value = config(self::ROOT . '.' . $key);
-        $configKey = self::ROOT . '.' . $key;
+        $value = config(self::ROOT.'.'.$key);
+        $configKey = self::ROOT.'.'.$key;
 
         if (!is_array($value) || $value === [] || array_filter($value, is_string(...)) !== $value) {
-            throw ImageConfigurationException::invalid($configKey);
+            throw ImageConfigurationException::invalid($configKey, $value);
         }
 
         return array_values($value);

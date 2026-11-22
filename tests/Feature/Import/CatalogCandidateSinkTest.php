@@ -16,6 +16,7 @@ use App\Application\Import\Enums\ProviderSource;
 use App\Application\Import\Services\CatalogPacker;
 use App\Application\Import\Services\CatalogTitlePackDataFactory;
 use App\Application\Import\UseCases\ImportTitlesFromProvider;
+use App\Application\Media\UseCases\RecordTitleImageIngestionsHandler;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\Enums\Title\TitleFormat;
 use App\Domain\Catalog\Enums\Title\TitleStatus;
@@ -58,6 +59,7 @@ final class CatalogCandidateSinkTest extends TestCase
         '2026_10_22_110000_create_import_processed_titles_table.php',
         '2026_10_29_090000_add_owner_token_to_import_runs.php',
     ];
+    private const string IMAGE_OUTBOX_MIGRATION = '2026_11_17_000001_create_title_image_ingestions_table.php';
 
 
     #[Test]
@@ -379,12 +381,15 @@ final class CatalogCandidateSinkTest extends TestCase
     {
         $writer = $this->createMock(CatalogBulkWriterContract::class);
         $writer->expects(self::never())->method('write');
+        $images = $this->createMock(RecordTitleImageIngestionsHandler::class);
+        $images->expects(self::never())->method('handle');
         $sink = new CatalogCandidateSink(
             app(TitleKeyResolver::class),
             app(CatalogTitlePackDataFactory::class),
             new CatalogPacker,
             $writer,
             new CatalogAttributeDefinitionValidator,
+            $images,
         );
 
         $sink->flush();
@@ -404,6 +409,7 @@ final class CatalogCandidateSinkTest extends TestCase
         }
 
         $this->createCatalogSchema();
+        (require database_path('migrations/'.self::IMAGE_OUTBOX_MIGRATION))->up();
     }
 
 

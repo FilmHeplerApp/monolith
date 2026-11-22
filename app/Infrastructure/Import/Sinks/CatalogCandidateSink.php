@@ -9,6 +9,9 @@ use App\Application\Import\Contracts\CandidateSinkContract;
 use App\Application\Import\DTOs\CatalogPackInput;
 use App\Application\Import\Services\CatalogPacker;
 use App\Application\Import\Services\CatalogTitlePackDataFactory;
+use App\Application\Media\DTOs\TitleImageIngestionPlan;
+use App\Application\Media\DTOs\TitleImageSource;
+use App\Application\Media\UseCases\RecordTitleImageIngestionsHandler;
 use App\Domain\Import\DTOs\FilterDecision;
 use App\Domain\Import\DTOs\TitleCandidate;
 use App\Domain\Import\DTOs\TitleIdentity;
@@ -30,6 +33,7 @@ final class CatalogCandidateSink implements CandidateSinkContract
         private readonly CatalogPacker                       $packer,
         private readonly CatalogBulkWriterContract           $writer,
         private readonly CatalogAttributeDefinitionValidator $definitionValidator,
+        private readonly RecordTitleImageIngestionsHandler   $images,
     ) {}
 
     public function consume(TitleCandidate $candidate, FilterDecision $decision): void
@@ -50,16 +54,18 @@ final class CatalogCandidateSink implements CandidateSinkContract
         }
 
         $resolution = $this->keys->resolve($candidates);
-        $titles = [];
+        $packedTitles = [];
 
         foreach ($resolution->resolved as $entry) {
             $identity = self::identity($entry->candidate->source, $entry->candidate->externalId);
-            $titles[] = $this->packData->create($entry, $incomplete[$identity]);
+            $packedTitles[] = $this->packData->create($entry, $incomplete[$identity]);
         }
 
-        if ($titles !== []) {
-            $this->definitionValidator->validate($titles);
-            $this->writer->write($this->packer->pack(new CatalogPackInput($titles, [])));
+        if ($packedTitles !== []) {
+            $this->definitionValidator->validate($packedTitles);
+            $this->writer->write($this->packer->pack(new CatalogPackInput($packedTitles, [])));
+            $plan = $this->images->handle(array_map(TitleImageSource::fromPackData(...), $packedTitles));
+            DB::afterCommit(static fn () => self::reportImagePlan($plan));
         }
 
         if ($resolution->collisions !== []) {
@@ -83,6 +89,18 @@ final class CatalogCandidateSink implements CandidateSinkContract
     private static function identity(string $source, string $externalId): string
     {
         return $source."\0".$externalId;
+    }
+
+    private static function reportImagePlan(TitleImageIngestionPlan $plan): void
+    {
+        try {
+            Log::debug('Title image ingestions planned.', [
+                'enqueued' => count($plan->enqueue),
+                'discard_requested' => count($plan->discard),
+                'skipped' => $plan->skipped,
+            ]);
+        } catch (Throwable) {
+        }
     }
 
     private static function reportCollisions(array $collisions): void

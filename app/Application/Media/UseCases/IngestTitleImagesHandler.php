@@ -14,6 +14,7 @@ use App\Application\Media\Exceptions\ImageDownloadException;
 use App\Application\Media\Exceptions\ImageProcessingException;
 use App\Application\Media\Exceptions\ImageStorageException;
 use App\Application\Media\Exceptions\UnsupportedImageException;
+use App\Application\Media\Services\TitleImageSourceHash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
@@ -25,8 +26,7 @@ readonly class IngestTitleImagesHandler
         private TitleRepositoryContract $titleRepository,
         private ImageDownloaderContract $imageDownloader,
         private ImageStorageContract    $imageStorage,
-    ) {
-    }
+    ) {}
 
     /**
      * @throws TitleNotFoundException
@@ -35,7 +35,7 @@ readonly class IngestTitleImagesHandler
      */
     public function handle(
         string  $canonicalKey,
-        string  $posterUrl,
+        ?string $posterUrl,
         ?string $bannerUrl,
     ): void {
         $uuid = Str::uuid()->toString();
@@ -71,11 +71,15 @@ readonly class IngestTitleImagesHandler
 
     private function ingestPoster(
         string         $canonicalKey,
-        string         $posterUrl,
+        ?string        $posterUrl,
         string         $uuid,
         TitleImageData $titleImageData,
     ): ImageDownloadException|ImageStorageException|null {
-        $posterHash = hash('sha256', $posterUrl);
+        if ($posterUrl === null) {
+            return null;
+        }
+
+        $posterHash = TitleImageSourceHash::of($posterUrl);
 
         if ($titleImageData->posterSourceHash === $posterHash) {
             return null;
@@ -143,7 +147,7 @@ readonly class IngestTitleImagesHandler
             return null;
         }
 
-        $bannerHash = hash('sha256', $bannerUrl);
+        $bannerHash = TitleImageSourceHash::of($bannerUrl);
 
         if ($titleImageData->bannerSourceHash === $bannerHash) {
             return null;
