@@ -628,6 +628,6 @@ final class CatalogPackerTest extends TestCase
 
     private function text(?string $ru, ?string $en = null): LocalizedText
     {
-        return LocalizedText::create($ru, $en) ?? throw new LogicException('Test text is empty.');
+        return LocalizedText::createRequired($ru, $en);
     }
 }

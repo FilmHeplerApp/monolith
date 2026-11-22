@@ -235,8 +235,8 @@ final readonly class CatalogPacker
         LocalizedText    $value,
         array            &$options,
     ): void {
-        $ru = $value->getPreferred();
-        $key = $this->definitionKey($contentType, $code)."\0".$ru;
+        $displayValue = $value->getPreferred();
+        $key = $this->definitionKey($contentType, $code)."\0".$displayValue;
 
         if (isset($options[$key]) && ($options[$key]->value->getEn() !== null || $value->getEn() === null)) {
             return;
@@ -245,7 +245,7 @@ final readonly class CatalogPacker
         $options[$key] = new AttributeOptionData(
             attributeCode: $code,
             contentTypeCode: $contentType,
-            value: LocalizedText::createRequired($ru, $value->getEn()),
+            value: LocalizedText::createRequired($displayValue, $value->getEn()),
         );
     }
 
