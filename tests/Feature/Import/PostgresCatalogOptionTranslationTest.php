@@ -21,7 +21,7 @@ final class PostgresCatalogOptionTranslationTest extends TestCase
 
 
     #[DataProvider('existingOptions')]
-    public function test_a_prepared_batch_waits_for_commit_and_preserves_a_concurrent_translation(bool $exists, ?string $translation): void
+    public function test_a_concurrent_batch_without_translation_waits_and_keeps_the_committed_translation(bool $exists, ?string $translation): void
     {
         if ($exists) {
             app(CatalogImportBatchSaver::class)->save([CatalogOptionBatches::title($translation)]);
@@ -60,7 +60,7 @@ final class PostgresCatalogOptionTranslationTest extends TestCase
                 }
                 usleep(10_000);
             }
-            self::assertTrue($blocked, 'The second batch must wait until the outer import transaction commits.');
+            self::assertTrue($blocked, 'The second batch must wait for the conflicting option row until the first import transaction commits.');
             self::assertSame($translation, $peer->table('attribute_options')->value('value_en'));
             DB::commit();
 

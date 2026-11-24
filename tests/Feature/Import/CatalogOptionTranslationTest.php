@@ -5,13 +5,10 @@ declare(strict_types=1);
 namespace Tests\Feature\Import;
 
 use App\Application\Catalog\Contracts\CatalogBulkWriterContract;
-use App\Application\Catalog\DTOs\PreparedCatalogDto;
 use App\Application\Import\DTOs\CatalogPackInput;
 use App\Application\Import\Services\CatalogImportBatchSaver;
 use App\Application\Import\Services\CatalogPacker;
-use App\Infrastructure\Persistence\Eloquent\Import\EloquentAttributeOptionReader;
 use Illuminate\Support\Facades\DB;
-use RuntimeException;
 use Tests\Support\CatalogOptionBatches;
 use Tests\Support\CreatesCatalogSchema;
 use Tests\Support\UsesIsolatedPostgresSchema;
@@ -70,62 +67,43 @@ final class CatalogOptionTranslationTest extends TestCase
         self::assertSame(['Genre', 'Movie studio', 'Studio'], DB::table('attribute_options')->orderBy('value_en')->pluck('value_en')->all());
     }
 
-    public function test_it_reads_only_requested_options_in_bounded_batches(): void
+    public function test_it_resolves_translations_per_option_within_one_batch(): void
     {
-        $titles = [];
-        for ($index = 0; $index < 501; $index++) {
-            $titles[] = CatalogOptionBatches::title('English '.$index, russian: 'Значение '.$index, key: (string) $index);
-        }
-        app(CatalogImportBatchSaver::class)->save($titles);
-        $options = new CatalogPacker()->pack(new CatalogPackInput($titles, []))->attributeOptions;
-        $options[] = $options[0];
-        DB::enableQueryLog();
-        DB::flushQueryLog();
-        $reader = new EloquentAttributeOptionReader;
-        $stored = $reader->read($options);
-        self::assertCount(501, $stored);
-        self::assertCount(3, DB::getQueryLog());
-        DB::flushQueryLog();
-        self::assertSame([], $reader->read([]));
-        self::assertSame([], DB::getQueryLog());
-        DB::disableQueryLog();
-        self::assertCount(1, $reader->read([$options[0]]));
+        $saver = app(CatalogImportBatchSaver::class);
+        $saver->save([
+            CatalogOptionBatches::title('Studio'),
+            CatalogOptionBatches::title('Genre', code: 'genres', key: 'genre'),
+        ]);
+        $saver->save([
+            CatalogOptionBatches::title(null),
+            CatalogOptionBatches::title('Updated genre', code: 'genres', key: 'genre'),
+        ]);
+        self::assertSame(['Studio', 'Updated genre'], DB::table('attribute_options')->orderBy('value_en')->pluck('value_en')->all());
+        self::assertSame(2, DB::table('attribute_options')->count());
     }
 
-    public function test_it_does_not_read_options_when_incoming_translations_are_filled(): void
+    public function test_the_bulk_writer_keeps_a_stored_translation_without_the_saver(): void
     {
+        $writer = app(CatalogBulkWriterContract::class);
+        $packer = new CatalogPacker;
+        $writer->write($packer->pack(new CatalogPackInput([CatalogOptionBatches::title('Sunrise Studio')], [])));
+        $writer->write($packer->pack(new CatalogPackInput([CatalogOptionBatches::title(null)], [])));
+        self::assertSame('Sunrise Studio', DB::table('attribute_options')->value('value_en'));
+        self::assertSame(1, DB::table('attribute_options')->count());
+    }
+
+    public function test_it_does_not_read_stored_options_before_writing(): void
+    {
+        app(CatalogImportBatchSaver::class)->save([CatalogOptionBatches::title('Sunrise Studio')]);
         DB::enableQueryLog();
         DB::flushQueryLog();
-        app(CatalogImportBatchSaver::class)->save([CatalogOptionBatches::title('Sunrise Studio')]);
+        app(CatalogImportBatchSaver::class)->save([CatalogOptionBatches::title(null)]);
         $optionReads = array_filter(DB::getQueryLog(), static fn (array $query): bool => str_starts_with(strtolower($query['query']), 'select')
             && str_contains($query['query'], 'attribute_options')
         );
-        self::assertSame([], $optionReads);
         DB::disableQueryLog();
-    }
-
-    public function test_it_rolls_back_catalog_writes_when_saving_fails(): void
-    {
-        app(CatalogImportBatchSaver::class)->save([CatalogOptionBatches::title('Old')]);
-        $writer = app(CatalogBulkWriterContract::class);
-        $failing = new class($writer) implements CatalogBulkWriterContract
-        {
-            public function __construct(private CatalogBulkWriterContract $writer) {}
-
-            public function write(PreparedCatalogDto $preparedCatalogDto): void
-            {
-                $this->writer->write($preparedCatalogDto);
-                throw new RuntimeException('Save failed');
-            }
-        };
-        try {
-            app(CatalogImportBatchSaver::class, ['writer' => $failing])->save([CatalogOptionBatches::title('New', key: 'new')]);
-            self::fail('Saving must fail.');
-        } catch (RuntimeException $exception) {
-            self::assertSame('Save failed', $exception->getMessage());
-        }
-        self::assertSame('Old', DB::table('attribute_options')->value('value_en'));
-        self::assertSame(1, DB::table('titles')->count());
+        self::assertSame([], $optionReads);
+        self::assertSame('Sunrise Studio', DB::table('attribute_options')->value('value_en'));
     }
 
     public function test_an_outer_rollback_reverts_a_successfully_saved_batch(): void

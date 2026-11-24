@@ -4,10 +4,8 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\ServiceProviders;
 
-use App\Application\Import\Contracts\AttributeOptionReaderContract;
 use App\Application\Import\Contracts\CandidateSinkContract;
 use App\Application\Import\Contracts\CatalogAttributeDefinitionValidatorContract;
-use App\Application\Import\Contracts\CatalogImportBatchTransactionContract;
 use App\Application\Import\Contracts\ImportRunLockContract;
 use App\Application\Import\Contracts\ImportRunRecorderContract;
 use App\Application\Import\Contracts\ProviderClientFactoryContract;
@@ -27,8 +25,6 @@ use App\Infrastructure\Import\Exceptions\ImportConfigException;
 use App\Infrastructure\Import\Locks\PostgresImportRunLock;
 use App\Infrastructure\Import\Sinks\CatalogCandidateSink;
 use App\Infrastructure\Import\Validation\CatalogAttributeDefinitionValidator;
-use App\Infrastructure\Persistence\Eloquent\Import\EloquentAttributeOptionReader;
-use App\Infrastructure\Persistence\Eloquent\Import\EloquentCatalogImportBatchTransaction;
 use App\Infrastructure\Persistence\Eloquent\Import\EloquentImportRunRecorder;
 use App\Infrastructure\Providers\Factories\ProviderClientFactory;
 use App\Infrastructure\Providers\Factories\ProviderImportContextFactory;
@@ -58,8 +54,6 @@ final class ImportServiceProvider extends ServiceProvider
         $this->app->bind(ImportRunLockContract::class, PostgresImportRunLock::class);
         $this->app->bind(ImportRunRecorderContract::class, EloquentImportRunRecorder::class);
         $this->app->bind(CandidateSinkContract::class, CatalogCandidateSink::class);
-        $this->app->bind(AttributeOptionReaderContract::class, EloquentAttributeOptionReader::class);
-        $this->app->bind(CatalogImportBatchTransactionContract::class, EloquentCatalogImportBatchTransaction::class);
         $this->app->bind(CatalogAttributeDefinitionValidatorContract::class, CatalogAttributeDefinitionValidator::class);
 
         $this->app->singleton(TitleCandidateEvaluator::class, static function (): TitleCandidateEvaluator {

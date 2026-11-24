@@ -143,6 +143,7 @@ Feature-тест каталога прогоняет fixture через общи
 
 ## Согласование переводов между пачками
 
-Пакетное чтение каталога, приоритет входящего перевода и защита от конкурентной записи
-описаны в [Attribute_option_translations.md](Attribute_option_translations.md).
-`CatalogPacker` и технический writer сохраняют свои прежние роли.
+Отсутствующий входящий перевод не затирает сохранённый: upsert опций использует
+`COALESCE(excluded.value_en, attribute_options.value_en)`. Правило и поведение при конкурентной
+записи описаны в [Attribute_option_translations.md](Attribute_option_translations.md).
+`CatalogPacker` остаётся чистым преобразователем.

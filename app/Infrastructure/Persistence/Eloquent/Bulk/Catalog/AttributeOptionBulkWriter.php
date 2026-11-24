@@ -7,6 +7,7 @@ namespace App\Infrastructure\Persistence\Eloquent\Bulk\Catalog;
 use App\Application\Catalog\DTOs\AttributeOptionData;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeOption;
 use DateTimeInterface;
+use Illuminate\Contracts\Database\Query\Expression;
 use Illuminate\Support\Facades\DB;
 
 class AttributeOptionBulkWriter
@@ -34,11 +35,23 @@ class AttributeOptionBulkWriter
                     AttributeOption::FIELD_VALUE_RU,
                 ],
                 [
-                    AttributeOption::FIELD_VALUE_EN,
+                    AttributeOption::FIELD_VALUE_EN => $this->keepStoredTranslationWhenIncomingIsMissing(),
                     AttributeOption::FIELD_UPDATED_AT,
                 ],
             );
         }
+    }
+
+
+    private function keepStoredTranslationWhenIncomingIsMissing(): Expression
+    {
+        $column = AttributeOption::FIELD_VALUE_EN;
+
+        return DB::raw(sprintf(
+            'COALESCE(excluded.%1$s, %2$s.%1$s)',
+            $column,
+            AttributeOption::TABLE_NAME,
+        ));
     }
 
 
