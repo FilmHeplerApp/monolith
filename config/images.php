@@ -59,6 +59,13 @@ return [
         'default_retry_seconds' => 45,
     ],
 
+    'outbox' => [
+        'publish_limit' => (int) env('IMAGES_OUTBOX_PUBLISH_LIMIT', 500),
+        'chunk' => (int) env('IMAGES_OUTBOX_CHUNK', 100),
+        'max_queue_size' => (int) env('IMAGES_OUTBOX_MAX_QUEUE_SIZE', 1000),
+        'stale_after_minutes' => (int) env('IMAGES_OUTBOX_STALE_AFTER_MINUTES', 60),
+    ],
+
     'output' => [
         'format' => 'webp',
         'cache_control' => 'public, max-age=31536000, immutable',

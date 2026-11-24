@@ -9,6 +9,11 @@ use InvalidArgumentException;
 
 final class InvalidCatalogValueException extends InvalidArgumentException
 {
+    public static function emptyLocalizedText(): self
+    {
+        return new self('Localized text must contain at least one non-empty translation.');
+    }
+
     public static function emptyCanonicalKey(): self
     {
         return new self('Title canonical key must not be empty.');

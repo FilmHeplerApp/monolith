@@ -169,7 +169,7 @@ under import.dumps.<provider>. The SHIKIMORI_DUMP_* variables in .env.example
 override defaults. Writer, replay reader and fixture builder share this configuration.
 
 The default sink logs accepted and flagged candidates after a successful batch
-commit. Saving the catalog and dispatching media jobs require a saving sink.
+commit. Saving the catalog and scheduling image ingestion require a saving sink.
 Rejections, processed identities and checkpoints are committed atomically.
 See [the orchestrator documentation](docs/tasks/filter_data_from_providers/Import_collection_and_packing_plan.md).
 
@@ -184,6 +184,14 @@ docker compose restart horizon
 ```
 
 The Horizon dashboard is at `http://localhost:8080/horizon`.
+
+Import does not dispatch image jobs directly. In the batch transaction the saving sink writes one `title_image_ingestions` row per title whose poster or banner URL hash differs from the stored one. The scheduler container runs `media:publish-image-ingestions` every minute. It pushes committed rows to the `images` queue while that queue holds fewer than `IMAGES_OUTBOX_MAX_QUEUE_SIZE` jobs. Limits are set by the `IMAGES_OUTBOX_*` variables in `.env.example`. To publish by hand:
+
+```bash
+docker compose exec app php artisan media:publish-image-ingestions --limit=100
+```
+
+See [the outbox documentation](docs/tasks/import_images_outbox/Import_images_outbox.md).
 
 Measure one external image without writing the database or the bucket. `variant` is `poster_full`, `poster_thumb`, `banner`, or `avatar`. The ratio is source bytes divided by compressed bytes:
 

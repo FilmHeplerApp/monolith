@@ -9,7 +9,6 @@ use App\Domain\Catalog\Enums\AttributeDefinition\AttributeValueType;
 use App\Domain\Catalog\Enums\Title\TitleContentType;
 use App\Domain\Catalog\ValueObjects\Shared\LocalizedText;
 use InvalidArgumentException;
-use LogicException;
 
 final readonly class ImportAttributeRegistry
 {
@@ -48,7 +47,7 @@ final readonly class ImportAttributeRegistry
     ): CatalogAttributeDefinitionPackData {
         return new CatalogAttributeDefinitionPackData(
             code: $code,
-            name: LocalizedText::create($nameRu, $nameEn) ?? throw new LogicException('Import attribute name is empty.'),
+            name: LocalizedText::createRequired($nameRu, $nameEn),
             contentType: TitleContentType::ANIME,
             valueType: $valueType,
             isFilterable: $isFilterable,
