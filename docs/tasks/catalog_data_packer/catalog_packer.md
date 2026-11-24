@@ -141,3 +141,10 @@ fallback опций и дополнение отсутствующих пере�
 [плане оркестратора](../filter_data_from_providers/Import_collection_and_packing_plan.md).
 Feature-тест каталога прогоняет fixture через общий mapper/evaluator/resolver и
 упаковщик до writer, проверяя несколько демографий и повторный upsert.
+
+## Согласование переводов между пачками
+
+Отсутствующий входящий перевод не затирает сохранённый: upsert опций использует
+`COALESCE(excluded.value_en, attribute_options.value_en)`. Правило и поведение при конкурентной
+записи описаны в [Attribute_option_translations.md](Attribute_option_translations.md).
+`CatalogPacker` остаётся чистым преобразователем.

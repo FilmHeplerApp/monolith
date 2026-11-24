@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Import\Validation;
 
+use App\Application\Import\Contracts\CatalogAttributeDefinitionValidatorContract;
 use App\Infrastructure\Import\Exceptions\CatalogAttributeDefinitionException;
 use App\Infrastructure\Persistence\Eloquent\Models\Catalog\AttributeDefinition;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 
-final readonly class CatalogAttributeDefinitionValidator
+final readonly class CatalogAttributeDefinitionValidator implements CatalogAttributeDefinitionValidatorContract
 {
     private const int CHUNK_SIZE = 500;
 
