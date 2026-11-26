@@ -231,16 +231,17 @@ Open a shell in the Laravel container:
 docker compose exec app sh
 ```
 
-Run tests:
+Run both PHPUnit passes:
 
 ```bash
-docker compose exec app php artisan test
+docker compose exec app vendor/bin/phpunit --exclude-group pgsql
+docker compose exec -e DB_CONNECTION=pgsql -e DB_DATABASE=filmhelper_test -e DB_URL= app \
+  vendor/bin/phpunit --group pgsql
 ```
 
-Most tests use in-memory SQLite. Tests that need real PostgreSQL (pgvector, functional indexes) use the
-`pgsql_testing` connection and a separate `filmhelper_test` database, so they never touch the application data.
-It is configured with `DB_TEST_*` variables (`DB_TEST_HOST`, `DB_TEST_PORT`, `DB_TEST_DATABASE`,
-`DB_TEST_USERNAME`, `DB_TEST_PASSWORD`); host, port and credentials fall back to the `DB_*` values.
+The first pass defaults to in-memory SQLite. Some tests in that pass connect to PostgreSQL through
+`pgsql_testing`, which uses `DB_TEST_*` settings and defaults to the separate `filmhelper_test` database.
+The second pass uses that test database as the default connection.
 
 The test database is created by `docker/postgres/init.sql` on a fresh volume. For an existing volume, create it once:
 
@@ -266,6 +267,27 @@ docker compose exec horizon php artisan horizon:status
 - MinIO API: `http://localhost:9000`
 - MinIO Console: `http://localhost:9001`
 - Horizon: `http://localhost:8080/horizon`
+
+## Pull request checks
+
+The **PR CI** workflow runs both checks when a pull request is opened, reopened, or updated.
+
+- **PHPStan** analyses `app/` at level 5 with Larastan and the committed baseline.
+- **PHPUnit** runs the full test suite in two passes, using SQLite and PostgreSQL with pgvector.
+
+Add `PHPStan` and `PHPUnit` as required status checks in the `main` branch ruleset.
+
+Run PHPStan locally:
+
+```bash
+docker compose exec -e XDEBUG_MODE=off -e APP_ENV=testing -e CACHE_STORE=array app \
+  vendor/bin/phpstan analyse --memory-limit=512M
+```
+
+Once the manual workflow is on the default branch, use **Actions → Run selected tests → Run workflow**
+to choose a branch, database and suite, with optional include and exclude filters for groups and test
+names. SQLite mode excludes the `pgsql` group. PostgreSQL mode defaults to that group when both
+`group` and `filter` are blank.
 
 ## Production Notes
 

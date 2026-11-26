@@ -1,0 +1,89 @@
+name: PR CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  phpstan:
+    name: PHPStan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      APP_ENV: testing
+      CACHE_STORE: array
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
+        with:
+          php-version: '8.4'
+          extensions: curl, fileinfo, intl, exif, gd
+          tools: composer:v2
+          coverage: none
+      - run: composer install --no-interaction --no-progress --prefer-dist
+      - run: vendor/bin/phpstan analyse --no-progress --memory-limit=512M --error-format=github
+
+  phpunit:
+    name: PHPUnit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: filmhelper_test
+          POSTGRES_USER: filmhelper
+          POSTGRES_PASSWORD: ci-test-password
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U filmhelper -d filmhelper_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      APP_ENV: testing
+      DB_TEST_HOST: 127.0.0.1
+      DB_TEST_DATABASE: filmhelper_test
+      DB_TEST_USERNAME: filmhelper
+      DB_TEST_PASSWORD: ci-test-password
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
+        with:
+          php-version: '8.4'
+          extensions: curl, fileinfo, intl, exif, gd, pdo_sqlite, pdo_pgsql
+          tools: composer:v2
+          coverage: none
+      - run: composer install --no-interaction --no-progress --prefer-dist
+      - name: Configure Laravel and PostgreSQL
+        id: setup
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+          POSTGRES_PORT: ${{ job.services.postgres.ports['5432'] }}
+        run: |
+          app_key=$(php artisan key:generate --show --no-ansi)
+          printf 'APP_KEY=%s\nDB_TEST_PORT=%s\n' "$app_key" "$POSTGRES_PORT" >> "$GITHUB_ENV"
+          docker exec "$POSTGRES_CONTAINER" psql -v ON_ERROR_STOP=1 -U "$DB_TEST_USERNAME" -d "$DB_TEST_DATABASE" -c 'CREATE EXTENSION IF NOT EXISTS vector'
+      - name: Run standard tests
+        run: vendor/bin/phpunit --exclude-group pgsql --fail-on-empty-test-suite --fail-on-skipped
+      - name: Run PostgreSQL tests
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: ${{ env.DB_TEST_HOST }}
+          DB_PORT: ${{ job.services.postgres.ports['5432'] }}
+          DB_DATABASE: ${{ env.DB_TEST_DATABASE }}
+          DB_USERNAME: ${{ env.DB_TEST_USERNAME }}
+          DB_PASSWORD: ${{ env.DB_TEST_PASSWORD }}
+        run: vendor/bin/phpunit --group pgsql --fail-on-empty-test-suite --fail-on-skipped

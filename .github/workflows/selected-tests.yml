@@ -1,0 +1,120 @@
+name: Run selected tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      database:
+        description: 'Default database connection'
+        type: choice
+        options:
+          - sqlite
+          - pgsql
+        default: sqlite
+      suite:
+        description: 'PHPUnit test suite'
+        type: choice
+        options:
+          - All
+          - Unit
+          - Feature
+        default: All
+      group:
+        description: 'Include PHPUnit groups (comma-separated, e.g. catalog_import)'
+        type: string
+      exclude_group:
+        description: 'Exclude PHPUnit groups (comma-separated)'
+        type: string
+      filter:
+        description: 'Include tests matching a PHPUnit name filter'
+        type: string
+      exclude_filter:
+        description: 'Exclude tests matching a PHPUnit name filter'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  selected-tests:
+    name: PHPUnit (selected tests)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: filmhelper_test
+          POSTGRES_USER: filmhelper
+          POSTGRES_PASSWORD: ci-test-password
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U filmhelper -d filmhelper_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      APP_ENV: testing
+      DB_TEST_HOST: 127.0.0.1
+      DB_TEST_DATABASE: filmhelper_test
+      DB_TEST_USERNAME: filmhelper
+      DB_TEST_PASSWORD: ci-test-password
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
+        with:
+          php-version: '8.4'
+          extensions: curl, fileinfo, intl, exif, gd, pdo_sqlite, pdo_pgsql
+          tools: composer:v2
+          coverage: none
+      - run: composer install --no-interaction --no-progress --prefer-dist
+      - name: Configure Laravel and PostgreSQL
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+          POSTGRES_PORT: ${{ job.services.postgres.ports['5432'] }}
+        run: |
+          app_key=$(php artisan key:generate --show --no-ansi)
+          printf 'APP_KEY=%s\nDB_TEST_PORT=%s\n' "$app_key" "$POSTGRES_PORT" >> "$GITHUB_ENV"
+          docker exec "$POSTGRES_CONTAINER" psql -v ON_ERROR_STOP=1 -U "$DB_TEST_USERNAME" -d "$DB_TEST_DATABASE" -c 'CREATE EXTENSION IF NOT EXISTS vector'
+      - name: Run selected tests
+        shell: bash
+        env:
+          TEST_DATABASE_DRIVER: ${{ inputs.database }}
+          TEST_SUITE: ${{ inputs.suite }}
+          TEST_GROUP: ${{ inputs.group }}
+          TEST_EXCLUDE_GROUP: ${{ inputs.exclude_group }}
+          TEST_FILTER: ${{ inputs.filter }}
+          TEST_EXCLUDE_FILTER: ${{ inputs.exclude_filter }}
+        run: |
+          args=(--fail-on-empty-test-suite --fail-on-skipped)
+
+          if [[ "$TEST_DATABASE_DRIVER" == pgsql ]]; then
+            export DB_CONNECTION=pgsql DB_HOST="$DB_TEST_HOST" DB_PORT="$DB_TEST_PORT"
+            export DB_DATABASE="$DB_TEST_DATABASE" DB_USERNAME="$DB_TEST_USERNAME" DB_PASSWORD="$DB_TEST_PASSWORD"
+            # Default to the PostgreSQL group unless tests were explicitly included.
+            if [[ -z "$TEST_GROUP" && -z "$TEST_FILTER" ]]; then
+              TEST_GROUP=pgsql
+            fi
+          else
+            args+=(--exclude-group pgsql)
+          fi
+
+          if [[ "$TEST_SUITE" != All ]]; then
+            args+=("--testsuite=$TEST_SUITE")
+          fi
+          if [[ -n "$TEST_GROUP" ]]; then
+            args+=("--group=$TEST_GROUP")
+          fi
+          if [[ -n "$TEST_EXCLUDE_GROUP" ]]; then
+            args+=("--exclude-group=$TEST_EXCLUDE_GROUP")
+          fi
+          if [[ -n "$TEST_FILTER" ]]; then
+            args+=("--filter=$TEST_FILTER")
+          fi
+          if [[ -n "$TEST_EXCLUDE_FILTER" ]]; then
+            args+=("--exclude-filter=$TEST_EXCLUDE_FILTER")
+          fi
+
+          vendor/bin/phpunit "${args[@]}"
