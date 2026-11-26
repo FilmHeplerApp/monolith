@@ -267,6 +267,25 @@ docker compose exec horizon php artisan horizon:status
 - MinIO Console: `http://localhost:9001`
 - Horizon: `http://localhost:8080/horizon`
 
+## Pull request checks
+
+GitHub Actions runs **PHPStan** and **PHPUnit** when a pull request is opened, reopened, or updated.
+To require both checks before merging into `main`, add `PHPStan` and `PHPUnit` to the branch ruleset.
+
+Run PHPStan locally with `vendor/bin/phpstan analyse --memory-limit=512M`. CI analyses `app/` at
+level 5 with Larastan. The baseline records existing findings so new findings can fail the check.
+
+CI runs PHPUnit in two passes. The first uses in-memory SQLite and excludes the `pgsql` group.
+The second runs that group with PostgreSQL as the default connection. Both passes can reach
+the isolated PostgreSQL test database with pgvector.
+
+Use **Actions → Run selected tests → Run workflow** for a targeted run on a branch once the workflow
+is on the default branch. Choose a database and test suite, then optionally include or exclude
+groups (comma-separated) and test names (PHPUnit patterns). For example, choose `pgsql` and enter
+`PostgresCatalogOptionTranslationTest` in **filter** to run only those regressions. With `sqlite`,
+the workflow excludes `pgsql`-group tests. With `pgsql`, it defaults to the `pgsql` group when both
+**group** and **filter** are blank. Empty selections fail the manual run.
+
 ## Production Notes
 
 `minio` is only for local development. In production, use Yandex Object Storage or another S3-compatible provider and replace the S3 environment variables with production credentials.

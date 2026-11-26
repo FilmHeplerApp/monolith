@@ -1,0 +1,85 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Using nullsafe property access "\?\-\>value" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Domain/Import/Services/TitleCanonicalKeyFactory.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\ConnectionInterface\:\:getPdo\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Infrastructure/Import/Locks/PostgresImportRunLock.php
+
+		-
+			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: app/Infrastructure/Media/Download/HttpImageDownloader.php
+
+		-
+			message: '#^Right side of && is always true\.$#'
+			identifier: booleanAnd.rightAlwaysTrue
+			count: 4
+			path: app/Infrastructure/Media/Download/HttpImageDownloader.php
+
+		-
+			message: '#^Method App\\Infrastructure\\Persistence\\Eloquent\\Bulk\\Catalog\\TitleBulkWriter\:\:preserveAdminValue\(\) should return Illuminate\\Database\\Query\\Expression but returns Illuminate\\Contracts\\Database\\Query\\Expression\.$#'
+			identifier: return.type
+			count: 1
+			path: app/Infrastructure/Persistence/Eloquent/Bulk/Catalog/TitleBulkWriter.php
+
+		-
+			message: '#^Method App\\Infrastructure\\Persistence\\Eloquent\\Bulk\\Catalog\\TitleBulkWriter\:\:preserveOnImport\(\) should return Illuminate\\Database\\Query\\Expression but returns Illuminate\\Contracts\\Database\\Query\\Expression\.$#'
+			identifier: return.type
+			count: 1
+			path: app/Infrastructure/Persistence/Eloquent/Bulk/Catalog/TitleBulkWriter.php
+
+		-
+			message: '#^Method App\\Infrastructure\\Persistence\\Eloquent\\Bulk\\Catalog\\TitleBulkWriter\:\:syncTimestamp\(\) should return Illuminate\\Database\\Query\\Expression but returns Illuminate\\Contracts\\Database\\Query\\Expression\.$#'
+			identifier: return.type
+			count: 1
+			path: app/Infrastructure/Persistence/Eloquent/Bulk/Catalog/TitleBulkWriter.php
+
+		-
+			message: '#^Instanceof between App\\Domain\\Shared\\ValueObjects\\Embedding and App\\Domain\\Shared\\ValueObjects\\Embedding will always evaluate to true\.$#'
+			identifier: instanceof.alwaysTrue
+			count: 1
+			path: app/Infrastructure/Persistence/Eloquent/Casts/VectorCast.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>backlog" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Infrastructure/Persistence/Eloquent/Media/EloquentTitleImageIngestionOutbox.php
+
+		-
+			message: '#^Parameter \#2 \$columns of method App\\Infrastructure\\Persistence\\Eloquent\\Repositories\\Catalog\\EloquentTitleRepository\:\:update\(\) expects array\<string, string\>, array\<string, bool\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Infrastructure/Persistence/Eloquent/Repositories/Catalog/EloquentTitleRepository.php
+
+		-
+			message: '#^Parameter \#1 \$model of method App\\Infrastructure\\Persistence\\Eloquent\\Repositories\\Users\\EloquentUserRepository\:\:toDomain\(\) expects App\\Infrastructure\\Persistence\\Eloquent\\Models\\User, Illuminate\\Database\\Eloquent\\Model given\.$#'
+			identifier: argument.type
+			count: 2
+			path: app/Infrastructure/Persistence/Eloquent/Repositories/Users/EloquentUserRepository.php
+
+		-
+			message: '#^Parameter \$embedding of static method App\\Domain\\Users\\Entities\\User\:\:reconstitute\(\) expects App\\Domain\\Shared\\ValueObjects\\Embedding\|null, list\<float\>\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Infrastructure/Persistence/Eloquent/Repositories/Users/EloquentUserRepository.php
+
+		-
+			message: '#^PHPDoc tag @throws with type App\\Infrastructure\\Providers\\Shikimori\\Dumps\\JsonException\|Throwable is not subtype of Throwable$#'
+			identifier: throws.notThrowable
+			count: 1
+			path: app/Infrastructure/Providers/Shikimori/Dumps/ShikimoriDumpReader.php
+
+		-
+			message: '#^Call to function is_int\(\) with int will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Infrastructure/Providers/Shikimori/Mappers/ShikimoriTitleMapper.php
