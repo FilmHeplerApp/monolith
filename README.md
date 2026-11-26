@@ -231,16 +231,17 @@ Open a shell in the Laravel container:
 docker compose exec app sh
 ```
 
-Run tests:
+Run both PHPUnit passes:
 
 ```bash
-docker compose exec app php artisan test
+docker compose exec app vendor/bin/phpunit --exclude-group pgsql
+docker compose exec -e DB_CONNECTION=pgsql -e DB_DATABASE=filmhelper_test -e DB_URL= app \
+  vendor/bin/phpunit --group pgsql
 ```
 
-Most tests use in-memory SQLite. Tests that need real PostgreSQL (pgvector, functional indexes) use the
-`pgsql_testing` connection and a separate `filmhelper_test` database, so they never touch the application data.
-It is configured with `DB_TEST_*` variables (`DB_TEST_HOST`, `DB_TEST_PORT`, `DB_TEST_DATABASE`,
-`DB_TEST_USERNAME`, `DB_TEST_PASSWORD`); host, port and credentials fall back to the `DB_*` values.
+The first pass defaults to in-memory SQLite. Some tests in that pass connect to PostgreSQL through
+`pgsql_testing`, which uses `DB_TEST_*` settings and defaults to the separate `filmhelper_test` database.
+The second pass uses that test database as the default connection.
 
 The test database is created by `docker/postgres/init.sql` on a fresh volume. For an existing volume, create it once:
 
@@ -269,22 +270,24 @@ docker compose exec horizon php artisan horizon:status
 
 ## Pull request checks
 
-GitHub Actions runs **PHPStan** and **PHPUnit** when a pull request is opened, reopened, or updated.
-To require both checks before merging into `main`, add `PHPStan` and `PHPUnit` to the branch ruleset.
+The **PR CI** workflow runs both checks when a pull request is opened, reopened, or updated.
 
-Run PHPStan locally with `vendor/bin/phpstan analyse --memory-limit=512M`. CI analyses `app/` at
-level 5 with Larastan. The baseline records existing findings so new findings can fail the check.
+- **PHPStan** analyses `app/` at level 5 with Larastan and the committed baseline.
+- **PHPUnit** runs the full test suite in two passes, using SQLite and PostgreSQL with pgvector.
 
-CI runs PHPUnit in two passes. The first uses in-memory SQLite and excludes the `pgsql` group.
-The second runs that group with PostgreSQL as the default connection. Both passes can reach
-the isolated PostgreSQL test database with pgvector.
+Add `PHPStan` and `PHPUnit` as required status checks in the `main` branch ruleset.
 
-Use **Actions → Run selected tests → Run workflow** for a targeted run on a branch once the workflow
-is on the default branch. Choose a database and test suite, then optionally include or exclude
-groups (comma-separated) and test names (PHPUnit patterns). For example, choose `pgsql` and enter
-`PostgresCatalogOptionTranslationTest` in **filter** to run only those regressions. With `sqlite`,
-the workflow excludes `pgsql`-group tests. With `pgsql`, it defaults to the `pgsql` group when both
-**group** and **filter** are blank. Empty selections fail the manual run.
+Run PHPStan locally:
+
+```bash
+docker compose exec -e XDEBUG_MODE=off -e APP_ENV=testing -e CACHE_STORE=array app \
+  vendor/bin/phpstan analyse --memory-limit=512M
+```
+
+Once the manual workflow is on the default branch, use **Actions → Run selected tests → Run workflow**
+to choose a branch, database and suite, with optional include and exclude filters for groups and test
+names. SQLite mode excludes the `pgsql` group. PostgreSQL mode defaults to that group when both
+`group` and `filter` are blank.
 
 ## Production Notes
 
